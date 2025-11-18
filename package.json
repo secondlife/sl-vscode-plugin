@@ -19,7 +19,7 @@
   "main": "./out/extension.js",
   "repository": {
     "type": "git",
-    "url": "https://github.com/secondlife/sl-vscode-edit.git"
+    "url": "https://github.com/secondlife/sl-vscode-plugin.git"
   },
   "contributes": {
     "commands": [
