@@ -1,4 +1,4 @@
-# Second Life External Scripting Extension
+# Second Life VSCode Plugin
 
 **Enhance your Second Life scripting workflow with advanced preprocessing and external editing capabilities!**
 
@@ -158,15 +158,15 @@ Configure preprocessing behavior in VS Code settings:
 {
     "slVscodeEdit.preprocessor.enable": true,
     "slVscodeEdit.preprocessor.includePaths": [
+        ".",
         "./include/",
-        "./lib/",
-        "./utils/",
-        "**/common/"
+        "**/include/"
     ],
-    "slVscodeEdit.preprocessor.maxIncludeDepth": 10,
-    "slVscodeEdit.preprocessor.enableMacros": true
+    "slVscodeEdit.preprocessor.maxIncludeDepth": 5
 }
 ```
+
+**Note**: The `includePaths` shown above are the defaults. You can customize them to match your project structure (e.g., add `"./lib/"`, `"./utils/"`, or `"**/common/"`).
 
 ### Network Settings
 
@@ -179,6 +179,18 @@ Customize viewer connection:
     "slVscodeEdit.network.disposeDelayMs": 1000
 }
 ```
+
+### Storage Settings
+
+Control where configuration files are stored:
+
+```json
+{
+    "slVscodeEdit.storage.useLocalConfig": true
+}
+```
+
+When `true` (default), configuration files are stored in your workspace's `.vscode` directory. When `false`, they're stored in the global VS Code settings directory.
 
 ---
 
@@ -346,9 +358,9 @@ Comprehensive guides available in the `doc/` directory:
 - **Node.js** (for development and testing)
 - **Second Life Viewer** with external editor support
 
-### Required Language Server Extensions
+### Recommended Extensions
 
-This extension requires the following language servers for full functionality:
+For enhanced language support and features, install these language server extensions:
 
 **For SLua/Luau files:**
 - **Selene** (`kampfkarren.selene-vscode`) - Lua linter and language support
@@ -357,16 +369,11 @@ This extension requires the following language servers for full functionality:
 **For LSL files:**
 - **LSL Language Server** (such as `sekkmer.vscode-lsl-lsp`) - LSL language support with diagnostics
 
-```vscode-extensions
-kampfkarren.selene-vscode,johnnymorganz.luau-lsp,sekkmer.vscode-lsl-lsp
-```
-
-### Additional Recommended Extensions
-
-These extensions can further enhance your development experience:
-
+**Additional Extensions for Enhanced Development:**
 - **StyLua** (`johnnymorganz.stylua`) - Lua code formatter
 - **VSCode LSL** (`vrtlabs.vscode-lsl`) - Alternative LSL language support
+
+**Note**: These extensions are optional but recommended for the best development experience. The preprocessor and viewer integration features work independently of these language servers.
 
 ---
 
