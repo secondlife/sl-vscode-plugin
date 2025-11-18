@@ -167,7 +167,17 @@ export class LuaLSPPlugin extends BasePlugin {
         // specific to another extension's settings. If desired we could expose a
         // generic configuration proxy later.
         const luaulsp = vscode.workspace.getConfiguration("luau-lsp");
-        await luaulsp.update("types.definitionFiles", [defsFile]);
+
+        // Luau lsp uses a key'd object for this config, but used an array of strings int he past
+        // We will insert our config with prefixed keys to avoid trampling any user defined keys
+        let luaulspDefs = luaulsp.get<{[k:string]:string}|string[]>("types.definitionFiles",{});
+        if(luaulspDefs instanceof Array) {
+            // Discard array config, theres not much else we can do to fix it
+            luaulspDefs = {}
+        }
+        luaulspDefs["sl-slua"] = defsFile;
+
+        await luaulsp.update("types.definitionFiles", luaulspDefs);
         await luaulsp.update("types.documentationFiles", [docsFile]);
         await luaulsp.update("platform.type", "standard");
         await new Promise((resolve) => setTimeout(resolve, 100));
