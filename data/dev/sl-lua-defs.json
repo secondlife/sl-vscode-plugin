@@ -1,0 +1,1187 @@
+{
+  "version": "1.0.0",
+  "typeAliases": [
+    {
+      "name": "numeric",
+      "definition": {
+        "kind": "union",
+        "types": [
+          "boolean",
+          "number"
+        ]
+      }
+    },
+    {
+      "name": "list",
+      "definition": {
+        "kind": "array",
+        "elementType": {
+          "kind": "union",
+          "types": [
+            "string",
+            "number",
+            "vector",
+            "uuid",
+            "quaternion",
+            "boolean"
+          ]
+        }
+      }
+    },
+    {
+      "name": "lljson_constant",
+      "definition": {
+        "kind": "reference",
+        "name": "number"
+      }
+    },
+    {
+      "name": "DetectedEvent",
+      "definition": {
+        "kind": "table",
+        "properties": [
+          {
+            "name": "valid",
+            "type": "boolean"
+          },
+          {
+            "name": "index",
+            "type": "number"
+          },
+          {
+            "name": "can_change_damage",
+            "type": "boolean"
+          }
+        ],
+        "methods": [ ]
+      }
+    },
+    {
+      "name": "DetectedEventName",
+      "definition": {
+        "kind": "literal-union",
+        "values": [ ]
+      }
+    },
+    {
+      "name": "NonDetectedEventName",
+      "definition": {
+        "kind": "literal-union",
+        "values": [ ]
+      }
+    },
+    {
+      "name": "EventName",
+      "definition": {
+        "kind": "union",
+        "types": [
+          "DetectedEventName",
+          "NonDetectedEventName"
+        ]
+      }
+    },
+    {
+      "name": "EventHandler",
+      "definition": {
+        "kind": "function",
+        "parameters": [
+          {
+            "type": "any",
+            "variadic": true
+          }
+        ],
+        "returnType": "()"
+      }
+    },
+    {
+      "name": "DetectedEventHandler",
+      "definition": {
+        "kind": "function",
+        "parameters": [
+          {
+            "type": {
+              "kind": "array",
+              "elementType": "DetectedEvent"
+            }
+          }
+        ],
+        "returnType": "()"
+      }
+    },
+    {
+      "name": "LLEventsProto",
+      "definition": {
+        "kind": "table",
+        "methods": [
+          {
+            "name": "eventNames",
+            "parameters": [
+              {
+                "name": "self"
+              }
+            ],
+            "returnType": {
+              "kind": "array",
+              "elementType": "string"
+            }
+          },
+          {
+            "name": "listeners",
+            "parameters": [
+              {
+                "name": "self"
+              },
+              {
+                "name": "eventName",
+                "type": "EventName"
+              }
+            ],
+            "returnType": {
+              "kind": "array",
+              "elementType": "EventHandler"
+            }
+          },
+          {
+            "name": "on",
+            "parameters": [
+              {
+                "name": "self"
+              },
+              {
+                "name": "eventName",
+                "type": "DetectedEventName"
+              },
+              {
+                "name": "handler",
+                "type": "DetectedEventHandler"
+              }
+            ],
+            "returnType": "EventHandler",
+            "overloads": [
+              {
+                "name": "on",
+                "parameters": [
+                  {
+                    "name": "self"
+                  },
+                  {
+                    "name": "eventName",
+                    "type": "NonDetectedEventName"
+                  },
+                  {
+                    "name": "handler",
+                    "type": "EventHandler"
+                  }
+                ],
+                "returnType": "EventHandler"
+              }
+            ]
+          },
+          {
+            "name": "off",
+            "parameters": [
+              {
+                "name": "self"
+              },
+              {
+                "name": "handler",
+                "type": "EventHandler"
+              }
+            ],
+            "returnType": "boolean"
+          }
+        ]
+      }
+    },
+    {
+      "name": "LLTimersProto",
+      "definition": {
+        "kind": "table",
+        "methods": [
+          {
+            "name": "every",
+            "parameters": [
+              {
+                "name": "self"
+              },
+              {
+                "name": "seconds",
+                "type": "number"
+              },
+              {
+                "name": "handler",
+                "type": {
+                  "kind": "function",
+                  "parameters": [
+                    {
+                      "type": "any",
+                      "variadic": true
+                    }
+                  ],
+                  "returnType": "()"
+                }
+              }
+            ],
+            "returnType": "EventHandler"
+          },
+          {
+            "name": "once",
+            "parameters": [
+              {
+                "name": "self"
+              },
+              {
+                "name": "seconds",
+                "type": "number"
+              },
+              {
+                "name": "handler",
+                "type": {
+                  "kind": "function",
+                  "parameters": [
+                    {
+                      "type": "any",
+                      "variadic": true
+                    }
+                  ],
+                  "returnType": "()"
+                }
+              }
+            ],
+            "returnType": "EventHandler"
+          },
+          {
+            "name": "off",
+            "parameters": [
+              {
+                "name": "self"
+              },
+              {
+                "name": "handler",
+                "type": "EventHandler"
+              }
+            ],
+            "returnType": "boolean"
+          }
+        ]
+      }
+    }
+  ],
+  "classes": [
+    {
+      "name": "uuid",
+      "properties": [
+        {
+          "name": "istruthy",
+          "type": "boolean",
+          "comment": "property to check if uuid is valid"
+        }
+      ],
+      "methods": [
+        {
+          "name": "__tostring",
+          "parameters": [
+            {
+              "name": "self"
+            }
+          ],
+          "returnType": "string",
+          "comment": "converts uuid to a string"
+        }
+      ]
+    },
+    {
+      "name": "quaternion",
+      "properties": [
+        {
+          "name": "x",
+          "type": "number",
+          "comment": "x property of quaternion"
+        },
+        {
+          "name": "y",
+          "type": "number",
+          "comment": "y property of quaternion"
+        },
+        {
+          "name": "z",
+          "type": "number",
+          "comment": "z property of quaternion"
+        },
+        {
+          "name": "s",
+          "type": "number",
+          "comment": "s property of quaternion"
+        }
+      ],
+      "methods": [
+        {
+          "name": "__mul",
+          "parameters": [
+            {
+              "name": "self"
+            },
+            {
+              "name": "other",
+              "type": "vector"
+            }
+          ],
+          "returnType": "vector",
+          "comment": "multiply vector/quaternion by quaternion",
+          "overloads": [
+            {
+              "name": "__mul",
+              "parameters": [
+                {
+                  "name": "self"
+                },
+                {
+                  "name": "other",
+                  "type": "quaternion"
+                }
+              ],
+              "returnType": "quaternion",
+              "comment": "multiply vector/quaternion by quaternion"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "vector",
+      "properties": [
+        {
+          "name": "x",
+          "type": "number",
+          "comment": "x property of vector"
+        },
+        {
+          "name": "y",
+          "type": "number",
+          "comment": "y property of vector"
+        },
+        {
+          "name": "z",
+          "type": "number",
+          "comment": "z property of vector"
+        }
+      ],
+      "methods": [
+        {
+          "name": "__mul",
+          "parameters": [
+            {
+              "name": "self"
+            },
+            {
+              "name": "other",
+              "type": "vector"
+            }
+          ],
+          "returnType": "vector",
+          "comment": "multiply vector by number, vector, or quaternion",
+          "overloads": [
+            {
+              "name": "__mul",
+              "parameters": [
+                {
+                  "name": "self"
+                },
+                {
+                  "name": "other",
+                  "type": "quaternion"
+                }
+              ],
+              "returnType": "vector",
+              "comment": "multiply vector by number, vector, or quaternion"
+            },
+            {
+              "name": "__mul",
+              "parameters": [
+                {
+                  "name": "self"
+                },
+                {
+                  "name": "other",
+                  "type": "number"
+                }
+              ],
+              "returnType": "vector",
+              "comment": "multiply vector by number, vector, or quaternion"
+            }
+          ]
+        },
+        {
+          "name": "__div",
+          "parameters": [
+            {
+              "name": "self"
+            },
+            {
+              "name": "other",
+              "type": "vector"
+            }
+          ],
+          "returnType": "vector",
+          "comment": "divide vector by number, vector, or quaternion",
+          "overloads": [
+            {
+              "name": "__div",
+              "parameters": [
+                {
+                  "name": "self"
+                },
+                {
+                  "name": "other",
+                  "type": "quaternion"
+                }
+              ],
+              "returnType": "vector",
+              "comment": "divide vector by number, vector, or quaternion"
+            },
+            {
+              "name": "__div",
+              "parameters": [
+                {
+                  "name": "self"
+                },
+                {
+                  "name": "other",
+                  "type": "number"
+                }
+              ],
+              "returnType": "vector",
+              "comment": "divide vector by number, vector, or quaternion"
+            }
+          ]
+        },
+        {
+          "name": "__idiv",
+          "parameters": [
+            {
+              "name": "self"
+            },
+            {
+              "name": "other",
+              "type": "vector"
+            }
+          ],
+          "returnType": "vector",
+          "comment": "floor divide vector by number, vector, or quaternion",
+          "overloads": [
+            {
+              "name": "__idiv",
+              "parameters": [
+                {
+                  "name": "self"
+                },
+                {
+                  "name": "other",
+                  "type": "quaternion"
+                }
+              ],
+              "returnType": "vector",
+              "comment": "floor divide vector by number, vector, or quaternion"
+            },
+            {
+              "name": "__idiv",
+              "parameters": [
+                {
+                  "name": "self"
+                },
+                {
+                  "name": "other",
+                  "type": "number"
+                }
+              ],
+              "returnType": "vector",
+              "comment": "floor divide vector by number, vector, or quaternion"
+            }
+          ]
+        },
+        {
+          "name": "__add",
+          "parameters": [
+            {
+              "name": "self"
+            },
+            {
+              "name": "other",
+              "type": "vector"
+            }
+          ],
+          "returnType": "vector",
+          "comment": "add two vectors"
+        },
+        {
+          "name": "__sub",
+          "parameters": [
+            {
+              "name": "self"
+            },
+            {
+              "name": "other",
+              "type": "vector"
+            }
+          ],
+          "returnType": "vector",
+          "comment": "subtract vector from vector"
+        },
+        {
+          "name": "__unm",
+          "parameters": [
+            {
+              "name": "self"
+            }
+          ],
+          "returnType": "vector",
+          "comment": "negate a vector"
+        }
+      ]
+    }
+  ],
+  "globalVariables": [
+    {
+      "name": "LLEvents",
+      "type": "LLEventsProto",
+      "comment": "LLEvents object"
+    },
+    {
+      "name": "LLTimers",
+      "type": "LLTimersProto",
+      "comment": "LLTimers object"
+    }
+  ],
+  "globalFunctions": [
+    {
+      "name": "uuid",
+      "parameters": [
+        {
+          "name": "str",
+          "type": "string"
+        }
+      ],
+      "returnType": "uuid",
+      "comment": "Creates a uuid from a string argument"
+    },
+    {
+      "name": "toquaternion",
+      "parameters": [
+        {
+          "name": "str",
+          "type": "string"
+        }
+      ],
+      "returnType": {
+        "kind": "union",
+        "types": [
+          "quaternion",
+          "nil"
+        ]
+      },
+      "comment": "Creates a quaternion from a string argument in format `<1,1,1,1>`  Invalid strings will return `nil`  #### Caveat  Due to an old error from lsl strings that match upto the closing `>` are interpreted as valid  So `<1,1,1,1` and `<1,1,1,1spoon` are both cast to `<1,1,1,1>`  When testing if a string is a quaternion or a vector, you should test with `toquaternion` first."
+    },
+    {
+      "name": "tovector",
+      "parameters": [
+        {
+          "name": "str",
+          "type": "string"
+        }
+      ],
+      "returnType": {
+        "kind": "union",
+        "types": [
+          "vector",
+          "nil"
+        ]
+      },
+      "comment": "Creates a vector from a string argument in format `<1,1,1>`  Invalid strings will return `nil`  #### Caveat  Due to an old error from lsl strings that match upto the closing `>` are interpreted as valid  So `<1,1,1`, `<1,1,1,1` and `<1,1,1spoon` are all cast to `<1,1,1>`  When testing if a string is a quaternion or a vector, you should test with `toquaternion` first."
+    },
+    {
+      "name": "quaternion",
+      "parameters": [
+        {
+          "name": "x",
+          "type": "number"
+        },
+        {
+          "name": "y",
+          "type": "number"
+        },
+        {
+          "name": "z",
+          "type": "number"
+        },
+        {
+          "name": "s",
+          "type": "number"
+        }
+      ],
+      "returnType": "quaternion",
+      "comment": "Creates a quaternion from x,y,z,s"
+    }
+  ],
+  "modules": [
+    {
+      "name": "bit32",
+      "functions": [
+        {
+          "name": "arshift",
+          "parameters": [
+            {
+              "name": "n",
+              "type": "number"
+            },
+            {
+              "name": "i",
+              "type": "number"
+            }
+          ],
+          "returnType": "number",
+          "comment": "Shifts `n` by `i` bits to the right (if `i` is negative, a left shift is performed instead). The most significant bit of `n` is propagated during the shift. When `i` is larger than `31`, returns an integer with all bits set to the sign bit of `n`. When `i` is smaller than `-31`, `0` is returned"
+        },
+        {
+          "name": "band",
+          "parameters": [
+            {
+              "type": "number",
+              "variadic": true
+            }
+          ],
+          "returnType": "number",
+          "comment": "Performs a bitwise and of all input numbers and returns the result. If the function is called with no arguments, an integer with all bits set to `1` is returned."
+        },
+        {
+          "name": "bnot",
+          "parameters": [
+            {
+              "name": "n",
+              "type": "number"
+            }
+          ],
+          "returnType": "number",
+          "comment": "Returns a bitwise negation of the input number."
+        },
+        {
+          "name": "bor",
+          "parameters": [
+            {
+              "type": "number",
+              "variadic": true
+            }
+          ],
+          "returnType": "number",
+          "comment": "Performs a bitwise or of all input numbers and returns the result. If the function is called with no arguments, `0` is returned."
+        },
+        {
+          "name": "btest",
+          "parameters": [
+            {
+              "type": "number",
+              "variadic": true
+            }
+          ],
+          "returnType": "boolean",
+          "comment": "Perform a bitwise and of all input numbers, and return `true` if the result is not `0`. If the function is called with no arguments, `true` is returned."
+        },
+        {
+          "name": "bxor",
+          "parameters": [
+            {
+              "type": "number",
+              "variadic": true
+            }
+          ],
+          "returnType": "number",
+          "comment": "Performs a bitwise xor (exclusive or) of all input numbers and returns the result. If the function is called with no arguments, `0` is returned."
+        },
+        {
+          "name": "byteswap",
+          "parameters": [
+            {
+              "name": "n",
+              "type": "number"
+            }
+          ],
+          "returnType": "number",
+          "comment": "Returns n with the order of the bytes swapped."
+        },
+        {
+          "name": "countlz",
+          "parameters": [
+            {
+              "name": "n",
+              "type": "number"
+            }
+          ],
+          "returnType": "number",
+          "comment": "Returns the number of consecutive zero bits in the 32-bit representation of `n` starting from the left-most (most significant) bit. Returns `32` if `n` is `0`."
+        },
+        {
+          "name": "countrz",
+          "parameters": [
+            {
+              "name": "n",
+              "type": "number"
+            }
+          ],
+          "returnType": "number",
+          "comment": "Returns the number of consecutive zero bits in the 32-bit representation of `n` starting from the right-most (least significant) bit. Returns `32` if `n` is `0`."
+        },
+        {
+          "name": "extract",
+          "parameters": [
+            {
+              "name": "n",
+              "type": "number"
+            },
+            {
+              "name": "f",
+              "type": "number"
+            },
+            {
+              "name": "w",
+              "type": "number"
+            }
+          ],
+          "returnType": "number",
+          "comment": "Extracts bits of `n` at position `f` with `a` width of `w`, and returns the resulting integer. `w` defaults to 1, so a two-argument version of extract returns the bit value at position `f`. Bits are indexed starting at `0`. Errors if `f` and `f+w-1` are not between `0` and `31`."
+        },
+        {
+          "name": "lrotate",
+          "parameters": [
+            {
+              "name": "n",
+              "type": "number"
+            },
+            {
+              "name": "i",
+              "type": "number"
+            }
+          ],
+          "returnType": "number",
+          "comment": "Rotates `n` to the left by `i` bits (if `i` is negative, a right rotate is performed instead) The bits that are shifted past the bit width are shifted back from the right."
+        },
+        {
+          "name": "lshift",
+          "parameters": [
+            {
+              "name": "n",
+              "type": "number"
+            },
+            {
+              "name": "i",
+              "type": "number"
+            }
+          ],
+          "returnType": "number",
+          "comment": "Shifts `n` to the left by `i` bits (if `i` is negative, a right shift is performed instead). When `i` is outside of `[-31..31]` range, returns `0`."
+        },
+        {
+          "name": "replace",
+          "parameters": [
+            {
+              "name": "n",
+              "type": "number"
+            },
+            {
+              "name": "r",
+              "type": "number"
+            },
+            {
+              "name": "f",
+              "type": "number"
+            },
+            {
+              "name": "w",
+              "type": "number?"
+            }
+          ],
+          "returnType": "number",
+          "comment": "Replaces bits of `n` at position `f` and width `w` with `r`, and returns the resulting integer. `w` defaults to `1`, so a three-argument version of replace changes one bit at position `f` to `r` (which should be `0` or `1`) and returns the result. Bits are indexed starting at `0`. Errors if `f` and `f+w-1` are not between `0` and `31`."
+        },
+        {
+          "name": "rrotate",
+          "parameters": [
+            {
+              "name": "n",
+              "type": "number"
+            },
+            {
+              "name": "i",
+              "type": "number"
+            }
+          ],
+          "returnType": "number",
+          "comment": "Rotates `n` to the right by `i` bits (if `i` is negative, a left rotate is performed instead) The bits that are shifted past the bit width are shifted back from the left."
+        },
+        {
+          "name": "rshift",
+          "parameters": [
+            {
+              "name": "n",
+              "type": "number"
+            },
+            {
+              "name": "i",
+              "type": "number"
+            }
+          ],
+          "returnType": "number",
+          "comment": "Shifts `n` to the right by `i` bits (if `i` is negative, a left shift is performed instead). When `i` is outside of `[-31..31]` range, returns `0`."
+        }
+      ]
+    },
+    {
+      "name": "lljson",
+      "properties": [
+        {
+          "name": "_NAME",
+          "type": "\"lljson\"",
+          "comment": "Name of the lljson table"
+        },
+        {
+          "name": "_VERSION",
+          "type": "string",
+          "comment": "Version of the lljson library (based on the lua-cjson library)"
+        },
+        {
+          "name": "array_mt",
+          "type": {
+            "kind": "array",
+            "elementType": ""
+          },
+          "comment": "Metatable for declaring table as an array for json encode"
+        },
+        {
+          "name": "array_mt",
+          "type": {
+            "kind": "array",
+            "elementType": ""
+          },
+          "comment": "Metatable for declaring table as an empty array for json encode"
+        },
+        {
+          "name": "empty_array",
+          "type": "lljson_constant",
+          "comment": "A constant to pass for an empty array to json encode"
+        },
+        {
+          "name": "null",
+          "type": "lljson_constant",
+          "comment": "A constant to pass for null to json encode"
+        }
+      ],
+      "functions": [
+        {
+          "name": "decode",
+          "parameters": [
+            {
+              "name": "json",
+              "type": "string"
+            }
+          ],
+          "returnType": {
+            "kind": "union",
+            "types": [
+              "string",
+              "number",
+              "vector",
+              "uuid",
+              "quaternion",
+              "boolean",
+              {
+                "kind": "array",
+                "elementType": ""
+              },
+              "nil"
+            ]
+          },
+          "comment": "decode json string to lua value"
+        },
+        {
+          "name": "encode",
+          "parameters": [
+            {
+              "name": "value",
+              "type": {
+                "kind": "union",
+                "types": [
+                  "string",
+                  "number",
+                  "vector",
+                  "uuid",
+                  "quaternion",
+                  "boolean",
+                  {
+                    "kind": "array",
+                    "elementType": ""
+                  },
+                  "nil"
+                ]
+              }
+            }
+          ],
+          "returnType": "string",
+          "comment": "encode lua value as json"
+        }
+      ]
+    },
+    {
+      "name": "llbase64",
+      "functions": [
+        {
+          "name": "decode",
+          "parameters": [
+            {
+              "name": "base64",
+              "type": "string"
+            }
+          ],
+          "returnType": "string",
+          "comment": "decode a base64 string, to a buffer or string",
+          "overloads": [
+            {
+              "name": "decode",
+              "parameters": [
+                {
+                  "name": "base64",
+                  "type": "string"
+                },
+                {
+                  "name": "asBuffer",
+                  "type": "true"
+                }
+              ],
+              "returnType": "buffer"
+            },
+            {
+              "name": "decode",
+              "parameters": [
+                {
+                  "name": "base64",
+                  "type": "string"
+                },
+                {
+                  "name": "asBuffer",
+                  "type": "false"
+                }
+              ],
+              "returnType": "string"
+            }
+          ]
+        },
+        {
+          "name": "encode",
+          "parameters": [
+            {
+              "name": "value",
+              "type": {
+                "kind": "union",
+                "types": [
+                  "string",
+                  "buffer"
+                ]
+              }
+            }
+          ],
+          "returnType": "string",
+          "comment": "encode a string or buffer to base64"
+        }
+      ]
+    },
+    {
+      "name": "vector",
+      "properties": [
+        {
+          "name": "one",
+          "type": "vector",
+          "comment": "A one vector <1,1,1>"
+        },
+        {
+          "name": "zero",
+          "type": "vector",
+          "comment": "A Zero vector <0,0,0>"
+        }
+      ],
+      "functions": [
+        {
+          "name": "abs",
+          "parameters": [
+            {
+              "name": "vec",
+              "type": "vector"
+            }
+          ],
+          "returnType": "vector",
+          "comment": "Applies `math.abs` to every component of the input vector."
+        },
+        {
+          "name": "angle",
+          "parameters": [
+            {
+              "name": "vec1",
+              "type": "vector"
+            },
+            {
+              "name": "vec2",
+              "type": "vector"
+            },
+            {
+              "name": "axis",
+              "type": "vector?"
+            }
+          ],
+          "returnType": "number",
+          "comment": "Computes the angle between two vectors in radians. The axis, if specified, is used to determine the sign of the angle."
+        },
+        {
+          "name": "ceil",
+          "parameters": [
+            {
+              "name": "vec",
+              "type": "vector"
+            }
+          ],
+          "returnType": "vector",
+          "comment": "Applies `math.ceil` to every component of the input vector."
+        },
+        {
+          "name": "clamp",
+          "parameters": [
+            {
+              "name": "vec",
+              "type": "vector"
+            },
+            {
+              "name": "min",
+              "type": "vector"
+            },
+            {
+              "name": "max",
+              "type": "vector"
+            }
+          ],
+          "returnType": "vector",
+          "comment": "Applies `math.clamp` to every component of the input vector."
+        },
+        {
+          "name": "create",
+          "parameters": [
+            {
+              "name": "x",
+              "type": "number"
+            },
+            {
+              "name": "y",
+              "type": "number"
+            },
+            {
+              "name": "z",
+              "type": "number"
+            }
+          ],
+          "returnType": "vector",
+          "comment": "Creates a new vector with the given component values"
+        },
+        {
+          "name": "cross",
+          "parameters": [
+            {
+              "name": "vec1",
+              "type": "vector"
+            },
+            {
+              "name": "vec2",
+              "type": "vector"
+            }
+          ],
+          "returnType": "vector",
+          "comment": "Computes the cross product of two vectors."
+        },
+        {
+          "name": "dot",
+          "parameters": [
+            {
+              "name": "vec1",
+              "type": "vector"
+            },
+            {
+              "name": "vec2",
+              "type": "vector"
+            }
+          ],
+          "returnType": "number",
+          "comment": "Computes the dot product of two vectors."
+        },
+        {
+          "name": "floor",
+          "parameters": [
+            {
+              "name": "vec",
+              "type": "vector"
+            }
+          ],
+          "returnType": "vector",
+          "comment": "Applies `math.floor` to every component of the input vector."
+        },
+        {
+          "name": "magnitude",
+          "parameters": [
+            {
+              "name": "vec",
+              "type": "vector"
+            }
+          ],
+          "returnType": "number",
+          "comment": "Calculates the magnitude of a given vector."
+        },
+        {
+          "name": "max",
+          "parameters": [
+            {
+              "type": "vector",
+              "variadic": true
+            }
+          ],
+          "returnType": "vector",
+          "comment": "Applies `math.max` to the corresponding components of the input vectors."
+        },
+        {
+          "name": "min",
+          "parameters": [
+            {
+              "type": "vector",
+              "variadic": true
+            }
+          ],
+          "returnType": "vector",
+          "comment": "Applies `math.min` to the corresponding components of the input vectors."
+        },
+        {
+          "name": "normalize",
+          "parameters": [
+            {
+              "name": "vec",
+              "type": "vector"
+            }
+          ],
+          "returnType": "vector",
+          "comment": "Computes the normalized version (unit vector) of a given vector."
+        },
+        {
+          "name": "sign",
+          "parameters": [
+            {
+              "name": "vec",
+              "type": "vector"
+            }
+          ],
+          "returnType": "vector",
+          "comment": "Applies `math.sign` to every component of the input vector."
+        }
+      ]
+    }
+  ]
+}

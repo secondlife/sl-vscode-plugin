@@ -1,42 +1,164 @@
 {
-  "name": "second-life-scripting",
-  "displayName": "Second Life External Scripting",
+  "name": "sl-vscode-edit",
+  "displayName": "Second Life External Scripting Extension",
   "description": "Binding extension for external LSL and SLua editing from the viewer.",
   "version": "0.0.1",
+  "publisher": "lindenlab",
+  "extensionDependencies": [
+  ],
   "engines": {
-    "vscode": "^1.103.0"
+    "vscode": "^1.85.0"
   },
   "categories": [
     "Programming Languages",
     "Other"
   ],
-  "activationEvents": [ "*" ],
+  "activationEvents": [
+    "onStartupFinished"
+  ],
   "main": "./out/extension.js",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/secondlife/sl-vscode-edit.git"
+  },
   "contributes": {
     "commands": [
       {
-        "command": "second-life-scripting.helloWorld",
-        "title": "Hello World"
+        "command": "second-life-scripting.connectWebSocket",
+        "title": "Connect WebSocket Client",
+        "category": "Second Life"
+      },
+      {
+        "command": "second-life-scripting.disconnectWebSocket",
+        "title": "Disconnect WebSocket Client",
+        "category": "Second Life"
+      },
+      {
+        "command": "second-life-scripting.showWebSocketClientStatus",
+        "title": "Show WebSocket Client Status",
+        "category": "Second Life"
+      },
+      {
+        "command": "second-life-scripting.forceLanguageUpdate",
+        "title": "Force Language Update",
+        "category": "Second Life"
+      }
+    ],
+    "configuration": [
+      {
+        "title": "SL Scripting - UI",
+        "properties": {
+          "slVscodeEdit.ui.statusTimeoutSeconds": {
+            "type": "number",
+            "default": 3,
+            "minimum": 1,
+            "maximum": 30,
+            "description": "Number of seconds to display messages"
+          }
+        }
+      },
+      {
+        "title": "SL Scripting - Storage",
+        "properties": {
+          "slVscodeEdit.storage.useLocalConfig": {
+            "type": "boolean",
+            "default": true,
+            "description": "Store configuration files in local workspace instead of global settings"
+          }
+        }
+      },
+      {
+        "title": "SL Scripting - Preprocessor",
+        "properties": {
+          "slVscodeEdit.preprocessor.enable": {
+            "type": "boolean",
+            "default": true,
+            "description": "Enable preprocessor for script files"
+          },
+          "slVscodeEdit.preprocessor.options": {
+            "type": "string",
+            "description": "Preprocessor options"
+          },
+          "slVscodeEdit.preprocessor.includePaths": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "default": [
+              ".",
+              "./include/",
+              "**/include/"
+            ],
+            "description": "Paths to search for include files"
+          },
+          "slVscodeEdit.preprocessor.maxIncludeDepth": {
+            "type": "number",
+            "default": 5,
+            "minimum": 1,
+            "maximum": 50,
+            "description": "Maximum nesting depth for #include and require() directives"
+          }
+        }
+      },
+      {
+        "title": "SL Scripting - Network",
+        "properties": {
+          "slVscodeEdit.network.websocketPort": {
+            "type": "number",
+            "default": 9020,
+            "minimum": 1,
+            "maximum": 65535,
+            "description": "WebSocket server port for script synchronization with viewer"
+          },
+          "slVscodeEdit.network.disconnectDelayMs": {
+            "type": "number",
+            "default": 100,
+            "description": "Delay in milliseconds before closing websocket after sending disconnect"
+          },
+          "slVscodeEdit.network.disposeDelayMs": {
+            "type": "number",
+            "default": 1000,
+            "description": "Delay in milliseconds before disposing resources after session disconnect"
+          }
+        }
       }
     ]
   },
   "scripts": {
     "vscode:prepublish": "npm run compile",
-    "compile": "tsc -p ./",
+    "compile": "tsc -p . && npm run copy-test-data",
+    "copy-test-data": "node scripts/copy-test-data.js",
     "watch": "tsc -watch -p ./",
-    "pretest": "npm run compile && npm run lint",
+    "pretest": "npm run compile",
     "lint": "eslint src",
-    "test": "vscode-test"
+    "lint:fix": "eslint src --fix",
+    "test": "node ./out/test/runTest.js",
+    "test-basic": "npx mocha \"./out/test/suite/basic.test.js\" --ui tdd --timeout 5000",
+    "test-unit": "npx mocha \"./out/test/suite/{basic,preprocessor,include-disk-integration}.test.js\" --ui tdd --timeout 5000",
+    "test-compile": "tsc -p . --outDir out --skipLibCheck",
+    "precommit": "npm run lint && npm run test-compile && npm run test-unit"
   },
   "devDependencies": {
-    "@types/vscode": "^1.103.0",
+    "@eslint/js": "^9.35.0",
     "@types/mocha": "^10.0.10",
     "@types/node": "22.x",
-    "@typescript-eslint/eslint-plugin": "^8.39.0",
-    "@typescript-eslint/parser": "^8.39.0",
-    "eslint": "^9.32.0",
-    "typescript": "^5.9.2",
+    "@types/vscode": "^1.85.0",
+    "@typescript-eslint/eslint-plugin": "^8.42.0",
+    "@typescript-eslint/parser": "^8.42.0",
     "@vscode/test-cli": "^0.0.11",
-    "@vscode/test-electron": "^2.5.2"
+    "@vscode/test-electron": "^2.5.2",
+    "eslint": "^9.34.0",
+    "glob": "^11.0.0",
+    "mocha": "^10.0.0",
+    "pre-commit": "^1.2.2",
+    "typescript": "^5.9.2"
+  },
+  "dependencies": {
+    "@iarna/toml": "^2.2.5",
+    "@types/js-yaml": "^4.0.9",
+    "@types/ws": "^8.18.1",
+    "js-yaml": "^4.1.0",
+    "vscode-languageclient": "^9.0.1",
+    "ws": "^8.18.3"
   }
 }

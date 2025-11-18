@@ -1,0 +1,147 @@
+{
+  "$schema": "../../../../data/sl-lua-defs.schema.json",
+  "aliases": {
+    "numeric": {
+      "aliasTypes": ["number", "boolean", "integer"],
+      "tooltip": "A union type representing numeric values"
+    },
+    "list": {
+      "aliasTypes": ["string", "number", "integer", "vector"],
+      "aliasIndex": "number",
+      "tooltip": "A table with numeric indices containing various value types"
+    }
+  },
+  "functions": {
+    "toquaternion": {
+      "parameters": [
+        { "name": "str", "type": "string" }
+      ],
+      "returnType": "quaternion | nil",
+      "tooltip": "Creates a quaternion from a string argument"
+    },
+    "tovector": {
+      "parameters": [
+        { "name": "str", "type": "string" }
+      ],
+      "returnType": "vector | nil",
+      "tooltip": "Creates a vector from a string argument"
+    }
+  },
+  "classes": {
+    "integer": {
+      "methods": {
+        "__ctor__": [
+          {
+            "parameters": [
+              { "name": "value", "type": "string | number" }
+            ],
+            "returnType": "integer",
+            "tooltip": "Creates an integer value from argument"
+          }
+        ],
+        "__add": [
+          {
+            "parameters": [
+              { "name": "self", "type": "integer" },
+              { "name": "other", "type": "integer" }
+            ],
+            "returnType": "integer",
+            "tooltip": "Addition operator for integers"
+          }
+        ],
+        "__eq": [
+          {
+            "parameters": [
+              { "name": "self", "type": "integer" },
+              { "name": "other", "type": "integer" }
+            ],
+            "returnType": "boolean",
+            "tooltip": "Equality comparison operator"
+          }
+        ]
+      },
+      "tooltip": "Integer class with arithmetic and comparison operators"
+    },
+    "vector": {
+      "properties": {
+        "x": "number",
+        "y": "number",
+        "z": "number"
+      },
+      "methods": {
+        "__add": [
+          {
+            "parameters": [
+              { "name": "self", "type": "vector" },
+              { "name": "other", "type": "vector" }
+            ],
+            "returnType": "vector",
+            "tooltip": "Add two vectors"
+          }
+        ],
+        "__mul": [
+          {
+            "parameters": [
+              { "name": "self", "type": "vector" },
+              { "name": "other", "type": "number" }
+            ],
+            "returnType": "vector",
+            "tooltip": "Multiply vector by number"
+          }
+        ]
+      },
+      "tooltip": "Vector class representing a 3D vector with x, y, z components"
+    }
+  },
+  "modules": {
+    "bit32": {
+      "methods": {
+        "band": [
+          {
+            "parameters": [
+              { "name": "args", "type": "integer", "variadic": true }
+            ],
+            "returnType": "integer",
+            "tooltip": "Bitwise AND for integers"
+          }
+        ],
+        "bor": [
+          {
+            "parameters": [
+              { "name": "args", "type": "integer", "variadic": true }
+            ],
+            "returnType": "integer",
+            "tooltip": "Bitwise OR for integers"
+          }
+        ]
+      },
+      "tooltip": "Bitwise operations library"
+    },
+    "lljson": {
+      "properties": {
+        "null": "lljson_constant"
+      },
+      "methods": {
+        "encode": [
+          {
+            "parameters": [
+              { "name": "value", "type": "string | number | boolean | table" }
+            ],
+            "returnType": "string",
+            "tooltip": "Encode Lua value as JSON"
+          }
+        ],
+        "decode": [
+          {
+            "parameters": [
+              { "name": "json", "type": "string" }
+            ],
+            "returnType": "string | number | boolean | table | nil",
+            "tooltip": "Decode JSON string to Lua value"
+          }
+        ]
+      },
+      "tooltip": "JSON encoding and decoding module"
+    }
+  }
+}

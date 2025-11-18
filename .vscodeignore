@@ -1,11 +1,31 @@
 .vscode/**
 .vscode-test/**
+.github/**
+.*
 src/**
-.gitignore
-.yarnrc
-vsc-extension-quickstart.md
+out/test/**
+data/dev/**
+doc/dev/**
+out_test/**
+# IMPORTANT: Do not exclude entire node_modules; needed runtime deps (js-yaml, ws, @iarna/toml)
+# Instead prune obvious dev-only artifacts selectively (keep dependency trees intact)
+node_modules/@types/**
+node_modules/mocha/**
+node_modules/@vscode/test-*/**
+node_modules/eslint/**
+node_modules/@eslint/**
+node_modules/typescript/**
+node_modules/@typescript-eslint/**
+.npm/**
 **/tsconfig.json
-**/eslint.config.mjs
+**/eslint.config.*
+**/*.log
 **/*.map
 **/*.ts
 **/.vscode-test.*
+**/test-*
+vsc-extension-quickstart.md
+tsconfig.tsbuildinfo
+package-lock.json
+yarn.lock
+.pnpm-lock.yaml

@@ -1,0 +1,25 @@
+{
+	"folders": [
+		{
+			"path": "set_1"
+		},
+		{
+			"path": "set_2"
+		},
+		{
+			"path": "set_3"
+		},
+		{
+			"path": "include"
+		}
+	],
+	"settings": {
+		"luau-lsp.types.definitionFiles": [
+			"d:\\work\\VSCode\\SL-Scripting\\src\\test\\workspace\\set_1\\.vscode\\sl-vscode-edit\\slua_1ea859e0-00a9-d883-4c6f-f2a2cf406bb0.d.lua"
+		],
+		"luau-lsp.types.documentationFiles": [
+			"d:\\work\\VSCode\\SL-Scripting\\src\\test\\workspace\\set_1\\.vscode\\sl-vscode-edit\\slua_1ea859e0-00a9-d883-4c6f-f2a2cf406bb0.docs.json"
+		],
+		"luau-lsp.platform.type": "standard"
+	}
+}

@@ -1,0 +1,777 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "Second Life Lua Type Definitions",
+  "description": "Schema for representing LSL Luau type definitions including type aliases, classes, global declarations, and modules",
+  "type": "object",
+  "$defs": {
+    "typeReference": {
+      "description": "A type can be either a string reference or a nested type definition",
+      "oneOf": [
+        {
+          "type": "string",
+          "description": "Simple type reference by name"
+        },
+        {
+          "$ref": "#/$defs/typeDefinition"
+        }
+      ]
+    },
+    "typeDefinition": {
+      "description": "Structured type definition with various kinds",
+      "oneOf": [
+        {
+          "type": "object",
+          "description": "Union type (e.g., boolean|number)",
+          "properties": {
+            "kind": {
+              "const": "union"
+            },
+            "types": {
+              "type": "array",
+              "items": {
+                "$ref": "#/$defs/typeReference"
+              },
+              "minItems": 2,
+              "description": "Array of types to union"
+            }
+          },
+          "required": ["kind", "types"],
+          "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "description": "Array type (e.g., {string})",
+          "properties": {
+            "kind": {
+              "const": "array"
+            },
+            "elementType": {
+              "$ref": "#/$defs/typeReference",
+              "description": "Type of array elements"
+            }
+          },
+          "required": ["kind", "elementType"],
+          "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "description": "Table/object type with properties",
+          "properties": {
+            "kind": {
+              "const": "table"
+            },
+            "properties": {
+              "type": "array",
+              "items": {
+                "type": "object",
+                "properties": {
+                  "name": {
+                    "type": "string"
+                  },
+                  "type": {
+                    "$ref": "#/$defs/typeReference"
+                  },
+                  "optional": {
+                    "type": "boolean"
+                  }
+                },
+                "required": ["name", "type"]
+              },
+              "description": "Table properties"
+            },
+            "methods": {
+              "type": "array",
+              "items": {
+                "$ref": "#/$defs/functionSignature"
+              },
+              "description": "Table methods"
+            }
+          },
+          "required": ["kind"],
+          "additionalProperties": false
+        },
+        {
+          "$ref": "#/$defs/functionType"
+        },
+        {
+          "type": "object",
+          "description": "Intersection type (e.g., function overloads)",
+          "properties": {
+            "kind": {
+              "const": "intersection"
+            },
+            "types": {
+              "type": "array",
+              "items": {
+                "$ref": "#/$defs/functionType"
+              },
+              "minItems": 2,
+              "description": "Array of function types to intersect"
+            }
+          },
+          "required": ["kind", "types"],
+          "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "description": "Literal union type (e.g., \"value1\"|\"value2\")",
+          "properties": {
+            "kind": {
+              "const": "literal-union"
+            },
+            "values": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              },
+              "minItems": 1,
+              "description": "Array of literal string values"
+            }
+          },
+          "required": ["kind", "values"],
+          "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "description": "Simple type reference",
+          "properties": {
+            "kind": {
+              "const": "reference"
+            },
+            "name": {
+              "type": "string",
+              "description": "Type name being referenced"
+            }
+          },
+          "required": ["kind", "name"],
+          "additionalProperties": false
+        }
+      ]
+    },
+    "parameter": {
+      "type": "object",
+      "properties": {
+        "name": {
+          "type": "string",
+          "description": "Parameter name (optional when variadic is true)"
+        },
+        "type": {
+          "$ref": "#/$defs/typeReference",
+          "description": "Parameter type annotation (optional when name is 'self')"
+        },
+        "optional": {
+          "type": "boolean",
+          "description": "Whether the parameter is optional"
+        },
+        "variadic": {
+          "type": "boolean",
+          "description": "Whether the parameter is variadic (...)"
+        }
+      },
+      "required": [],
+      "oneOf": [
+        {
+          "required": ["name", "type"]
+        },
+        {
+          "required": ["name"],
+          "properties": {
+            "name": {
+              "const": "self"
+            }
+          }
+        },
+        {
+          "required": ["type", "variadic"],
+          "properties": {
+            "variadic": {
+              "const": true
+            }
+          }
+        }
+      ]
+    },
+    "functionType": {
+      "type": "object",
+      "description": "Function type (e.g., (x: number) -> string)",
+      "properties": {
+        "kind": {
+          "const": "function"
+        },
+        "parameters": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/parameter"
+          }
+        },
+        "returnType": {
+          "$ref": "#/$defs/typeReference"
+        }
+      },
+      "required": ["kind", "parameters", "returnType"],
+      "additionalProperties": false
+    },
+    "functionSignature": {
+      "type": "object",
+      "properties": {
+        "name": {
+          "type": "string",
+          "description": "Function/method name"
+        },
+        "parameters": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/parameter"
+          }
+        },
+        "returnType": {
+          "$ref": "#/$defs/typeReference"
+        },
+        "comment": {
+          "type": "string",
+          "description": "Documentation comment"
+        },
+        "overloads": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "parameters": {
+                "type": "array",
+                "items": {
+                  "$ref": "#/$defs/parameter"
+                }
+              },
+              "returnType": {
+                "$ref": "#/$defs/typeReference"
+              },
+              "comment": {
+                "type": "string"
+              }
+            },
+            "required": ["parameters", "returnType"]
+          }
+        }
+      },
+      "required": ["name", "parameters", "returnType"]
+    }
+  },
+  "properties": {
+    "version": {
+      "type": "string",
+      "description": "Schema version for compatibility tracking"
+    },
+    "typeAliases": {
+      "type": "array",
+      "description": "Type alias definitions (e.g., type numeric = boolean|number)",
+      "items": {
+        "type": "object",
+        "properties": {
+          "name": {
+            "type": "string",
+            "description": "Name of the type alias"
+          },
+          "definition": {
+            "$ref": "#/$defs/typeDefinition",
+            "description": "Structured type definition"
+          },
+          "comment": {
+            "type": "string",
+            "description": "Optional documentation comment"
+          }
+        },
+        "required": ["name", "definition"]
+      }
+    },
+    "classes": {
+      "type": "array",
+      "description": "Class declarations with properties and methods",
+      "items": {
+        "type": "object",
+        "properties": {
+          "name": {
+            "type": "string",
+            "description": "Class name"
+          },
+          "properties": {
+            "type": "array",
+            "description": "Class properties/fields",
+            "items": {
+              "type": "object",
+              "properties": {
+                "name": {
+                  "type": "string",
+                  "description": "Property name"
+                },
+                "type": {
+                  "type": "string",
+                  "description": "Property type annotation"
+                },
+                "comment": {
+                  "type": "string",
+                  "description": "Documentation comment"
+                }
+              },
+              "required": ["name", "type"]
+            }
+          },
+          "methods": {
+            "type": "array",
+            "description": "Class methods (including metamethods)",
+            "items": {
+              "type": "object",
+              "properties": {
+                "name": {
+                  "type": "string",
+                  "description": "Method name (e.g., '__tostring', '__mul', 'getName')"
+                },
+                "parameters": {
+                  "type": "array",
+                  "description": "Method parameters",
+                  "items": {
+                    "type": "object",
+                    "properties": {
+                      "name": {
+                        "type": "string",
+                        "description": "Parameter name (optional when variadic is true)"
+                      },
+                      "type": {
+                        "type": "string",
+                        "description": "Parameter type annotation"
+                      },
+                      "optional": {
+                        "type": "boolean",
+                        "description": "Whether the parameter is optional"
+                      },
+                      "variadic": {
+                        "type": "boolean",
+                        "description": "Whether the parameter is variadic (...)"
+                      }
+                    },
+                    "required": ["type"],
+                    "oneOf": [
+                      {
+                        "required": ["name"]
+                      },
+                      {
+                        "required": ["variadic"],
+                        "properties": {
+                          "variadic": {
+                            "const": true
+                          }
+                        }
+                      }
+                    ]
+                  }
+                },
+                "returnType": {
+                  "type": "string",
+                  "description": "Return type annotation"
+                },
+                "comment": {
+                  "type": "string",
+                  "description": "Documentation comment"
+                },
+                "overloads": {
+                  "type": "array",
+                  "description": "Overloaded function signatures",
+                  "items": {
+                    "type": "object",
+                    "properties": {
+                      "parameters": {
+                        "type": "array",
+                        "items": {
+                          "type": "object",
+                          "properties": {
+                            "name": {
+                              "type": "string"
+                            },
+                            "type": {
+                              "type": "string"
+                            },
+                            "optional": {
+                              "type": "boolean"
+                            },
+                            "variadic": {
+                              "type": "boolean"
+                            }
+                          },
+                          "required": ["type"],
+                          "oneOf": [
+                            {
+                              "required": ["name"]
+                            },
+                            {
+                              "required": ["variadic"],
+                              "properties": {
+                                "variadic": {
+                                  "const": true
+                                }
+                              }
+                            }
+                          ]
+                        }
+                      },
+                      "returnType": {
+                        "type": "string"
+                      },
+                      "comment": {
+                        "type": "string"
+                      }
+                    },
+                    "required": ["parameters", "returnType"]
+                  }
+                }
+              },
+              "required": ["name", "parameters", "returnType"]
+            }
+          },
+          "comment": {
+            "type": "string",
+            "description": "Documentation comment for the class"
+          }
+        },
+        "required": ["name"]
+      }
+    },
+    "globalVariables": {
+      "type": "array",
+      "description": "Global variable declarations (e.g., declare LLEvents : LLEventsProto)",
+      "items": {
+        "type": "object",
+        "properties": {
+          "name": {
+            "type": "string",
+            "description": "Variable name"
+          },
+          "type": {
+            "type": "string",
+            "description": "Type annotation"
+          },
+          "comment": {
+            "type": "string",
+            "description": "Documentation comment"
+          }
+        },
+        "required": ["name", "type"]
+      }
+    },
+    "globalFunctions": {
+      "type": "array",
+      "description": "Global function declarations (e.g., declare function uuid(str: string): uuid)",
+      "items": {
+        "type": "object",
+        "properties": {
+          "name": {
+            "type": "string",
+            "description": "Function name"
+          },
+          "parameters": {
+            "type": "array",
+            "description": "Function parameters",
+            "items": {
+              "type": "object",
+              "properties": {
+                "name": {
+                  "type": "string",
+                  "description": "Parameter name (optional when variadic is true)"
+                },
+                "type": {
+                  "type": "string",
+                  "description": "Parameter type annotation (optional when name is 'self')"
+                },
+                "optional": {
+                  "type": "boolean",
+                  "description": "Whether the parameter is optional"
+                },
+                "variadic": {
+                  "type": "boolean",
+                  "description": "Whether the parameter is variadic (...)"
+                }
+              },
+              "required": [],
+              "oneOf": [
+                {
+                  "required": ["name", "type"]
+                },
+                {
+                  "required": ["name"],
+                  "properties": {
+                    "name": {
+                      "const": "self"
+                    }
+                  }
+                },
+                {
+                  "required": ["type", "variadic"],
+                  "properties": {
+                    "variadic": {
+                      "const": true
+                    }
+                  }
+                }
+              ]
+            }
+          },
+          "returnType": {
+            "type": "string",
+            "description": "Return type annotation"
+          },
+          "comment": {
+            "type": "string",
+            "description": "Documentation comment"
+          },
+          "overloads": {
+            "type": "array",
+            "description": "Additional overloaded signatures",
+            "items": {
+              "type": "object",
+              "properties": {
+                "parameters": {
+                  "type": "array",
+                  "items": {
+                    "type": "object",
+                    "properties": {
+                      "name": {
+                        "type": "string"
+                      },
+                      "type": {
+                        "type": "string"
+                      },
+                      "optional": {
+                        "type": "boolean"
+                      },
+                      "variadic": {
+                        "type": "boolean"
+                      }
+                    },
+                    "required": [],
+                    "oneOf": [
+                      {
+                        "required": ["name", "type"]
+                      },
+                      {
+                        "required": ["name"],
+                        "properties": {
+                          "name": {
+                            "const": "self"
+                          }
+                        }
+                      },
+                      {
+                        "required": ["type", "variadic"],
+                        "properties": {
+                          "variadic": {
+                            "const": true
+                          }
+                        }
+                      }
+                    ]
+                  }
+                },
+                "returnType": {
+                  "type": "string"
+                },
+                "comment": {
+                  "type": "string"
+                }
+              },
+              "required": ["parameters", "returnType"]
+            }
+          }
+        },
+        "required": ["name", "parameters", "returnType"]
+      }
+    },
+    "modules": {
+      "type": "array",
+      "description": "Module/table declarations with their members",
+      "items": {
+        "type": "object",
+        "properties": {
+          "name": {
+            "type": "string",
+            "description": "Module name (e.g., 'bit32', 'lljson', 'll')"
+          },
+          "comment": {
+            "type": "string",
+            "description": "Module-level documentation"
+          },
+          "properties": {
+            "type": "array",
+            "description": "Module properties/constants",
+            "items": {
+              "type": "object",
+              "properties": {
+                "name": {
+                  "type": "string",
+                  "description": "Property name"
+                },
+                "type": {
+                  "type": "string",
+                  "description": "Type annotation"
+                },
+                "comment": {
+                  "type": "string",
+                  "description": "Documentation comment"
+                }
+              },
+              "required": ["name", "type"]
+            }
+          },
+          "functions": {
+            "type": "array",
+            "description": "Module functions",
+            "items": {
+              "type": "object",
+              "properties": {
+                "name": {
+                  "type": "string",
+                  "description": "Function name"
+                },
+                "parameters": {
+                  "type": "array",
+                  "description": "Function parameters",
+                  "items": {
+                    "type": "object",
+                    "properties": {
+                      "name": {
+                        "type": "string",
+                        "description": "Parameter name (optional when variadic is true)"
+                      },
+                      "type": {
+                        "type": "string",
+                        "description": "Parameter type annotation (optional when name is 'self')"
+                      },
+                      "optional": {
+                        "type": "boolean",
+                        "description": "Whether the parameter is optional"
+                      },
+                      "variadic": {
+                        "type": "boolean",
+                        "description": "Whether the parameter is variadic (...)"
+                      }
+                    },
+                    "required": [],
+                    "oneOf": [
+                      {
+                        "required": ["name", "type"]
+                      },
+                      {
+                        "required": ["name"],
+                        "properties": {
+                          "name": {
+                            "const": "self"
+                          }
+                        }
+                      },
+                      {
+                        "required": ["type", "variadic"],
+                        "properties": {
+                          "variadic": {
+                            "const": true
+                          }
+                        }
+                      }
+                    ]
+                  }
+                },
+                "returnType": {
+                  "type": "string",
+                  "description": "Return type annotation"
+                },
+                "comment": {
+                  "type": "string",
+                  "description": "Documentation comment"
+                },
+                "overloads": {
+                  "type": "array",
+                  "description": "Overloaded function signatures",
+                  "items": {
+                    "type": "object",
+                    "properties": {
+                      "parameters": {
+                        "type": "array",
+                        "items": {
+                          "type": "object",
+                          "properties": {
+                            "name": {
+                              "type": "string"
+                            },
+                            "type": {
+                              "type": "string"
+                            },
+                            "optional": {
+                              "type": "boolean"
+                            },
+                            "variadic": {
+                              "type": "boolean"
+                            }
+                          },
+                          "required": ["type"],
+                          "oneOf": [
+                            {
+                              "required": ["name"]
+                            },
+                            {
+                              "required": ["variadic"],
+                              "properties": {
+                                "variadic": {
+                                  "const": true
+                                }
+                              }
+                            }
+                          ]
+                        }
+                      },
+                      "returnType": {
+                        "type": "string"
+                      },
+                      "comment": {
+                        "type": "string"
+                      }
+                    },
+                    "required": ["parameters", "returnType"]
+                  }
+                }
+              },
+              "required": ["name", "parameters", "returnType"]
+            }
+          }
+        },
+        "required": ["name"]
+      }
+    },
+    "constants": {
+      "type": "array",
+      "description": "Global constant declarations (e.g., declare ACTIVE : number)",
+      "items": {
+        "type": "object",
+        "properties": {
+          "name": {
+            "type": "string",
+            "description": "Constant name"
+          },
+          "type": {
+            "type": "string",
+            "description": "Type annotation (typically 'number', 'string', 'uuid')"
+          },
+          "comment": {
+            "type": "string",
+            "description": "Documentation comment"
+          },
+          "value": {
+            "description": "Optional constant value if known",
+            "oneOf": [
+              { "type": "number" },
+              { "type": "string" },
+              { "type": "boolean" }
+            ]
+          }
+        },
+        "required": ["name", "type"]
+      }
+    }
+  },
+  "required": ["version"]
+}

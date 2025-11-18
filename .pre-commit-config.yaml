@@ -1,0 +1,22 @@
+repos:
+  # TypeScript compilation check
+  - repo: local
+    hooks:
+      - id: typescript-compile
+        name: TypeScript Compile Check
+        entry: npm run compile
+        language: system
+        files: \.(ts|tsx)$
+        pass_filenames: false
+
+  # Pre-commit hooks for general file checks
+  - repo: https://github.com/pre-commit/pre-commit-hooks
+    rev: v4.4.0
+    hooks:
+      - id: trailing-whitespace
+      - id: end-of-file-fixer
+      - id: check-yaml
+      - id: check-json
+      - id: check-merge-conflict
+      - id: check-added-large-files
+        args: ['--maxkb=500']
