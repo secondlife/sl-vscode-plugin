@@ -175,11 +175,6 @@ export class LuaLSPPlugin extends BasePlugin {
             // Discard array config, theres not much else we can do to fix it
             luaulspDefs = {}
         }
-        for(const key in luaulspDefs) {
-            if(key.startsWith("sl-")) {
-                delete luaulspDefs[key];
-            }
-        }
         luaulspDefs["sl-slua"] = defsFile;
 
         await luaulsp.update("types.definitionFiles", luaulspDefs);
