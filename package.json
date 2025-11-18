@@ -1,8 +1,8 @@
 {
   "name": "sl-vscode-edit",
-  "displayName": "Second Life External Scripting Extension",
-  "description": "Binding extension for external LSL and SLua editing from the viewer.",
-  "version": "0.0.1",
+  "displayName": "Second Life VSCode Plugin",
+  "description": "Binding extension for external LSL and SLua editing from the Second Life viewer.",
+  "version": "1.0.0",
   "publisher": "lindenlab",
   "extensionDependencies": [
   ],

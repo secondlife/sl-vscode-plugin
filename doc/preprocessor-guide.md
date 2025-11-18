@@ -153,19 +153,46 @@ local helper = require("include/helper.luau")  -- If include/ exists relative to
 
 ### How Require Works
 
-When the preprocessor encounters a `require()` statement:
+When the preprocessor encounters `require()` statements in a SLua file:
 
-1. **File Resolution**: Resolves the module path relative to the current file
-2. **Content Loading**: Reads the module file content
-3. **Recursive Processing**: Processes any nested `require()` statements in the module
-4. **IIFE Wrapping**: Wraps the module content in an immediately-invoked function expression:
+1. **Module Collection**: All required modules are collected during parsing
+2. **Function Wrapping**: Each module is wrapped in an anonymous function:
    ```luau
    (function()
-   -- @line 0 "path/to/module.luau"
+   -- @line 1 "path/to/module.luau"
    -- module content here
-   end)()
+   end)
    ```
-5. **Inline Replacement**: Replaces the `require()` call with the wrapped module content
+3. **Table Generation**: A `__require_table` is created at the start of the file containing all wrapped modules:
+   ```luau
+   local __require_table: { [number]: () -> any } = {}
+   __require_table[1] = (function()
+   -- @line 1 "path/to/first_module.luau"
+   -- first module content
+   end)
+   __require_table[2] = (function()
+   -- @line 1 "path/to/second_module.luau"
+   -- second module content
+   end)
+   ```
+4. **Invocation Replacement**: Each `require()` call is replaced with an invocation from the table:
+   ```luau
+   local module = require("module.luau")
+   -- becomes:
+   local module = __require_table[1]()
+   ```
+5. **Table Cleanup**: At the end of the file, the table is cleared:
+   ```luau
+   __require_table = nil
+   ```
+
+This approach ensures:
+- Each module file is added to the table only once (even if required multiple times)
+- Modules are defined before they're invoked
+- Circular dependencies are prevented by depth limiting
+- Clean namespace with table cleanup
+
+> **Note**: The `-- @line` directives in the wrapped modules are source mapping comments that help track which original file each line of code came from. This enables accurate error reporting and debugging. See [Include Guards and File Tracking](#include-guards-and-file-tracking) for more details.
 
 ### Nested Requires
 
@@ -356,13 +383,12 @@ The preprocessor automatically defines the following system macros that are avai
 | `__AGENTIDRAW__` | Raw agent ID format (not stringized) | `550e8400e29b41d4a716446655440000` |
 | `__AGENTKEY__` | Alternate name for `__AGENTID__` | `"550e8400-e29b-41d4-a716-446655440000"` |
 | `__AGENTNAME__` | Agent display name | `"Resident Name"` |
-| `__ASSETID__` | Script asset UUID | `"123e4567-e89b-12d3-a456-426614174000"` |
-| `__DATE__` | Current date | `"Oct 24 2025"` |
+| `__DATE__` | Current date (ISO format) | `"2025-11-18"` |
 | `__FILE__` | Full path/name of current file being processed | `"scripts/main.lsl"` |
 | `__LINE__` | Current line number being processed | `42` |
 | `__SHORTFILE__` | Short filename without path | `"main.lsl"` |
-| `__TIME__` | Current time | `"14:30:00"` |
-| `__TIMESTAMP__` | Combined date/time timestamp | `"Oct 24 2025 14:30:00"` |
+| `__TIME__` | Current time (ISO format) | `"14:30:45"` |
+| `__TIMESTAMP__` | Full ISO timestamp | `"2025-11-18T14:30:45.123Z"` |
 
 **Usage Example:**
 
