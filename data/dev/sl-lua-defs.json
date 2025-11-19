@@ -163,6 +163,10 @@
                 "name": "self"
               },
               {
+                "name": "eventName",
+                "type": "EventName"
+              },
+              {
                 "name": "handler",
                 "type": "EventHandler"
               }
