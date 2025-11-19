@@ -3,7 +3,7 @@
  * Copyright (C) 2025, Linden Research, Inc.
  */
 import { LSLFunction, LSLKeywords } from './lslkeywords';
-import { ClassDeclaration, ConstantDeclaration, FunctionSignature, LiteralUnionType, LuaTypeDefinitions, ModuleDeclaration, Parameter, TableType, TypeAlias } from './luadefsinterface';
+import { ClassDeclaration, ConstantDeclaration, FunctionSignature, LiteralUnionType, LuaTypeDefinitions, ModuleDeclaration, Parameter, TypeAlias } from './luadefsinterface';
 
 export class LanguageTransformer {
     public static processCombinedDefinitions(lslDefs: LSLKeywords, luaDefs: LuaTypeDefinitions): void {

@@ -10,7 +10,6 @@ import {
     Parameter,
     TableProperty,
     TypeAlias,
-    TypeDefinition,
     TypeReference,
     UnionType,
 } from "./luadefsinterface";
@@ -380,8 +379,6 @@ class SeleneYamlBuilder {
                 return { display: struct.struct };
             }
             return "any"; // TODO Handle this better;
-        }
-        switch (ref.kind) {
         }
         switch (ref.kind) {
             case "function":
