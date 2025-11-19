@@ -201,9 +201,11 @@ class SeleneYamlBuilder {
                 prop.description = `OVERLOAD: ${func.comment}`;
             }
 
+            // To handle overloads for now we count up the possible parameters to detemin required
+            // and try to check for matching parameter types, if we can't match them then use 'any'
             const args: { type: SeleneArgDefType; count: number }[] = [];
-            const paramSets = overloads.map((overload) => overload.parameters);
-            paramSets.push(func.parameters);
+            const paramSets = overloads.map((overload) => this.removeSelfFromParameters(overload.parameters));
+            paramSets.push(this.removeSelfFromParameters(func.parameters));
             for (const params of paramSets) {
                 for (const i in params) {
                     const type =
@@ -238,12 +240,22 @@ class SeleneYamlBuilder {
         }
     }
 
+    private removeSelfFromParameters(params: Parameter[]) : Parameter[] {
+        return params.filter(
+            (param,index) => {
+                return index != 0 || param.name !== "self"
+            }
+        );
+    }
+
+
     private generateFunctionArgs(
         func: FunctionSignature,
         expand: boolean = false,
     ): SeleneArgDef[] {
         const args: SeleneArgDef[] = [];
-        for (const param of func.parameters) {
+        const params = this.removeSelfFromParameters(func.parameters);
+        for (const param of params) {
             const arg = this.generateFunctionArg(param, expand);
             args.push(arg);
         }
