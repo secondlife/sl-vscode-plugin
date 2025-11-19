@@ -39,7 +39,7 @@ suite('SeleneYamlGenerator Tests', () => {
         assert.ok(typeof result === 'string', 'Should return a string');
         assert.ok(result.includes('base: roblox'), 'Should use roblox base');
         assert.ok(result.includes('SLua LSL language support'), 'Should have correct name');
-        assert.ok(result.includes(mockVersion), 'Should include version');
+        assert.ok(result.includes('last_updated: '), 'Should include last_updated');
     });
 
     test('Should handle empty language definitions correctly', () => {
@@ -58,7 +58,7 @@ suite('SeleneYamlGenerator Tests', () => {
 
         // Should still have basic structure
         assert.ok(result.includes('base: roblox'), 'Should have base');
-        assert.ok(result.includes(mockVersion), 'Should have version');
+        assert.ok(result.includes('last_updated: '), 'Should have last_updated');
         assert.ok(result.includes('SLua LSL language support'), 'Should have name');
     });
 
