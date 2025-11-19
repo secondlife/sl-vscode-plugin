@@ -15385,6 +15385,24 @@
             "type": "number"
           }
         ]
+      },
+      {
+        "methods": [],
+        "properties": [
+          {
+            "name": "valid",
+            "type": "boolean"
+          },
+          {
+            "name": "index",
+            "type": "number"
+          },
+          {
+            "name": "can_change_damage",
+            "type": "boolean"
+          }
+        ],
+        "name": "DetectedEvent"
       }
     ],
     "globalFunctions": [
@@ -16090,27 +16108,6 @@
           "name": "number"
         },
         "name": "lljson_constant"
-      },
-      {
-        "definition": {
-          "kind": "table",
-          "methods": [],
-          "properties": [
-            {
-              "name": "valid",
-              "type": "boolean"
-            },
-            {
-              "name": "index",
-              "type": "number"
-            },
-            {
-              "name": "can_change_damage",
-              "type": "boolean"
-            }
-          ]
-        },
-        "name": "DetectedEvent"
       },
       {
         "definition": {

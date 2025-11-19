@@ -251,7 +251,7 @@ export class LuauDefsGenerator {
     private generateClasses(classes: ClassDeclaration[]): string {
         return classes.map(cls => {
             const lines: string[] = [];
-            lines.push(`declare class ${cls.name}`);
+            lines.push(`declare extern type ${cls.name} with`);
 
             // Properties
             if (cls.properties && cls.properties.length > 0) {
