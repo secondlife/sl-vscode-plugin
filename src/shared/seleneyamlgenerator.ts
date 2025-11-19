@@ -201,11 +201,14 @@ class SeleneYamlBuilder {
                 prop.description = `OVERLOAD: ${func.comment}`;
             }
 
-            const args: { type: SeleneArgDefType; count: number }[] = [];
-            const paramSets = overloads.map((overload) => overload.parameters);
-            paramSets.push(func.parameters);
+            // To handle overloads for now we count up the possible parameters to detemin required
+            // and try to check for matching parameter types, if we can't match them then use 'any'
+            const args: { type: SeleneArgDefType; count: number, optional: boolean}[] = [];
+            const paramSets = overloads.map((overload) => this.removeSelfFromParameters(overload.parameters));
+            paramSets.push(this.removeSelfFromParameters(func.parameters));
             for (const params of paramSets) {
                 for (const i in params) {
+                    const param = params[i];
                     const type =
                         this.generateFunctionArg(params[i], expand).type;
                     if (args[i]) {
@@ -213,15 +216,21 @@ class SeleneYamlBuilder {
                         if (!argTypesEqual(type, arg.type)) {
                             arg.type = "any";
                         }
+                        if(param.optional) arg.optional = true;
                         arg.count += 1;
-                    } else args[i] = { type, count: 1 };
+                    } else args[i] = { type, count: 1, optional:param.optional || false};
                 }
             }
             if (args.length) {
                 const max = args[0].count;
                 for (const arg of args) {
-                    if (arg.count == max) prop.args.push({ type: arg.type });
-                    else prop.args.push({ type: arg.type, required: false });
+                    const param : SeleneArgDef = {
+                        type: arg.type,
+                    };
+                    if(arg.count !== max || arg.optional) {
+                        param.required = false;
+                    }
+                    prop.args.push(param);
                 }
             }
             return prop;
@@ -238,12 +247,22 @@ class SeleneYamlBuilder {
         }
     }
 
+    private removeSelfFromParameters(params: Parameter[]) : Parameter[] {
+        return params.filter(
+            (param,index) => {
+                return index != 0 || param.name !== "self"
+            }
+        );
+    }
+
+
     private generateFunctionArgs(
         func: FunctionSignature,
         expand: boolean = false,
     ): SeleneArgDef[] {
         const args: SeleneArgDef[] = [];
-        for (const param of func.parameters) {
+        const params = this.removeSelfFromParameters(func.parameters);
+        for (const param of params) {
             const arg = this.generateFunctionArg(param, expand);
             args.push(arg);
         }
@@ -501,6 +520,8 @@ class SeleneYamlBuilder {
             "any": "any",
             "list": { display: "list" },
             "{}": "table",
+            "false": "bool",
+            "true": "bool",
         };
 
         return typeMap[ref] ?? undefined;
