@@ -36,27 +36,6 @@
       }
     },
     {
-      "name": "DetectedEvent",
-      "definition": {
-        "kind": "table",
-        "properties": [
-          {
-            "name": "valid",
-            "type": "boolean"
-          },
-          {
-            "name": "index",
-            "type": "number"
-          },
-          {
-            "name": "can_change_damage",
-            "type": "boolean"
-          }
-        ],
-        "methods": [ ]
-      }
-    },
-    {
       "name": "DetectedEventName",
       "definition": {
         "kind": "literal-union",
@@ -538,6 +517,24 @@
           "comment": "negate a vector"
         }
       ]
+    },
+    {
+      "name": "DetectedEvent",
+      "properties": [
+        {
+          "name": "valid",
+          "type": "boolean"
+        },
+        {
+          "name": "index",
+          "type": "number"
+        },
+        {
+          "name": "can_change_damage",
+          "type": "boolean"
+        }
+      ],
+      "methods": [ ]
     }
   ],
   "globalVariables": [
