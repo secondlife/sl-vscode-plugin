@@ -1379,6 +1379,10 @@ export class Parser {
         wrapped.push(...moduleTokens);
 
         // Closing: end)()
+        console.log("LAST TOKEN",wrapped[wrapped.length - 1]);
+        if(wrapped[wrapped.length-1].type !== TokenType.NEWLINE) {
+            wrapped.push(new Token(TokenType.NEWLINE, this.lineEnding, lineNumber, lineDirectiveText.length + 1, 1));
+        }
         wrapped.push(new Token(TokenType.IDENTIFIER, 'end', lineNumber, 1, 3));
         wrapped.push(new Token(TokenType.PAREN_CLOSE, ')', lineNumber, 4, 1));
 
