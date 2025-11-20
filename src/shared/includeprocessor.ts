@@ -16,6 +16,7 @@ import { Lexer, Token } from './lexer';
 import { MacroProcessor } from './macroprocessor';
 import { ConditionalProcessor } from './conditionalprocessor';
 import { DiagnosticCollector, DiagnosticSeverity, ErrorCodes } from './diagnostics';
+import { IncludeInfo } from './parser';
 
 /**
  * Result of processing an include directive
@@ -74,16 +75,17 @@ export class IncludeProcessor {
      * @returns Result of the include processing
      */
     public async processInclude(
-        filename: string,
+        include: IncludeInfo,
         sourceFile: NormalizedPath,
-        isRequire: boolean,
         state: IncludeState,
         _macros: MacroProcessor,
         _conditionals: ConditionalProcessor,
         diagnostics?: DiagnosticCollector,
-        line?: number,
         column?: number
     ): Promise<IncludeResult> {
+        const filename = include.file;
+        const line = include.line;
+        const isRequire = include.isRequire;
         // Check max include depth
         if (state.includeDepth >= state.maxIncludeDepth) {
             const error = `Maximum include depth (${state.maxIncludeDepth}) exceeded for file: ${filename}`;
@@ -143,6 +145,8 @@ export class IncludeProcessor {
                 error
             };
         }
+
+        include.path = resolvedPath;
 
         // Check for circular includes
         if (state.includeStack.includes(resolvedPath)) {

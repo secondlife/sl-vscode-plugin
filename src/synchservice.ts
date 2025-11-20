@@ -575,6 +575,18 @@ export class SynchService implements vscode.Disposable {
         return this.activeSyncs.get(path.normalize(masterFilePath));
     }
 
+    public findSyncByIncludeFilePath(
+        includePath: string,
+    ): ScriptSync[] {
+        const syncs : ScriptSync[] = [];
+        for(const sync of this.activeSyncs.values()) {
+            if(sync.usesInclude(includePath)) {
+                syncs.push(sync);
+            }
+        }
+        return syncs;
+    }
+
     private static async findMasterFile(
         scriptName: string,
     ): Promise<vscode.Uri | null> {
@@ -615,9 +627,16 @@ export class SynchService implements vscode.Disposable {
         });
     }
 
-    private onSaveTextDocument(document: vscode.TextDocument): void {
+    private async onSaveTextDocument(document: vscode.TextDocument): Promise<void> {
         const filePath = path.normalize(document.fileName);
-        this.findSyncByMasterFilePath(filePath)?.handleMasterSaved();
+        const sync = this.findSyncByMasterFilePath(filePath);
+        if(sync) {
+            await sync.handleMasterSaved();
+        } else {
+            for(const sync of this.findSyncByIncludeFilePath(filePath)) {
+                await sync.handleMasterSaved();
+            }
+        }
     }
 
     private onChangeWindowState(windowState: vscode.WindowState): void {

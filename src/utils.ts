@@ -450,7 +450,6 @@ export class VSCodeHost implements HostInterface {
 
     uriToFileName(uri: string): NormalizedPath {
         // Handle workspace:// scheme
-        console.log(`uriToFileName: ${uri}`)
         if (uri.startsWith('workspace:///')) {
             const withoutScheme = uri.substring('workspace:///'.length);
             const slashIndex = withoutScheme.indexOf('/');
@@ -474,10 +473,10 @@ export class VSCodeHost implements HostInterface {
             }
 
             const absolutePath = path.join(folder.uri.fsPath, relativePath);
-            console.log(`uriToFileName: becomes ${absolutePath}`);
+            console.log(`uriToFileName: '${uri}' becomes '${absolutePath}'`);
             return normalizePath(absolutePath);
         }
-
+        console.log(`uriToFileName: ${uri}`)
         // Handle standard file:// URLs
         return normalizePath(vscode.Uri.parse(uri).fsPath);
     }
