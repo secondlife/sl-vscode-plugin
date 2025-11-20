@@ -27,6 +27,7 @@ import { ScriptLanguage } from "./shared/languageservice";
 import { CompilationResult, RuntimeDebug, RuntimeError } from "./viewereditwsclient";
 import { normalizePath } from "./interfaces/hostinterface";
 import { SynchService } from "./synchservice";
+import { IncludeInfo } from "./shared/parser";
 
 //====================================================================
 interface TrackedDocuments {
@@ -47,6 +48,8 @@ export class ScriptSync implements vscode.Disposable {
     private diagnosticSources: Set<string> = new Set();
     private lineMappings?: LineMapping[];
     private config: ConfigService;
+
+    private includedFiles : IncludeInfo[] = [];
 
     //====================================================================
     public constructor(
@@ -255,6 +258,12 @@ export class ScriptSync implements vscode.Disposable {
         this.addDiagnostics(diagnosticList);
     }
 
+    public usesInclude(filePath:string) : boolean {
+        return this.includedFiles.some(
+            include => include.path === filePath,
+        );
+    }
+
     public static preprocessorErrorsToDiagnostics(
         errors: PreprocessorError[],
         sourceName: string = "Second Life Preprocessor"
@@ -384,6 +393,10 @@ export class ScriptSync implements vscode.Disposable {
                             `${preprocessorResult.language} Preprocessor`
                         );
                         this.addDiagnostics(diagnostics);
+                    }
+
+                    if(preprocessorResult.includes && preprocessorResult.includes.length > 0) {
+                        this.includedFiles = preprocessorResult.includes;
                     }
 
                     if (preprocessorResult.success) {
