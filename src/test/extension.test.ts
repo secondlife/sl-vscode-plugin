@@ -11,7 +11,7 @@ suite("Extension Test Suite", () => {
 
     test("Extension should be present", () => {
     // Note: Replace with your actual extension ID
-        const extension = vscode.extensions.getExtension("sl-vscode-edit");
+        const extension = vscode.extensions.getExtension("sl-vscode-plugin");
         // For now, just test that extensions API works
         assert.ok(vscode.extensions.all.length > 0, "Extensions API is accessible");
     });

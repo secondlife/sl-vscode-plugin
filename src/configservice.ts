@@ -106,7 +106,7 @@ export class ConfigService implements vscode.Disposable, FullConfigInterface {
         if (workspaceFolders && workspaceFolders.length > 0) {
             const workspaceRoot = workspaceFolders[0].uri;
             const clientName =
-                that.getConfig<string>(ConfigKey.ClientName) || "sl-vscode-edit";
+                that.getConfig<string>(ConfigKey.ClientName) || "sl-vscode-plugin";
             const configDir = vscode.Uri.joinPath(
                 workspaceRoot,
                 ".vscode",

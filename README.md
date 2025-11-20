@@ -2,7 +2,7 @@
 
 **Enhance your Second Life scripting workflow with advanced preprocessing and external editing capabilities!**
 
-[![Version](https://img.shields.io/badge/version-1.0.0-blue.svg)](https://github.com/secondlife/sl-vscode-edit)
+[![Version](https://img.shields.io/badge/version-1.0.0-blue.svg)](https://github.com/secondlife/sl-vscode-plugin)
 [![License](https://img.shields.io/badge/license-MIT-green.svg)](LICENSE)
 [![VS Code](https://img.shields.io/badge/VS%20Code-1.85.0+-red.svg)](https://code.visualstudio.com/)
 
@@ -398,8 +398,8 @@ For enhanced language support and features, install these language server extens
 
 ### Getting Help
 
-- **Issues**: [GitHub Issues](https://github.com/secondlife/sl-vscode-edit/issues)
-- **Discussions**: [GitHub Discussions](https://github.com/secondlife/sl-vscode-edit/discussions)
+- **Issues**: [GitHub Issues](https://github.com/secondlife/sl-vscode-plugin/issues)
+- **Discussions**: [GitHub Discussions](https://github.com/secondlife/sl-vscode-plugin/discussions)
 - **Documentation**: Check the `doc/` folder for detailed guides
 
 ---
@@ -417,8 +417,8 @@ We welcome contributions! Please see our contributing guidelines:
 ### Development Setup
 
 ```bash
-git clone https://github.com/secondlife/sl-vscode-edit.git
-cd sl-vscode-edit
+git clone https://github.com/secondlife/sl-vscode-plugin.git
+cd sl-vscode-plugin
 npm install
 npm run compile
 ```
