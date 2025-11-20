@@ -259,7 +259,6 @@ export class ScriptSync implements vscode.Disposable {
     }
 
     public usesInclude(filePath:string) : boolean {
-        console.log(filePath, this.includedFiles.map(i => i.path));
         return this.includedFiles.some(
             include => include.path === filePath,
         );

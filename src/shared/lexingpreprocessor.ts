@@ -201,9 +201,6 @@ export class LexingPreprocessor {
                     });
                 }
             }
-            for(const include of result.includes) {
-                console.log("INCLUDE: ", include);
-            }
 
             return {
                 content: result.success ? result.source : source,  // Return original source on error, processed source on success
