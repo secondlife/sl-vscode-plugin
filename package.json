@@ -24,7 +24,7 @@
     "commands": [
       {
         "command": "second-life-scripting.enable",
-        "title": "Enabled Extension in workspace",
+        "title": "Enable Extension in workspace",
         "category": "Second Life"
       },
       {
