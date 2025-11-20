@@ -54,7 +54,7 @@ The Second Life External Scripting Extension transforms VS Code into a developme
 
 ### Manual Installation
 
-1. Download the latest `.vsix` file from [Releases](https://github.com/secondlife/sl-vscode-edit/releases)
+1. Download the latest `.vsix` file from [Releases](https://github.com/secondlife/sl-vscode-plugin/releases)
 2. Open VS Code
 3. Press `Ctrl+Shift+P` and type "Extensions: Install from VSIX"
 4. Select the downloaded file
@@ -448,3 +448,4 @@ This project is licensed under the MIT License - see the [LICENSE](LICENSE) file
 - Macro processing and conditional compilation
 - Include guards and circular protection
 - Real-time script synchronization
+
