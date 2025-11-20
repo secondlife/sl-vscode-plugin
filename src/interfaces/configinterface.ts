@@ -11,6 +11,7 @@ import { NormalizedPath } from './hostinterface';
 
 /** Keys used by configuration (mirrors LLConfigNames). */
 export enum ConfigKey {
+  Enabled = 'enabled',
   ClientName = 'client.name',
   ClientVersion = 'client.version',
   ClientProtocolVersion = 'client.protocolVersion',
@@ -40,6 +41,10 @@ export interface ConfigScope {
 export interface ConfigInterface {
   /** Read a config value (undefined if not set). */
   getConfig<T>(key: ConfigKey): T | undefined;
+
+  /** Get extensions enabled status */
+  isEnabled() : boolean;
+
   /** Update a config value. Implementations may persist asynchronously. */
   setConfig<T>(key: ConfigKey, value: T, scope?: ConfigScope): Promise<void>;
 

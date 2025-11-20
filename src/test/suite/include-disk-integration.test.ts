@@ -21,6 +21,10 @@ class TestConfig implements FullConfigInterface {
         this.options = options;
     }
 
+    isEnabled(): boolean {
+        return true;
+    }
+
     getConfig<T>(key: ConfigKey): T | undefined {
         // Return individual config values instead of PreprocessorOptions object
         if (key === ConfigKey.PreprocessorEnable) {

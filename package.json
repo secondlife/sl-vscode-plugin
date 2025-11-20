@@ -23,6 +23,11 @@
   "contributes": {
     "commands": [
       {
+        "command": "second-life-scripting.enable",
+        "title": "Enable Extension in workspace",
+        "category": "Second Life"
+      },
+      {
         "command": "second-life-scripting.connectWebSocket",
         "title": "Connect WebSocket Client",
         "category": "Second Life"
@@ -47,6 +52,11 @@
       {
         "title": "SL Scripting - UI",
         "properties": {
+          "slVscodeEdit.enabled": {
+            "type": "boolean",
+            "default": true,
+            "description": "Wether the SL VS Code extension is enabled"
+          },
           "slVscodeEdit.ui.statusTimeoutSeconds": {
             "type": "number",
             "default": 3,

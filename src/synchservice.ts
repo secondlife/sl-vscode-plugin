@@ -53,6 +53,8 @@ export class SynchService implements vscode.Disposable {
     public agentId?: string;
     public agentName?: string;
 
+    private disposables : vscode.Disposable[] = [];
+
     private constructor(context: vscode.ExtensionContext) {
         this.context = context;
     }
@@ -65,7 +67,6 @@ export class SynchService implements vscode.Disposable {
                 );
             }
             SynchService.instance = new SynchService(context);
-            SynchService.instance.initialize();
         }
         return SynchService.instance;
     }
@@ -80,6 +81,10 @@ export class SynchService implements vscode.Disposable {
             }
         }
         this.activeSyncs.clear();
+        for(const disposable of this.disposables) {
+            disposable.dispose();
+        }
+        this.disposables = [];
     }
 
     public initialize(): void {
@@ -117,12 +122,12 @@ export class SynchService implements vscode.Disposable {
         // const syntaxInit = this.initializeSyntax();
         // showStatusMessage("Initializing syntax...", syntaxInit);
 
-        this.context.subscriptions.push(onDidOpenListener);
-        this.context.subscriptions.push(onDidCloseListener);
-        this.context.subscriptions.push(onDidDeleteListener);
-        this.context.subscriptions.push(onDidSaveListener);
-        this.context.subscriptions.push(onDidChangeWindowState);
-        this.context.subscriptions.push(onDidChangeActiveTextEditor);
+        this.disposables.push(onDidOpenListener);
+        this.disposables.push(onDidCloseListener);
+        this.disposables.push(onDidDeleteListener);
+        this.disposables.push(onDidSaveListener);
+        this.disposables.push(onDidChangeWindowState);
+        this.disposables.push(onDidChangeActiveTextEditor);
     }
 
     private async initializeSyntax(): Promise<void> {
@@ -697,6 +702,11 @@ export class SynchService implements vscode.Disposable {
     }
     //#endregion
 
+    public activate(): void {
+        this.deactivate();
+        this.initialize();
+    }
+
     //====================================================================
     /**
    * Deactivates the file sync functionality
@@ -704,14 +714,7 @@ export class SynchService implements vscode.Disposable {
     public deactivate(): void {
         try {
             // Dispose of all active syncs synchronously
-            for (const [tempFilePath, scriptSync] of this.activeSyncs) {
-                try {
-                    scriptSync.dispose();
-                } catch (error) {
-                    console.warn(`Error disposing sync for ${tempFilePath}:`, error);
-                }
-            }
-            this.activeSyncs.clear();
+            this.dispose();
         } catch (error) {
             console.warn("Error during SynchService deactivation:", error);
         }
