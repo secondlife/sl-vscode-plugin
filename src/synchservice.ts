@@ -26,10 +26,13 @@ import {
     showStatusMessage,
     showWarningMessage,
     closeEditor,
+    logInfo,
 } from "./utils";
 import { maybe } from "./shared/sharedutils"; // TODO: migrate needed utilities from sharedutils if required
 import { ScriptLanguage, LanguageService } from "./shared/languageservice";
 import { ScriptSync } from "./scriptsync";
+
+type ParsedTempFile = { scriptName: string; scriptId: string; extension: string };
 
 export class SynchService implements vscode.Disposable {
     // Tracks all active sync relationships between temp files and master files
@@ -161,9 +164,8 @@ export class SynchService implements vscode.Disposable {
             return false; // Not a valid SL temp script file
         }
 
-        let masterName = parsed.scriptName + "." + parsed.extension;
         // Look for a file in the workspace with the same name as the master script
-        let masterUri = await SynchService.findMasterFile(masterName);
+        let masterUri = await SynchService.findMasterFile(parsed);
         if (!masterUri) {
             // There was no master file found, we are our own master
             showInfoMessage(
@@ -543,7 +545,7 @@ export class SynchService implements vscode.Disposable {
     // Break up the temp file name into its components
     private static parseTempFile(
         viewerFilePath: string,
-    ): { scriptName: string; scriptId: string; extension: string } | null {
+    ): ParsedTempFile | null {
         const openedBase = path.basename(viewerFilePath);
         const match = openedBase.match(SCRIPT_FILE_PATTERN);
 
@@ -576,10 +578,35 @@ export class SynchService implements vscode.Disposable {
     }
 
     private static async findMasterFile(
-        scriptName: string,
+        script: ParsedTempFile,
     ): Promise<vscode.Uri | null> {
-        const files = await vscode.workspace.findFiles(`**/${scriptName}`);
-        return files.length > 0 ? files[0] : null;
+        let files = await vscode.workspace.findFiles(`**/${script.scriptName}.${script.extension}`);
+        if(files.length > 0) {
+            return files[0];
+        } else {
+            // Not found a glob match, try a broader fit
+            // Get all files with right extenstion
+            const possibleFiles = await vscode.workspace.findFiles(`**/*.${script.extension}`)
+            for(const possibleFile of possibleFiles) {
+                const wsFile = vscode.Uri.file(vscode.workspace.asRelativePath(possibleFile));
+                // filter out paths with hidden directories
+                if(wsFile.path.includes("/.") || wsFile.path.includes("\\.")) continue;
+                let relative = wsFile.path;
+                // Remove leading `/` or `\` characters
+                while(relative.startsWith("/") || relative.startsWith("\\")) {
+                    relative = relative.slice(1);
+                }
+                const matches = [
+                    relative.replaceAll("/","").replaceAll("\\",""), // Try match `folder/script.luau` to `folderscript` or `folder/script` from sl
+                    relative.replaceAll("/","_").replaceAll("\\","_"), // Try to match `folder/script.luau` to `folder_script` from sl
+                ];
+                if(matches.includes(`${script.scriptName}.${script.extension}`)) {
+                    return possibleFile;
+                }
+                logInfo(relative);
+            }
+            return null
+        }
     }
 
     private static async openMasterScript(
