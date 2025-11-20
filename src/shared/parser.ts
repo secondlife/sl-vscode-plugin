@@ -1378,6 +1378,10 @@ export class Parser {
         wrapped.push(...moduleTokens);
 
         // Closing: end)()
+        const last = wrapped[wrapped.length-1];
+        if(last.type !== TokenType.NEWLINE) {
+            wrapped.push(new Token(TokenType.NEWLINE, this.lineEnding, lineNumber, lineDirectiveText.length + 1, 1));
+        }
         wrapped.push(new Token(TokenType.IDENTIFIER, 'end', lineNumber, 1, 3));
         wrapped.push(new Token(TokenType.PAREN_CLOSE, ')', lineNumber, 4, 1));
 
@@ -1601,7 +1605,13 @@ export class Parser {
      * Format: __require_table = nil :: any
      */
     private appendRequireTableCleanup(): void {
-        const line = this.currentOutputLine;
+        let line = this.currentOutputLine;
+
+        const last = this.outputTokens[this.outputTokens.length - 1];
+        if(last && last.type !== TokenType.NEWLINE) {
+            this.outputTokens.push(new Token(TokenType.NEWLINE, this.lineEnding, line, last.column+last.length ,1));
+            line++;
+        }
 
         // __require_table = nil :: any (type cast to allow nil assignment)
         this.outputTokens.push(new Token(TokenType.IDENTIFIER, '__require_table', line, 1, 15));
