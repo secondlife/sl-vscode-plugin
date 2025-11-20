@@ -11,6 +11,9 @@ class TestConfig implements FullConfigInterface {
     private data = new Map<ConfigKey, any>();
     private session = new Map<ConfigKey, any>();
     constructor(private root: string) {}
+    isEnabled(): boolean {
+        return true;
+    }
     getConfig<T>(key: ConfigKey): T | undefined { return this.data.get(key); }
     async setConfig<T>(key: ConfigKey, value: T): Promise<void> { this.data.set(key, value); }
     getExtensionInstallPath(): Promise<NormalizedPath> { return Promise.resolve(normalizePath(this.root)); }

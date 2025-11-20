@@ -35,6 +35,10 @@ class MockConfig implements FullConfigInterface {
         }
     }
 
+    isEnabled(): boolean {
+        return true;
+    }
+
     getConfig<T>(key: ConfigKey): T | undefined {
         return this.configValues.get(key) as T | undefined;
     }
