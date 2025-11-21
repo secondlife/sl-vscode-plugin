@@ -31,17 +31,18 @@ import { IncludeInfo } from "./shared/parser";
 import { sha256 } from "js-sha256";
 
 //====================================================================
-interface TrackedDocuments {
+interface TrackedDocument {
   id: string;
   viewerDocument: vscode.TextDocument;
   watcher?: vscode.FileSystemWatcher;
+  hash?: string;
 }
 
 export class ScriptSync implements vscode.Disposable {
     private saveListener: vscode.Disposable | undefined;
     private masterDocument: vscode.TextDocument;
     private language: ScriptLanguage;
-    private fileMappings: TrackedDocuments[] = [];
+    private fileMappings: TrackedDocument[] = [];
     private macros: MacroProcessor;
     private preprocessor: LexingPreprocessor | undefined;
     private disposed: boolean = false;
@@ -51,7 +52,6 @@ export class ScriptSync implements vscode.Disposable {
     private config: ConfigService;
 
     private includedFiles : IncludeInfo[] = [];
-    private lastHash: string = "";
 
     //====================================================================
     public constructor(
@@ -98,7 +98,7 @@ export class ScriptSync implements vscode.Disposable {
             return false;
         }
 
-        let mapping: TrackedDocuments = { id, viewerDocument };
+        let mapping: TrackedDocument = { id, viewerDocument };
 
         mapping.watcher = createFileWatcher(viewerDocument);
         mapping.watcher.onDidDelete((e) => {
@@ -433,17 +433,18 @@ export class ScriptSync implements vscode.Disposable {
             sha.update(finalContent);
             const hash = sha.hex();
 
-            if(this.lastHash === hash) return;
-            this.lastHash = hash;
-
-            // Walk through all TrackedDocuments and save their finalContents
+            // Walk through all TrackedDocuments and save their finalContents if the hash has changed
             await Promise.all(
-                this.fileMappings.map((mapping) =>
-                    fs.promises.writeFile(
-                        mapping.viewerDocument.fileName,
-                        finalContent,
-                        "utf8",
-                    ),
+                this.fileMappings
+                .filter(mapping => mapping.hash !== hash)
+                .map((mapping) => {
+                        mapping.hash = hash;
+                        return fs.promises.writeFile(
+                            mapping.viewerDocument.fileName,
+                            finalContent,
+                            "utf8",
+                        );
+                    }
                 ),
             );
 
