@@ -28,6 +28,7 @@ export enum ConfigKey {
   PreprocessorIncludePaths = 'preprocessor.includePaths',
   PreprocessorMaxIncludeDepth = 'preprocessor.maxIncludeDepth',
   LastSyntaxID = 'syntax.lastID',
+  CompareHashBeforeSync = 'sync.compareHashBeforeSync',
 }
 
 /** Scope target for configuration updates. */
@@ -41,6 +42,7 @@ export interface ConfigScope {
 export interface ConfigInterface {
   /** Read a config value (undefined if not set). */
   getConfig<T>(key: ConfigKey): T | undefined;
+  getConfig<T>(key: ConfigKey, defaultValue:T): T;
 
   /** Get extensions enabled status */
   isEnabled() : boolean;
