@@ -435,8 +435,7 @@ export class ScriptSync implements vscode.Disposable {
 
             // Walk through all TrackedDocuments and save their finalContents if the hash has changed
             await Promise.all(
-                this.fileMappings
-                    .filter(mapping => mapping.hash !== hash)
+                this.getFileMappingsFilteredByHash(hash)
                     .map((mapping) => {
                         mapping.hash = hash;
                         return fs.promises.writeFile(
@@ -451,6 +450,13 @@ export class ScriptSync implements vscode.Disposable {
         } catch (err: any) {
             vscode.window.showErrorMessage(`Error syncing file: ${err.message}`);
         }
+    }
+
+    private getFileMappingsFilteredByHash(hash:string) : TrackedDocument[] {
+        if(!ConfigService.getInstance().getConfig<boolean>(ConfigKey.CompareHashBeforeSync, false)) {
+            return this.fileMappings;
+        }
+        return this.fileMappings.filter(mapping => mapping.hash !== hash);
     }
 
     private static getCurrentAgentId(): string {

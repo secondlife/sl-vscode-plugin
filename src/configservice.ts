@@ -102,15 +102,13 @@ export class ConfigService implements vscode.Disposable, FullConfigInterface {
         return this.getConfig<boolean>(ConfigKey.Enabled) ?? true;
     }
 
-    public getConfig<T>(config: ConfigKey): T | undefined {
+    public getConfig<T>(config: ConfigKey, defaultValue?:T): T | undefined {
         if (config in this.SessionConfigs) {
             return this.SessionConfigs[config] as T;
         }
-        const configValue = vscode.workspace.getConfiguration("slVscodeEdit").get<T>(config);
-        return (
-            configValue ??
-            undefined
-        );
+        const configuration = vscode.workspace.getConfiguration("slVscodeEdit");
+        if(defaultValue) return configuration.get<T>(config, defaultValue);
+        return configuration.get<T>(config);
     }
 
     public setConfig<T>(config: ConfigKey, value: T, scope?: ConfigScope): Promise<void> {

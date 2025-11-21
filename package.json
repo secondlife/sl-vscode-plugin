@@ -77,6 +77,16 @@
         }
       },
       {
+        "title": "SL Scripting - Sync",
+        "properties": {
+          "slVscodeEdit.sync.compareHashBeforeSync": {
+            "type": "boolean",
+            "default": false,
+            "description": "Wether the plugin should fisrt check if there have been any actual changes on save, or to just send it to viewer anyway"
+          }
+        }
+      },
+      {
         "title": "SL Scripting - Preprocessor",
         "properties": {
           "slVscodeEdit.preprocessor.enable": {
