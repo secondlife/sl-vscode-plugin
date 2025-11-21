@@ -436,8 +436,8 @@ export class ScriptSync implements vscode.Disposable {
             // Walk through all TrackedDocuments and save their finalContents if the hash has changed
             await Promise.all(
                 this.fileMappings
-                .filter(mapping => mapping.hash !== hash)
-                .map((mapping) => {
+                    .filter(mapping => mapping.hash !== hash)
+                    .map((mapping) => {
                         mapping.hash = hash;
                         return fs.promises.writeFile(
                             mapping.viewerDocument.fileName,
@@ -445,7 +445,7 @@ export class ScriptSync implements vscode.Disposable {
                             "utf8",
                         );
                     }
-                ),
+                    ),
             );
 
         } catch (err: any) {
