@@ -126,6 +126,12 @@ jobs:
         pattern: vscode-extension-*
         merge-multiple: true
 
+    - name: Get package filename
+      id: package
+      run: |
+        PACKAGE_FILE=$(ls *.vsix | head -1)
+        echo "filename=$PACKAGE_FILE" >> $GITHUB_OUTPUT
+
     - name: Create release
       id: release
       uses: secondlife-3p/action-gh-release@v1
@@ -136,3 +142,4 @@ jobs:
         generate_release_notes: true
         target_commitish: ${{ github.sha }}
         append_body: true
+        files: ${{ steps.package.outputs.filename }}
