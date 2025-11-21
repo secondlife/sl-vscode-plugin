@@ -28,6 +28,7 @@ import { CompilationResult, RuntimeDebug, RuntimeError } from "./viewereditwscli
 import { normalizePath } from "./interfaces/hostinterface";
 import { SynchService } from "./synchservice";
 import { IncludeInfo } from "./shared/parser";
+import { sha256 } from "js-sha256";
 
 //====================================================================
 interface TrackedDocuments {
@@ -50,6 +51,7 @@ export class ScriptSync implements vscode.Disposable {
     private config: ConfigService;
 
     private includedFiles : IncludeInfo[] = [];
+    private lastHash: string = "";
 
     //====================================================================
     public constructor(
@@ -426,6 +428,13 @@ export class ScriptSync implements vscode.Disposable {
                     `Preprocessing disabled, using original content for: ${baseName}`,
                 );
             }
+
+            const sha = sha256.create();
+            sha.update(finalContent);
+            const hash = sha.hex();
+
+            if(this.lastHash === hash) return;
+            this.lastHash = hash;
 
             // Walk through all TrackedDocuments and save their finalContents
             await Promise.all(
