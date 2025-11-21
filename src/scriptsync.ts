@@ -478,6 +478,7 @@ export class ScriptSync implements vscode.Disposable {
                 let date = new Date();
                 return `"${date.toISOString()}"`;
             });
+            this.macros.defineSystemMacro("__UNIXTIME__", ()=>  `${Math.floor(Date.now() / 1000)}`);
         }
     }
 
