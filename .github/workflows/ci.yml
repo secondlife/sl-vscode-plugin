@@ -3,6 +3,7 @@ name: CI
 on:
   push:
     branches: [ "*" ]
+    tags: [ "v*" ]
   pull_request:
     branches: [ main, develop ]
 
@@ -101,3 +102,38 @@ jobs:
         name: vscode-extension-${{ steps.version.outputs.release_type }}-${{ steps.version.outputs.sha_short }}
         path: ${{ steps.package.outputs.filename }}
         retention-days: 30
+
+  release:
+    name: Update release info
+    needs: build
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    if: startsWith(github.ref, 'refs/tags/v')
+    permissions:
+      contents: write
+
+    steps:
+    - name: Get version from tag
+      id: version
+      run: |
+        VERSION=${GITHUB_REF#refs/tags/v}
+        echo "version=$VERSION" >> $GITHUB_OUTPUT
+        echo "tag=${GITHUB_REF#refs/tags/}" >> $GITHUB_OUTPUT
+
+    - name: Download VSIX artifact
+      uses: actions/download-artifact@v4
+      with:
+        pattern: vscode-extension-*
+        merge-multiple: true
+
+    - name: Create release
+      id: release
+      uses: secondlife-3p/action-gh-release@v1
+      with:
+        # name the release page for the branch
+        name: "SL-VScode Plugin ${{ steps.version.outputs.version }} Release"
+        prerelease: true
+        generate_release_notes: true
+        target_commitish: ${{ github.sha }}
+        previous_tag: release
+        append_body: true

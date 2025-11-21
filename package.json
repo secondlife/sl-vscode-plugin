@@ -1,11 +1,10 @@
 {
-  "name": "sl-vscode-edit",
+  "name": "sl-vscode-plugin",
   "displayName": "Second Life VSCode Plugin",
   "description": "Binding extension for external LSL and SLua editing from the Second Life viewer.",
   "version": "1.0.0",
   "publisher": "lindenlab",
-  "extensionDependencies": [
-  ],
+  "extensionDependencies": [],
   "engines": {
     "vscode": "^1.85.0"
   },
@@ -23,6 +22,11 @@
   },
   "contributes": {
     "commands": [
+      {
+        "command": "second-life-scripting.enable",
+        "title": "Enable Extension in workspace",
+        "category": "Second Life"
+      },
       {
         "command": "second-life-scripting.connectWebSocket",
         "title": "Connect WebSocket Client",
@@ -48,6 +52,11 @@
       {
         "title": "SL Scripting - UI",
         "properties": {
+          "slVscodeEdit.enabled": {
+            "type": "boolean",
+            "default": true,
+            "description": "Wether the SL VS Code extension is enabled"
+          },
           "slVscodeEdit.ui.statusTimeoutSeconds": {
             "type": "number",
             "default": 3,
@@ -64,6 +73,16 @@
             "type": "boolean",
             "default": true,
             "description": "Store configuration files in local workspace instead of global settings"
+          }
+        }
+      },
+      {
+        "title": "SL Scripting - Sync",
+        "properties": {
+          "slVscodeEdit.sync.compareHashBeforeSync": {
+            "type": "boolean",
+            "default": false,
+            "description": "Whether the plugin should fisrt check if there have been any actual changes on save, or to just send it to viewer anyway"
           }
         }
       },
@@ -140,6 +159,7 @@
   },
   "devDependencies": {
     "@eslint/js": "^9.35.0",
+    "@types/js-yaml": "^4.0.9",
     "@types/mocha": "^10.0.10",
     "@types/node": "22.x",
     "@types/vscode": "^1.85.0",
@@ -148,16 +168,16 @@
     "@vscode/test-cli": "^0.0.11",
     "@vscode/test-electron": "^2.5.2",
     "eslint": "^9.34.0",
-    "glob": "^11.0.0",
+    "glob": "^11.1.0",
     "mocha": "^10.0.0",
     "pre-commit": "^1.2.2",
     "typescript": "^5.9.2"
   },
   "dependencies": {
     "@iarna/toml": "^2.2.5",
-    "@types/js-yaml": "^4.0.9",
     "@types/ws": "^8.18.1",
-    "js-yaml": "^4.1.0",
+    "js-sha256": "^0.11.1",
+    "js-yaml": "^4.1.1",
     "vscode-languageclient": "^9.0.1",
     "ws": "^8.18.3"
   }

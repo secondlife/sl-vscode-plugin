@@ -84,8 +84,8 @@ export class SelenePlugin extends BasePlugin {
     private buildSeleneConfig(version: any, defs: LuaTypeDefinitions): string {
         const generator = new SeleneYamlGenerator();
         const config = {
-            base: 'roblox',
-            luaVersions: ['roblox', '5.1'],
+            base: 'luau',
+            luaVersions: ['luau', 'lua51'],
             name: 'SLua LSL language support',
             version: version
         };
@@ -113,10 +113,14 @@ export class SelenePlugin extends BasePlugin {
             const tomlPath = normalizeJoinPath(root, "selene.toml");
             let seleneToml: any = {};
             seleneToml = (await host?.readTOML(tomlPath)) || {};
-            const fullConfig = normalizeJoinPath(configPath, `${basename}.yml`);
+            const fullConfig = normalizeJoinPath(configPath, `${basename}`);
             seleneToml.std = "roblox+" + fullConfig;
             saved = await host.writeTOML(tomlPath, seleneToml);
         }
+
+        const selene = vscode.workspace.getConfiguration("selene");
+        await selene.update("warnRoblox", false);
+
         return saved;
     }
 }
@@ -167,10 +171,23 @@ export class LuaLSPPlugin extends BasePlugin {
         // specific to another extension's settings. If desired we could expose a
         // generic configuration proxy later.
         const luaulsp = vscode.workspace.getConfiguration("luau-lsp");
-        await luaulsp.update("types.definitionFiles", [defsFile]);
+
+        // Luau lsp uses a key'd object for this config, but used an array of strings int he past
+        // We will insert our config with prefixed keys to avoid trampling any user defined keys
+        let luaulspDefs = luaulsp.get<{[k:string]:string}|string[]>("types.definitionFiles",{});
+        if(luaulspDefs instanceof Array) {
+            // Discard array config, theres not much else we can do to fix it
+            luaulspDefs = {}
+        }
+        luaulspDefs["sl-slua"] = defsFile;
+
+        await luaulsp.update("types.definitionFiles", luaulspDefs);
         await luaulsp.update("types.documentationFiles", [docsFile]);
         await luaulsp.update("platform.type", "standard");
+        await luaulsp.update("sourcemap.enabled", false);
         await new Promise((resolve) => setTimeout(resolve, 100));
+        // Execute luau-lsp's command to realod the language sever
+        await vscode.commands.executeCommand("luau-lsp.reloadServer")
     }
 
     private async saveLuauLSPDefs(

@@ -3,7 +3,7 @@
  * Copyright (C) 2025, Linden Research, Inc.
  */
 import { LSLFunction, LSLKeywords } from './lslkeywords';
-import { ConstantDeclaration, FunctionSignature, LiteralUnionType, LuaTypeDefinitions, ModuleDeclaration, Parameter, TableType, TypeAlias } from './luadefsinterface';
+import { ClassDeclaration, ConstantDeclaration, FunctionSignature, LiteralUnionType, LuaTypeDefinitions, ModuleDeclaration, Parameter, TypeAlias } from './luadefsinterface';
 
 export class LanguageTransformer {
     public static processCombinedDefinitions(lslDefs: LSLKeywords, luaDefs: LuaTypeDefinitions): void {
@@ -22,19 +22,18 @@ export class LanguageTransformer {
     }
 
     private static processFunctions(lslDefs: LSLKeywords, luaDefs: LuaTypeDefinitions): void {
-        const detected_event = LanguageTransformer.findTypeAlias(luaDefs, "DetectedEvent");
+        const detected_event = LanguageTransformer.findClass(luaDefs, "DetectedEvent");
 
         if (!lslDefs.functions) {
             return;
         }
 
         if (detected_event) {
-            let def = detected_event.definition as TableType;
-            if (!def.methods) {
-                def.methods = [];
+            if (!detected_event.methods) {
+                detected_event.methods = [];
             }
         }
-        const detected_methods = detected_event ? (detected_event.definition as TableType).methods : undefined;
+        const detected_methods = detected_event ? detected_event.methods : undefined;
 
         let ll_module: ModuleDeclaration = {
             name: "ll",
@@ -187,6 +186,13 @@ export class LanguageTransformer {
             return undefined;
         }
         return luaDefs.typeAliases.find((alias) => alias.name === name);
+    }
+
+    private static findClass(luaDefs: LuaTypeDefinitions, name:string) : ClassDeclaration | undefined {
+        if(!luaDefs.classes) {
+            return undefined;
+        }
+        return luaDefs.classes.find((cls) => cls.name === name);
     }
 
     private static isDetectedFunction(lslFunc: string): boolean {

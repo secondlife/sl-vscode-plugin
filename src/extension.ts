@@ -5,7 +5,7 @@
 import * as vscode from "vscode";
 import { SynchService } from "./synchservice";
 import { LanguageService } from "./shared/languageservice";
-import { ConfigService } from "./configservice";
+import { ConfigService, configPrefix } from "./configservice";
 import {
     VSCodeHost,
     getOutputChannel,
@@ -15,6 +15,7 @@ import {
     hasWorkspace,
     showErrorMessage
 } from "./utils";
+import { ConfigKey } from "./interfaces/configinterface";
 
 // This method is called when your extension is activated
 // Your extension is activated the very first time the command is executed
@@ -33,9 +34,18 @@ export function activate(context: vscode.ExtensionContext): void {
         showErrorMessage("Second Life Scripting Extension: No workspace is opened.\nPlease open a folder in VSCode to enable full functionality.");
     }
 
-    logInfo("Second Life Scripting Extension activated");
 
     // Register commands
+    context.subscriptions.push(
+        vscode.commands.registerCommand(
+            "second-life-scripting.enable",
+            () => {
+                // TODO: Implement WebSocket connection logic
+                vscode.workspace.getConfiguration(configPrefix).update(ConfigKey.Enabled, true);
+            }
+        )
+    );
+
     context.subscriptions.push(
         vscode.commands.registerCommand(
             "second-life-scripting.connectWebSocket",
@@ -78,6 +88,21 @@ export function activate(context: vscode.ExtensionContext): void {
             }
         )
     );
+
+    configService.on(ConfigKey.Enabled, (configService) => {
+        if(configService.isEnabled()) {
+            synchService.activate();
+            logInfo("Second Life Scripting Extension activated");
+        } else {
+            synchService.deactivate();
+            logInfo("Second Life Scripting Extension deactivated");
+        }
+    });
+
+    if(configService.isEnabled()) {
+        synchService.activate();
+        logInfo("Second Life Scripting Extension activated");
+    }
 
     context.subscriptions.push(configService);
     context.subscriptions.push(languageService);

@@ -39,7 +39,7 @@ suite('SeleneYamlGenerator Tests', () => {
         assert.ok(typeof result === 'string', 'Should return a string');
         assert.ok(result.includes('base: roblox'), 'Should use roblox base');
         assert.ok(result.includes('SLua LSL language support'), 'Should have correct name');
-        assert.ok(result.includes(mockVersion), 'Should include version');
+        assert.ok(result.includes('last_updated: '), 'Should include last_updated');
     });
 
     test('Should handle empty language definitions correctly', () => {
@@ -58,7 +58,7 @@ suite('SeleneYamlGenerator Tests', () => {
 
         // Should still have basic structure
         assert.ok(result.includes('base: roblox'), 'Should have base');
-        assert.ok(result.includes(mockVersion), 'Should have version');
+        assert.ok(result.includes('last_updated: '), 'Should have last_updated');
         assert.ok(result.includes('SLua LSL language support'), 'Should have name');
     });
 
@@ -224,8 +224,8 @@ suite('LuauDefsGenerator and DocsJsonGenerator Tests', () => {
         const generator = new LuauDefsGenerator();
         const result = generator.generate(defs);
 
-        assert.ok(result.includes('declare class integer'), 'Should generate integer class');
-        assert.ok(result.includes('declare class vector'), 'Should generate vector class');
+        assert.ok(result.includes('declare extern type integer with'), 'Should generate integer class');
+        assert.ok(result.includes('declare extern type vector with'), 'Should generate vector class');
         assert.ok(result.includes('__add'), 'Should generate operator methods');
         assert.ok(result.includes('x') && result.includes('number'), 'Should generate x property');
         assert.ok(result.includes('y') && result.includes('number'), 'Should generate y property');
@@ -405,7 +405,7 @@ suite('LuauDefsGenerator and DocsJsonGenerator Tests', () => {
         const generator = new LuauDefsGenerator();
         const result = generator.generate(defs);
 
-        assert.ok(result.includes('declare class TestClass'), 'Should generate TestClass');
+        assert.ok(result.includes('declare extern type TestClass with'), 'Should generate TestClass');
         assert.ok(result.includes('overloadedMethod'), 'Should include overloaded method');
     });
 
@@ -476,7 +476,7 @@ suite('LuauDefsGenerator and DocsJsonGenerator Tests', () => {
 
         // Should have all categories
         assert.ok(result.includes('type numeric ='), 'Should have alias');
-        assert.ok(result.includes('declare class Vector'), 'Should have class');
+        assert.ok(result.includes('declare extern type Vector with'), 'Should have class');
         assert.ok(result.includes('declare math:'), 'Should have module');
         assert.ok(result.includes('declare function globalHelper'), 'Should have global function');
         assert.ok(result.includes('declare MAX_VALUE'), 'Should have constant');

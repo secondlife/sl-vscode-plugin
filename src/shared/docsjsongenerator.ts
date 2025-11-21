@@ -136,7 +136,7 @@ export class DocsJsonGenerator {
 
         // Generate wiki link for ll.* functions
         if (moduleName === 'll') {
-            entry.learn_more_link = `https://wiki.secondlife.com/wiki/ll${func.name}`;
+            entry.learn_more_link = `https://create.secondlife.com/script/slua-reference/functions/ll${func.name}/`
         }
 
         docs[key] = entry;
@@ -188,19 +188,19 @@ export class DocsJsonGenerator {
     private generateWikiLink(name: string): string {
         // Handle different naming conventions
         if (name.startsWith('ll.')) {
-            // ll.FunctionName -> https://wiki.secondlife.com/wiki/llFunctionName
-            return `https://wiki.secondlife.com/wiki/ll${name.slice(3)}`;
+            // ll.FunctionName -> https://create.secondlife.com/script/slua-reference/functions/llFunctionName/
+            return `https://create.secondlife.com/script/slua-reference/functions/ll${name.slice(3)}/`;
         }
 
-        if (name === 'uuid' || name === 'vector' || name === 'quaternion' || name === 'integer') {
-            return `https://wiki.secondlife.com/wiki/${name}`;
+        if (name === 'uuid' || name === 'vector' || name === 'quaternion') {
+            return `https://create.secondlife.com/script/slua-reference/${name}/`;
         }
 
         if (name === 'toquaternion' || name === 'tovector') {
-            return `https://wiki.secondlife.com/wiki/${name}`;
+            return `https://create.secondlife.com/script/slua-reference/${name}/`;
         }
 
         // Default pattern
-        return `https://wiki.secondlife.com/wiki/${name}`;
+        return `https://create.secondlife.com/script/slua-reference/${name}/`;
     }
 }

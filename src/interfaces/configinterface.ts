@@ -11,6 +11,7 @@ import { NormalizedPath } from './hostinterface';
 
 /** Keys used by configuration (mirrors LLConfigNames). */
 export enum ConfigKey {
+  Enabled = 'enabled',
   ClientName = 'client.name',
   ClientVersion = 'client.version',
   ClientProtocolVersion = 'client.protocolVersion',
@@ -27,6 +28,7 @@ export enum ConfigKey {
   PreprocessorIncludePaths = 'preprocessor.includePaths',
   PreprocessorMaxIncludeDepth = 'preprocessor.maxIncludeDepth',
   LastSyntaxID = 'syntax.lastID',
+  CompareHashBeforeSync = 'sync.compareHashBeforeSync',
 }
 
 /** Scope target for configuration updates. */
@@ -40,6 +42,11 @@ export interface ConfigScope {
 export interface ConfigInterface {
   /** Read a config value (undefined if not set). */
   getConfig<T>(key: ConfigKey): T | undefined;
+  getConfig<T>(key: ConfigKey, defaultValue:T): T;
+
+  /** Get extensions enabled status */
+  isEnabled() : boolean;
+
   /** Update a config value. Implementations may persist asynchronously. */
   setConfig<T>(key: ConfigKey, value: T, scope?: ConfigScope): Promise<void>;
 

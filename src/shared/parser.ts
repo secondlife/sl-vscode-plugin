@@ -86,6 +86,7 @@ export interface IncludeInfo {
     line: number;
     column: number;
     isRequire: boolean; // true for SLua require(), false for LSL #include
+    path?: string;
 }
 
 /**
@@ -415,16 +416,17 @@ export class Parser {
         const filename = parser.extractStringValue(fileToken.value);
 
         // Record the include for tracking
-        parser.includes.push({
+        const include : IncludeInfo = {
             file: filename,
             line: token.line,
             column: token.column,
             isRequire: false,
-        });
+        };
+        parser.includes.push(include);
 
         // Process the include if host interface is available
         if (parser.host) {
-            await parser.processIncludeDirective(filename, token.line, false);
+            await parser.processIncludeDirective(include);
         }
     }
 
@@ -446,12 +448,13 @@ export class Parser {
                 const fileToken = parser.current();
                 const filename = parser.extractStringValue(fileToken.value);
 
-                parser.includes.push({
+                const include : IncludeInfo = {
                     file: filename,
                     line: token.line,
                     column: token.column,
                     isRequire: true,
-                });
+                };
+                parser.includes.push(include);
 
                 // Advance past the string token
                 parser.advance();
@@ -464,7 +467,7 @@ export class Parser {
 
                 // Process the require if host interface is available
                 if (parser.host) {
-                    await parser.processRequireDirective(filename, token.line);
+                    await parser.processRequireDirective(include);
                 }
             }
         }
@@ -1139,21 +1142,19 @@ export class Parser {
     /**
      * Process an include directive by reading, parsing, and merging the included file
      */
-    private async processIncludeDirective(filename: string, lineNumber: number, isRequire: boolean): Promise<void> {
+    private async processIncludeDirective(include: IncludeInfo): Promise<void> {
         if (!this.host || !this.state.includes) {
             throw new Error('Cannot process includes without host interface');
         }
 
         // Use the include processor to handle the include
         const result = await this.state.includes.processInclude(
-            filename,
+            include,
             this.sourceFile,
-            isRequire,
             this.state.includeState,
             this.state.macros,
             this.state.conditionals,
             this.diagnostics,
-            lineNumber,
             0  // column position
         );
 
@@ -1254,7 +1255,7 @@ export class Parser {
     /**
      * Process a require directive by reading, parsing, wrapping, and registering the module
      */
-    private async processRequireDirective(filename: string, lineNumber: number): Promise<void> {
+    private async processRequireDirective(include: IncludeInfo): Promise<void> {
         if (!this.host || !this.state.includes) {
             throw new Error('Cannot process requires without host interface');
         }
@@ -1266,14 +1267,12 @@ export class Parser {
 
         // Use the include processor to read and tokenize the file
         const result = await this.state.includes.processInclude(
-            filename,
+            include,
             this.sourceFile,
-            true, // isRequire
             this.state.includeState,
             this.state.macros,
             this.state.conditionals,
             this.diagnostics,
-            lineNumber,
             0  // column position
         );
 
@@ -1333,7 +1332,7 @@ export class Parser {
                 const wrappedTokens = this.wrapModuleInFunction(
                     requireParser.outputTokens,
                     resolvedPath,
-                    lineNumber
+                    include.line
                 );
 
                 // Store the wrapped module
@@ -1379,6 +1378,10 @@ export class Parser {
         wrapped.push(...moduleTokens);
 
         // Closing: end)()
+        const last = wrapped[wrapped.length-1];
+        if(last.type !== TokenType.NEWLINE) {
+            wrapped.push(new Token(TokenType.NEWLINE, this.lineEnding, lineNumber, lineDirectiveText.length + 1, 1));
+        }
         wrapped.push(new Token(TokenType.IDENTIFIER, 'end', lineNumber, 1, 3));
         wrapped.push(new Token(TokenType.PAREN_CLOSE, ')', lineNumber, 4, 1));
 
@@ -1602,7 +1605,13 @@ export class Parser {
      * Format: __require_table = nil :: any
      */
     private appendRequireTableCleanup(): void {
-        const line = this.currentOutputLine;
+        let line = this.currentOutputLine;
+
+        const last = this.outputTokens[this.outputTokens.length - 1];
+        if(last && last.type !== TokenType.NEWLINE) {
+            this.outputTokens.push(new Token(TokenType.NEWLINE, this.lineEnding, line, last.column+last.length ,1));
+            line++;
+        }
 
         // __require_table = nil :: any (type cast to allow nil assignment)
         this.outputTokens.push(new Token(TokenType.IDENTIFIER, '__require_table', line, 1, 15));

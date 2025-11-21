@@ -12,6 +12,8 @@ export const STATUS_BAR_TIMEOUT_SECONDS = 3;
 export const SCRIPT_FILE_PATTERN =
   /^sl_script_(.+)_([a-fA-F0-9]{32}|[a-fA-F0-9-]{36})\.(luau|lsl)$/;
 
+
+export const configPrefix = "slVscodeEdit";
 /**
  * Configuration keys
  * Note: Keys marked with '*' are not handled through the configuation UI
@@ -21,6 +23,9 @@ export class ConfigService implements vscode.Disposable, FullConfigInterface {
     private static instance: ConfigService | undefined = undefined;
     private context: vscode.ExtensionContext;
     private SessionConfigs: any = {};
+    private watcher: vscode.Disposable|null = null;
+
+    private configHooks : [string,(configService:FullConfigInterface)=>void][] = []
 
     constructor(context: vscode.ExtensionContext) {
         this.context = context;
@@ -38,7 +43,11 @@ export class ConfigService implements vscode.Disposable, FullConfigInterface {
         //TODO: Cache the configuration values and listen for changes
     }
 
-    dispose(): void {}
+    dispose(): void {
+        if(this.watcher) {
+            this.watcher.dispose();
+        }
+    }
 
     public static getInstance(context?: vscode.ExtensionContext): ConfigService {
         if (!ConfigService.instance) {
@@ -53,7 +62,15 @@ export class ConfigService implements vscode.Disposable, FullConfigInterface {
         return ConfigService.instance;
     }
 
-    public initialize(): void { }
+    public initialize(): void {
+        this.watcher = vscode.workspace.onDidChangeConfiguration((e) => {
+            this.configHooks.filter(hook => e.affectsConfiguration(hook[0])).forEach(hook => hook[1](this));
+        });
+    }
+
+    public on(config:ConfigKey, handler:(configService:FullConfigInterface) => void) : void {
+        this.configHooks.push([`${configPrefix}.${config}`,handler]);
+    }
 
     // ConfigInterface path methods -------------------------------------------------
     public async getExtensionInstallPath(): Promise<NormalizedPath> {
@@ -81,15 +98,17 @@ export class ConfigService implements vscode.Disposable, FullConfigInterface {
         return ConfigService.useLocalConfig();
     }
 
-    public getConfig<T>(config: ConfigKey): T | undefined {
+    public isEnabled() : boolean {
+        return this.getConfig<boolean>(ConfigKey.Enabled) ?? true;
+    }
+
+    public getConfig<T>(config: ConfigKey, defaultValue?:T): T | undefined {
         if (config in this.SessionConfigs) {
             return this.SessionConfigs[config] as T;
         }
-        const configValue = vscode.workspace.getConfiguration("slVscodeEdit").get<T>(config);
-        return (
-            configValue ??
-            undefined
-        );
+        const configuration = vscode.workspace.getConfiguration("slVscodeEdit");
+        if(defaultValue) return configuration.get<T>(config, defaultValue);
+        return configuration.get<T>(config);
     }
 
     public setConfig<T>(config: ConfigKey, value: T, scope?: ConfigScope): Promise<void> {
@@ -97,7 +116,7 @@ export class ConfigService implements vscode.Disposable, FullConfigInterface {
             this.SessionConfigs[config] = value;
             return Promise.resolve();
         }
-        return Promise.resolve(vscode.workspace.getConfiguration("slVscodeEdit").update(config, value, scope?.target === 'global') as unknown as void);
+        return Promise.resolve(vscode.workspace.getConfiguration(configPrefix).update(config, value, scope?.target === 'global') as unknown as void);
     }
 
     public static async getLocalConfigPath(): Promise<vscode.Uri> {
@@ -106,7 +125,7 @@ export class ConfigService implements vscode.Disposable, FullConfigInterface {
         if (workspaceFolders && workspaceFolders.length > 0) {
             const workspaceRoot = workspaceFolders[0].uri;
             const clientName =
-                that.getConfig<string>(ConfigKey.ClientName) || "sl-vscode-edit";
+                that.getConfig<string>(ConfigKey.ClientName) || "sl-vscode-plugin";
             const configDir = vscode.Uri.joinPath(
                 workspaceRoot,
                 ".vscode",

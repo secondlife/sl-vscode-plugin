@@ -15385,6 +15385,24 @@
             "type": "number"
           }
         ]
+      },
+      {
+        "methods": [],
+        "properties": [
+          {
+            "name": "valid",
+            "type": "boolean"
+          },
+          {
+            "name": "index",
+            "type": "number"
+          },
+          {
+            "name": "can_change_damage",
+            "type": "boolean"
+          }
+        ],
+        "name": "DetectedEvent"
       }
     ],
     "globalFunctions": [
@@ -15432,6 +15450,48 @@
             "nil"
           ]
         }
+      },
+      {
+        "comment": "Creates a quaternion from x,y,z,s",
+        "name": "quaternion",
+        "parameters": [
+          {
+            "name": "x",
+            "type": "number"
+          },
+          {
+            "name": "y",
+            "type": "number"
+          },
+          {
+            "name": "z",
+            "type": "number"
+          },
+          {
+            "name": "s",
+            "type": "number"
+          }
+        ],
+        "returnType": "quaternion"
+      },
+      {
+        "comment": "Creates a vector from x,y,z",
+        "name": "vector",
+        "parameters": [
+          {
+            "name": "x",
+            "type": "number"
+          },
+          {
+            "name": "y",
+            "type": "number"
+          },
+          {
+            "name": "z",
+            "type": "number"
+          }
+        ],
+        "returnType": "vector"
       },
       {
         "comment": "Creates a quaternion from x,y,z,s",
@@ -16093,27 +16153,6 @@
       },
       {
         "definition": {
-          "kind": "table",
-          "methods": [],
-          "properties": [
-            {
-              "name": "valid",
-              "type": "boolean"
-            },
-            {
-              "name": "index",
-              "type": "number"
-            },
-            {
-              "name": "can_change_damage",
-              "type": "boolean"
-            }
-          ]
-        },
-        "name": "DetectedEvent"
-      },
-      {
-        "definition": {
           "kind": "literal-union",
           "values": []
         },
@@ -16237,6 +16276,10 @@
               "parameters": [
                 {
                   "name": "self"
+                },
+                {
+                  "name": "eventName",
+                  "type": "EventName"
                 },
                 {
                   "name": "handler",
