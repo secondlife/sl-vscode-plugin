@@ -518,7 +518,7 @@ class SeleneYamlBuilder {
             "()": "nil",
             "nil": "nil",
             "any": "any",
-            "list": { display: "list" },
+            "list": "table",
             "{}": "table",
             "false": "bool",
             "true": "bool",
