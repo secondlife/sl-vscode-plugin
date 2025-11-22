@@ -389,6 +389,7 @@ The preprocessor automatically defines the following system macros that are avai
 | `__SHORTFILE__` | Short filename without path | `"main.lsl"` |
 | `__TIME__` | Current time (ISO format) | `"14:30:45"` |
 | `__TIMESTAMP__` | Full ISO timestamp | `"2025-11-18T14:30:45.123Z"` |
+| `__UNIXTIME__` | Unix timestamp timestamp as an integer | `1763751286` |
 
 **Usage Example:**
 
