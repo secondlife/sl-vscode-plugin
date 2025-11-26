@@ -16272,6 +16272,42 @@
               "returnType": "EventHandler"
             },
             {
+              "name": "once",
+              "overloads": [
+                {
+                  "name": "once",
+                  "parameters": [
+                    {
+                      "name": "self"
+                    },
+                    {
+                      "name": "eventName",
+                      "type": "NonDetectedEventName"
+                    },
+                    {
+                      "name": "handler",
+                      "type": "EventHandler"
+                    }
+                  ],
+                  "returnType": "EventHandler"
+                }
+              ],
+              "parameters": [
+                {
+                  "name": "self"
+                },
+                {
+                  "name": "eventName",
+                  "type": "DetectedEventName"
+                },
+                {
+                  "name": "handler",
+                  "type": "DetectedEventHandler"
+                }
+              ],
+              "returnType": "EventHandler"
+            },
+            {
               "name": "off",
               "parameters": [
                 {

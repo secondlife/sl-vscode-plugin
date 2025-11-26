@@ -49,7 +49,8 @@ export interface HostInterface {
         filename: string,        // raw filename from directive
         from: NormalizedPath,   // path of current source file
         extensions: string[],    // possible extensions to try
-        includePaths?: string[]  // additional include paths from options
+        includePaths?: string[],  // additional include paths from options
+        unsafe?: boolean,
     ): Promise<NormalizedPath | null>;
 
     readFile(p: NormalizedPath, unsafe?: boolean): Promise<string | null>;

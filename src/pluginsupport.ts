@@ -114,7 +114,8 @@ export class SelenePlugin extends BasePlugin {
             let seleneToml: any = {};
             seleneToml = (await host?.readTOML(tomlPath)) || {};
             const fullConfig = normalizeJoinPath(configPath, `${basename}`);
-            seleneToml.std = "roblox+" + fullConfig;
+            const relativeConfig = vscode.workspace.asRelativePath(fullConfig);
+            seleneToml.std = "luau+" + relativeConfig;
             saved = await host.writeTOML(tomlPath, seleneToml);
         }
 

@@ -161,7 +161,7 @@ export class LexingPreprocessor {
                 this.fs,
                 predefinedMacros,
                 maxIncludeDepth,
-                includePaths
+                language == "lsl" ? includePaths : undefined
             );
 
             // Phase 2: Parsing and directive processing

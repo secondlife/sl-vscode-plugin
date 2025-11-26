@@ -15,10 +15,19 @@ import { DiagnosticCollector, ErrorCodes } from "./diagnostics";
 /**
  * Language-specific lexer configuration
  */
+type RegexMultiCharDelimiter = {
+    startingChar: string; // The first character of the starting sequence used to avoid regexing constantly
+    endingChar: string; // The first character of the ending sequence used to avoid regexing constantly
+    startingMatch: RegExp; // Regex to match starting sequence
+    endingMatch: RegExp; // Regex to match ending sequence
+    lengthDifference?: number;
+};
+
+type MultiCharDelimiter = RegexMultiCharDelimiter|[string,string];
+
 export interface LanguageLexerConfig {
     lineCommentPrefix: string; // Line comment prefix (e.g., "//" for LSL, "--" for Luau)
-    blockCommentStart: string; // Block comment start marker (e.g., slash-star)
-    blockCommentEnd: string; // Block comment end marker (e.g., star-slash)
+    blockCommentDelimiters: Array<MultiCharDelimiter>; // block comment delimiters (e.g., "/*" for LSL, "--[[" for Luau)
     logicalOperators: {
         and: string; // Logical AND operator (e.g., "&&" for LSL, "and" for Luau)
         or: string; // Logical OR operator (e.g., "||" for LSL, "or" for Luau)
@@ -31,6 +40,7 @@ export interface LanguageLexerConfig {
     operators?: string[]; // Operators and punctuation
     brackets?: Array<[string, string]>; // Bracket pairs
     stringDelimiters?: string[]; // String delimiters for this language (e.g., ['"', "'"] for LSL, ['"', "'", '`'] for Luau)
+    multiLineStringDelimiters?: MultiCharDelimiter[]; // String delimiters for multi line strings (e.g., luau `[[` or `[==[` etc)
 }
 
 /**
@@ -39,8 +49,9 @@ export interface LanguageLexerConfig {
 export const LANGUAGE_CONFIGS: Record<ScriptLanguage, LanguageLexerConfig> = {
     lsl: {
         lineCommentPrefix: "//",
-        blockCommentStart: "/*",
-        blockCommentEnd: "*/",
+        blockCommentDelimiters: [
+            ["/*","*/"]
+        ],
         logicalOperators: {
             and: "&&",
             or: "||",
@@ -68,8 +79,15 @@ export const LANGUAGE_CONFIGS: Record<ScriptLanguage, LanguageLexerConfig> = {
     },
     luau: {
         lineCommentPrefix: "--",
-        blockCommentStart: "--[[",
-        blockCommentEnd: "]]",
+        blockCommentDelimiters: [
+            {
+                startingChar: "-",
+                endingChar: "]",
+                startingMatch: /^--\[[=]*\[$/, // Regex for `--[=[` with 0-n `=` characters
+                endingMatch: /^\][=]*\]$/, // Regex for `]=]` with 0-n `=` characters
+                lengthDifference: -2, // ending sequence is 2 chars shorter
+            }
+        ],
         logicalOperators: {
             and: "and",
             or: "or",
@@ -94,6 +112,15 @@ export const LANGUAGE_CONFIGS: Record<ScriptLanguage, LanguageLexerConfig> = {
             ["[", "]"],  // Brackets for table indexing
         ],
         stringDelimiters: ['"', "'", '`'],  // Double quotes, single quotes, and backticks
+        multiLineStringDelimiters: [
+            {
+                startingChar: "[",
+                endingChar: "]",
+                startingMatch: /^\[[=]*\[$/, // Regex for `[=[` with 0-n `=` characters
+                endingMatch: /^\][=]*\]$/, // Regex for `]=]` with 0-n `=` characters
+                // allowsNewLines: true,
+            }
+        ],  // Double quotes, single quotes, and backticks
     },
 };
 
@@ -293,8 +320,8 @@ export class Token {
  * Context for lexer state
  */
 interface LexerContext {
-    inBlockComment: boolean;
-    blockCommentLevel: number; // For Lua long bracket syntax: 0 for [[, 1 for [=[, etc.
+    inBlockComment: MultiCharDelimiter|null;
+    blockCommentEndLength: number; // For Lua long bracket syntax: 2 for --[[, 3 for --[=[, etc calculated using RegexMultiCharDelimiter.lengthDifference.
     lineNumber: number;
     columnNumber: number;
 }
@@ -326,8 +353,8 @@ export class Lexer {
         this.source = source;
         this.position = 0;
         this.context = {
-            inBlockComment: false,
-            blockCommentLevel: 0,
+            inBlockComment: null,
+            blockCommentEndLength: 0,
             lineNumber: 1,
             columnNumber: 1,
         };
@@ -398,7 +425,7 @@ export class Lexer {
 
         // Handle block comments (multi-line)
         if (this.context.inBlockComment) {
-            return this.readBlockCommentContent();
+            return this.readBlockCommentContent(this.context.inBlockComment);
         }
 
         const char = this.peek();
@@ -422,6 +449,14 @@ export class Lexer {
         // String literals - check configured delimiters
         if (this.isStringDelimiter(char)) {
             return this.readStringLiteral(char);
+        }
+
+        // Multi line strings -- check configured delimiters
+        if(this.config.multiLineStringDelimiters) {
+            const multiLineStringDelimiter = this.isMultiCharBlockStart(this.config.multiLineStringDelimiters);
+            if (multiLineStringDelimiter) {
+                return this.readMultiLineStringLiteral(multiLineStringDelimiter);
+            }
         }
 
         // Preprocessor directives with prefix (e.g., #include)
@@ -575,26 +610,10 @@ export class Lexer {
         const char = this.peek();
         const nextChar = this.peekAhead(1);
 
-        // For languages with long bracket syntax (Lua), check for block comment FIRST
-        // because block comments start with the line comment prefix
-        const blockStart = this.config.blockCommentStart;
-        if (this.config.useLongBracketSyntax && blockStart) {
-            // Check for start of long bracket comment (e.g., --[)
-            const linePrefix = this.config.lineCommentPrefix;
-            if (linePrefix.length === 2 &&
-                char === linePrefix[0] &&
-                nextChar === linePrefix[1] &&
-                this.peekAhead(2) === '[') {
-                return this.readBlockCommentStart();
-            }
-        } else if (blockStart && blockStart.length >= 2) {
-            // Standard block comment (e.g., /*)
-            const matches = blockStart.length === 2 &&
-                           char === blockStart[0] &&
-                           nextChar === blockStart[1];
-            if (matches) {
-                return this.readBlockCommentStart();
-            }
+        // Check for block comment delimiters
+        const multiLineStart = this.tryReadBlockCommentStart(this.config.blockCommentDelimiters);
+        if(multiLineStart) {
+            return multiLineStart;
         }
 
         // Line comment - check if current position matches line comment prefix
@@ -606,6 +625,97 @@ export class Lexer {
         }
 
         return null;
+    }
+
+    private isMultiCharBlockStart(delimiters: MultiCharDelimiter[]) : MultiCharDelimiter|null {
+        // Loop delimiters and return first match
+        for(const delimiter of delimiters) {
+            if(this.isThisMultiCharBlockStart(delimiter)) {
+                return delimiter;
+            }
+        }
+        return null;
+    }
+
+    private isThisMultiCharBlockStart(delimiter: MultiCharDelimiter) : boolean {
+        let str = this.peek();
+        // Check both delimiter formats, either [stirng, string] or RegexMultiCharDelimiter
+        if(delimiter instanceof Array) {
+            const start = delimiter[0];
+            // Return fast if first char mismatch
+            if(str !== start[0]) return false;
+            let offset = 1;
+            let next = this.peekAhead(offset);
+            // loop peek to build string that matches starting [0] delimiter length
+            while(str.length < start.length && next !== "\0") {
+                str += next;
+                offset++;
+                next = this.peekAhead(offset)
+            }
+            // return if delimiter matches
+            return str === start;
+        } else {
+            // early return if first char doesnt match
+            if (str != delimiter.startingChar) return false;
+            let offset = 1;
+            let next = this.peekAhead(offset);
+            // loop peek to build string checking if it completes the regex
+            while(!delimiter.startingMatch.test(str) && str.length < 11 && next != "\0") {
+                str += next;
+                offset++;
+                next = this.peekAhead(offset);
+            }
+            // return if delimiter matches starting regex
+            return delimiter.startingMatch.test(str);
+        }
+    }
+
+    private isThisMultiCharBlockEnd(delimiter: MultiCharDelimiter, length:number) : boolean {
+        let str = this.peek();
+        // Check both delimiter formats, either [stirng, string] or RegexMultiCharDelimiter
+        if(delimiter instanceof Array) {
+            const end = delimiter[1];
+            // Return fast if first char mismatch
+            if(str !== end[0]) return false;
+            let offset = 1;
+            let next = this.peekAhead(offset);
+            // loop peek to build string that matches given length
+            while(str.length < length && next !== "\0") {
+                str += next;
+                offset++;
+                next = this.peekAhead(offset)
+            }
+            // Return if built string matches end sequence
+            return str === end;
+        } else {
+            // Return fast if first char mismatch
+            if (str != delimiter.endingChar) return false;
+            let offset = 1;
+            let next = this.peekAhead(offset);
+            // loop peek to build string that matches given length
+            while(str.length < length && next != "\0") {
+                str += next;
+                offset++;
+                next = this.peekAhead(offset);
+            }
+            // Return if built string matches regex
+            return delimiter.endingMatch.test(str);
+        }
+    }
+
+    private readMutliCharBlockStart(delimiter: MultiCharDelimiter) : string {
+        let str = "";
+        // read starting sequence of delimiter after we have tested for it.
+        if(delimiter instanceof Array) {
+            while(str.length < delimiter[0].length) {
+                str += this.advance();
+            }
+        } else {
+            while(str.length < 11 && !delimiter.startingMatch.test(str)) {
+                str += this.advance();
+            }
+        }
+        return str;
     }
 
     private readLineComment(): Token {
@@ -633,109 +743,41 @@ export class Lexer {
         );
     }
 
-    private readBlockCommentStart(): Token {
+    private tryReadBlockCommentStart(delimiters: MultiCharDelimiter[]) : Token|null {
+        const delimiter = this.isMultiCharBlockStart(delimiters);
+        if(!delimiter) {
+            return null;
+        }
+
         const startLine = this.context.lineNumber;
         const startColumn = this.context.columnNumber;
 
-        // Consume the block comment start (configured)
-        const start = this.config.blockCommentStart;
-        let value = "";
+        const text = this.readMutliCharBlockStart(delimiter);
 
-        // For Lua-style long brackets: --[=*[
-        // Detect the level of equals signs
-        let equalsLevel = 0;
-
-        if (this.config.useLongBracketSyntax) {
-            // Read line comment prefix (e.g., "--")
-            const linePrefix = this.config.lineCommentPrefix;
-            for (let i = 0; i < linePrefix.length; i++) {
-                value += this.advance();
-            }
-
-            // Read opening bracket
-            const openBracket = this.config.blockCommentStart.charAt(linePrefix.length);
-            if (this.peek() === openBracket) {
-                value += this.advance();
-            }
-
-            // Count equals signs
-            while (this.peek() === '=') {
-                value += this.advance();
-                equalsLevel++;
-            }
-
-            // Read the final bracket (same as opening bracket)
-            if (this.peek() === openBracket) {
-                value += this.advance();
-            }
+        this.context.inBlockComment = delimiter;
+        if(delimiter instanceof Array) {
+            this.context.blockCommentEndLength = delimiter[1].length;
         } else {
-            // Standard block comment (e.g., /* */)
-            for (let i = 0; i < start.length; i++) {
-                value += this.advance();
-            }
+            this.context.blockCommentEndLength = text.length + (delimiter.lengthDifference ?? 0)
         }
-
-        this.context.inBlockComment = true;
-        this.context.blockCommentLevel = equalsLevel;
 
         return new Token(
             TokenType.BLOCK_COMMENT_START,
-            value,
+            text,
             startLine,
             startColumn,
-            value.length
+            text.length
         );
     }
 
-    private readBlockCommentContent(): Token {
+    private readBlockCommentContent(delimiter: MultiCharDelimiter): Token {
         const startLine = this.context.lineNumber;
         const startColumn = this.context.columnNumber;
+        const endLength = this.context.blockCommentEndLength;
         let value = "";
-        const endMarker = this.config.blockCommentEnd;
+        while(!this.isAtEnd()) {
+            if(this.isThisMultiCharBlockEnd(delimiter, endLength)) {
 
-        while (!this.isAtEnd()) {
-            const char = this.peek();
-
-            // Check for block comment end
-            let matchesEnd = false;
-            let endLength = 0;
-
-            if (this.config.useLongBracketSyntax) {
-                // Lua-style long brackets: ]=*]
-                // Must match the same number of equals signs as the start
-                if (char === ']') {
-                    let tempPos = this.position;
-                    let equalsCount = 0;
-
-                    // Skip ']'
-                    tempPos++;
-
-                    // Count equals signs
-                    while (tempPos < this.source.length && this.source[tempPos] === '=') {
-                        equalsCount++;
-                        tempPos++;
-                    }
-
-                    // Check for final ']'
-                    if (tempPos < this.source.length &&
-                        this.source[tempPos] === ']' &&
-                        equalsCount === this.context.blockCommentLevel) {
-                        matchesEnd = true;
-                        endLength = 2 + equalsCount; // ']' + equals + ']'
-                    }
-                }
-            } else {
-                // Standard block comment (e.g., */)
-                const nextChar = this.peekAhead(1);
-                matchesEnd = endMarker.length === 2 &&
-                           char === endMarker[0] &&
-                           nextChar === endMarker[1];
-                endLength = endMarker.length;
-            }
-
-            if (matchesEnd) {
-                // If we have accumulated content, return it first
-                // The end marker will be returned on the next call
                 if (value.length > 0) {
                     return new Token(
                         TokenType.BLOCK_COMMENT_CONTENT,
@@ -746,23 +788,20 @@ export class Lexer {
                     );
                 }
 
-                // Return the end token
-                let endValue = "";
-                for (let i = 0; i < endLength; i++) {
-                    endValue += this.advance();
+                while(value.length < endLength && !this.isAtEnd()) {
+                    value += this.advance();
                 }
-                this.context.inBlockComment = false;
-                this.context.blockCommentLevel = 0;
-
+                this.context.inBlockComment = null;
+                this.context.blockCommentEndLength = 0;
                 return new Token(
                     TokenType.BLOCK_COMMENT_END,
-                    endValue,
+                    value,
                     startLine,
                     startColumn,
-                    endLength
+                    value.length
                 );
             }
-
+            const char = this.peek();
             if (char === '\n' || char === '\r') {
                 // Include newline in comment content
                 if (char === '\r' && this.peekAhead(1) === '\n') {
@@ -825,6 +864,59 @@ export class Lexer {
 
         // Check if we reached end of file without closing quote
         if (this.isAtEnd() && !value.endsWith(quoteChar)) {
+            this.diagnostics.addError(
+                `Unterminated string literal`,
+                {
+                    line: startLine,
+                    column: startColumn,
+                    length: value.length,
+                    sourceFile: this.sourceFile,
+                },
+                ErrorCodes.UNTERMINATED_STRING
+            );
+        }
+
+        return new Token(
+            TokenType.STRING_LITERAL,
+            value,
+            startLine,
+            startColumn,
+            value.length
+        );
+    }
+
+    private readMultiLineStringLiteral(delimiter: MultiCharDelimiter): Token {
+        const startLine = this.context.lineNumber;
+        const startColumn = this.context.columnNumber;
+
+        let value = this.readMutliCharBlockStart(delimiter);
+        const endLength = value.length + (delimiter instanceof Array ? 0 : (delimiter.lengthDifference ?? 0));
+        let ended = false;
+        while (!this.isAtEnd()) {
+            if (this.isThisMultiCharBlockEnd(delimiter, endLength)) {
+                let end = "";
+                while (end.length < endLength && !this.isAtEnd()) {
+                    end += this.advance();
+                }
+                value += end;
+                ended = end.length == endLength;
+                break;
+            }
+            const char = this.peek();
+            if (char === '\n' || char === '\r') {
+                // Include newline in multi line string content
+                if (char === '\r' && this.peekAhead(1) === '\n') {
+                    value += this.advance();
+                }
+                value += this.advance();
+                this.context.lineNumber++;
+                this.context.columnNumber = 1;
+            } else {
+                value += this.advance();
+            }
+        }
+
+        if(!ended) {
             this.diagnostics.addError(
                 `Unterminated string literal`,
                 {
@@ -1251,10 +1343,7 @@ export class Lexer {
     //#region Helper methods
 
     private peek(): string {
-        if (this.isAtEnd()) {
-            return '\0';
-        }
-        return this.source[this.position];
+        return this.peekAhead(0);
     }
 
     private peekAhead(offset: number): string {
@@ -1283,9 +1372,8 @@ export class Lexer {
     }
 
     private advance(): string {
-        const char = this.source[this.position++];
         this.context.columnNumber++;
-        return char;
+        return this.source[this.position++];
     }
 
     private isAtEnd(): boolean {

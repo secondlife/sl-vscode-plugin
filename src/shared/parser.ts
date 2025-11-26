@@ -148,6 +148,9 @@ export class Parser {
     // Diagnostic collector
     private diagnostics: DiagnosticCollector;
 
+    // Flag wether external require is allowed, passed down when using .luarc
+    private allowExternalRequires: boolean = false;
+
     constructor(
         tokens: Token[],
         sourceFile: NormalizedPath,
@@ -1273,7 +1276,8 @@ export class Parser {
             this.state.macros,
             this.state.conditionals,
             this.diagnostics,
-            0  // column position
+            0,  // column position
+            this.allowExternalRequires,
         );
 
         if (!result.success) {
@@ -1321,6 +1325,8 @@ export class Parser {
                     false, // Nested parser is NOT top-level
                     this.workspaceRoots // Pass workspace roots to child parser
                 );
+                // Pass on this setting so that external files can perform requires
+                requireParser.allowExternalRequire(result.external ?? false);
 
                 // Parse the required file
                 const requireResult = await requireParser.parse();
@@ -1353,6 +1359,10 @@ export class Parser {
         // Emit the module invocation at the point of require()
         // __require_table[moduleId]()
         this.emitRequireInvocation(moduleId);
+    }
+
+    public allowExternalRequire(allow:boolean) : void {
+        this.allowExternalRequires = allow;
     }
 
     /**

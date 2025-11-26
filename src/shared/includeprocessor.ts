@@ -10,13 +10,14 @@
  * - File resolution via HostInterface
  */
 
-import { NormalizedPath, HostInterface } from '../interfaces/hostinterface';
+import { NormalizedPath, HostInterface, normalizeJoinPath, normalizePath } from '../interfaces/hostinterface';
 import { ScriptLanguage } from './languageservice';
 import { Lexer, Token } from './lexer';
 import { MacroProcessor } from './macroprocessor';
 import { ConditionalProcessor } from './conditionalprocessor';
 import { DiagnosticCollector, DiagnosticSeverity, ErrorCodes } from './diagnostics';
 import { IncludeInfo } from './parser';
+import path from 'path';
 
 /**
  * Result of processing an include directive
@@ -30,7 +31,15 @@ export interface IncludeResult {
     resolvedPath: NormalizedPath | null;
     /** Error message if unsuccessful */
     error?: string;
+    /** Wether the file was included via an external alias */
+    external?: boolean;
 }
+
+export type LuauRCRequireMap = {[k:NormalizedPath]:RequireMap};
+export type RequireMap = {[k:string]:NormalizedPath};
+export type LuauRCFile = {
+    aliases: {[k:string]:string};
+};
 
 /**
  * State for include processing shared across nested includes
@@ -46,6 +55,8 @@ export interface IncludeState {
     maxIncludeDepth: number;
     /** Include paths for file resolution */
     includePaths?: string[];
+    /** Require map for file resolution */
+    requireMap?: LuauRCRequireMap;
 }
 
 /**
@@ -81,9 +92,10 @@ export class IncludeProcessor {
         _macros: MacroProcessor,
         _conditionals: ConditionalProcessor,
         diagnostics?: DiagnosticCollector,
-        column?: number
+        column?: number,
+        allowExternal: boolean = false,
     ): Promise<IncludeResult> {
-        const filename = include.file;
+        let filename = include.file;
         const line = include.line;
         const isRequire = include.isRequire;
         // Check max include depth
@@ -113,14 +125,69 @@ export class IncludeProcessor {
 
         // Resolve the include file path
         const extensions = this.language === "lsl" ? ["lsl"] : ["luau", "lua"];
-        const includePaths = isRequire ? ["."] : (state.includePaths || ["."]);
+        let includePaths: string[] = [];
+        let aliased = false;
 
-        const resolvedPath = await this.host.resolveFile(
+        if(isRequire) {
+            if(!filename.startsWith("@")) {
+                // Regular require, relative lookup
+                includePaths = ["."];
+            } else {
+                try {
+                    // get the alias path
+                    const aliasPath = await this.getLuauRequireAliasDir(filename, sourceFile, state);
+                    // Remove the alias from the filename
+                    filename = filename.split(path.sep).slice(1).join(path.sep);
+                    includePaths = [aliasPath];
+                    aliased = true;
+                } catch(error) {
+                    if(typeof(error) == "string") {
+                        if (diagnostics) {
+                            diagnostics.add({
+                                severity: DiagnosticSeverity.ERROR,
+                                code: ErrorCodes.FILE_NOT_FOUND,
+                                message: error,
+                                sourceFile: sourceFile,
+                                line: line ?? 0,
+                                column: column ?? 0,
+                                length: filename.length
+                            });
+                        }
+                        return {
+                            success: false,
+                            tokens: [],
+                            resolvedPath: null,
+                            error
+                        }
+                    }
+                    throw error;
+                }
+            }
+        } else {
+            includePaths = [...(state.includePaths ?? [])];
+        }
+        let resolvedPath = await this.host.resolveFile(
             filename,
             sourceFile,
             extensions,
-            includePaths
+            includePaths,
+            aliased || allowExternal,
         );
+        console.error("Resolve: ", [filename, sourceFile, extensions, includePaths, aliased, allowExternal], resolvedPath);
+
+        if(!resolvedPath && this.language == "luau") {
+            // Luau require supports default file in folder include mechanic 'init.luau'
+            if(!filename.toLowerCase().endsWith(".luau") && !filename.toLocaleLowerCase().endsWith(".lua")) {
+                filename += (filename.length ? path.sep : "") + "init";
+                resolvedPath = await this.host.resolveFile(
+                    filename,
+                    sourceFile,
+                    extensions,
+                    includePaths,
+                    aliased || allowExternal,
+                );
+            }
+        }
 
         if (!resolvedPath) {
             const error = `Include file not found: ${filename}`;
@@ -144,6 +211,33 @@ export class IncludeProcessor {
                 resolvedPath: null,
                 error
             };
+        }
+
+        if(aliased) {
+            // Check that the resolved path for an alias is definitley a child of the alias path.
+            const relative = path.relative(includePaths[0], resolvedPath);
+            if(!relative || relative.startsWith("..") || path.isAbsolute(relative)) {
+                const error = `Require file was not inside alias directory`;
+
+                if (diagnostics) {
+                    diagnostics.add({
+                        severity: DiagnosticSeverity.ERROR,
+                        code: ErrorCodes.INCLUDE_PATH_INVALID,
+                        message: error,
+                        sourceFile: sourceFile,
+                        line: line ?? 0,
+                        column: column ?? 0,
+                        length: filename.length
+                    });
+                }
+
+                return {
+                    success: false,
+                    tokens: [],
+                    resolvedPath: null,
+                    error
+                };
+            }
         }
 
         include.path = resolvedPath;
@@ -184,7 +278,7 @@ export class IncludeProcessor {
         }
 
         // Read the include file
-        const includeContent = await this.host.readFile(resolvedPath);
+        const includeContent = await this.host.readFile(resolvedPath, aliased || allowExternal);
         if (!includeContent) {
             const error = `Failed to read include file: ${resolvedPath}`;
 
@@ -225,8 +319,73 @@ export class IncludeProcessor {
         return {
             success: true,
             tokens,
-            resolvedPath
+            resolvedPath,
+            external : aliased || allowExternal,
         };
+    }
+
+    private async getLuauRequireAliasDir(requirePath:string, sourceFile:NormalizedPath, state:IncludeState) : Promise<string> {
+        if(!requirePath.startsWith("@")) {
+            throw "Alias must start with @";
+        }
+        if(requirePath.endsWith(`${path.sep}..`) || requirePath.includes(`${path.sep}..${path.sep}`)) {
+            throw `Require alias cannot contain directory traversal`;
+        }
+
+        let alias = "";
+        let aliasLen = requirePath.split(path.sep)[0].length;
+        alias = requirePath.slice(1,aliasLen);
+        if(alias.startsWith("sl-")) {
+            // Reserve sl-* alias for possible future use as a standard library system
+            throw `Alias 'sl-*' is reserved`
+        }
+
+        if(!state.requireMap) {
+            state.requireMap = {};
+        }
+        const map = await this.resolveLuaurcFileAliases(sourceFile, state.requireMap);
+
+        if(map[alias]) return map[alias];
+
+        throw `Require alias not found: ${requirePath}`;
+    }
+
+    private async resolveLuaurcFileAliases(sourceFile:string, rcMap: LuauRCRequireMap) : Promise<RequireMap> {
+        const map: RequireMap = {};
+        let dir = normalizePath(sourceFile);
+        while(true) {
+            dir = normalizePath(path.dirname(dir));
+            if(dir.length < 3) break;
+            const norm = normalizeJoinPath(dir,".luaurc");
+            let dirMap = rcMap[norm] ?? null;
+            if(!dirMap) {
+                const rcfile = await this.host.readJSON<LuauRCFile>(norm);
+                if(rcfile === null) {
+                    rcMap[norm] = {};
+                    continue;
+                }
+                if(typeof(rcfile) !== "object") continue;
+                const aliases = rcfile.aliases ?? null;
+                if(typeof(aliases) !== "object") continue;
+                if(aliases === null) continue;
+                if(aliases instanceof Array) continue;
+                rcMap[norm] = {};
+                for(const alias in aliases) {
+                    let str = aliases[alias];
+                    if(path.isAbsolute(str)) {
+                        rcMap[norm][alias] = normalizePath(str);
+                    } else {
+                        rcMap[norm][alias] = normalizeJoinPath(dir,str);
+                    }
+                }
+                dirMap = rcMap[norm] ?? {};
+            }
+            for(const alias in dirMap) {
+                map[alias] = dirMap[alias];
+            }
+        }
+
+        return map;
     }
 
     /**
@@ -238,7 +397,7 @@ export class IncludeProcessor {
             includeStack: [],
             includeDepth: 0,
             maxIncludeDepth,
-            includePaths
+            includePaths,
         };
     }
 

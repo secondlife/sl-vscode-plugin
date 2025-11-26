@@ -217,6 +217,7 @@ export const ErrorCodes = {
     INCLUDE_DEPTH_EXCEEDED: "INC003",
     PATH_RESOLUTION_FAILED: "INC004",
     FILE_READ_ERROR: "INC005",
+    INCLUDE_PATH_INVALID: "INC006",
 
     // Macro errors (MAC prefix)
     UNDEFINED_MACRO: "MAC001",

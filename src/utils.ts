@@ -3,7 +3,7 @@
  * Copyright (C) 2025, Linden Research, Inc.
  */
 import * as vscode from "vscode";
-import * as path from "path";
+import path from "path";
 import { ConfigService } from "./configservice";
 import { ConfigKey, FullConfigInterface } from "./interfaces/configinterface";
 import { fileExists, HostInterface, NormalizedPath, normalizePath } from "./interfaces/hostinterface";
@@ -281,7 +281,8 @@ export class VSCodeHost implements HostInterface {
         filename: string,
         from: NormalizedPath,
         extensions: string[],
-        includePaths?: string[]
+        includePaths?: string[],
+        unsafe: boolean = false,
     ): Promise<NormalizedPath | null> {
         // Normalize base parameters
         const normalizedFrom = path.normalize(from);
@@ -306,7 +307,7 @@ export class VSCodeHost implements HostInterface {
 
         // Attempt to stat a candidate file
         const tryCandidate = async (absPath: string): Promise<string | null> => {
-            if (!isInsideWorkspace(absPath)) return null;
+            if (!isInsideWorkspace(absPath) && !unsafe) return null;
             try {
                 const uri = vscode.Uri.file(absPath);
                 const stat = await vscode.workspace.fs.stat(uri);

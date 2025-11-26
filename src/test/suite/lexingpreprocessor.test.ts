@@ -15,6 +15,7 @@ import {
 import { LexingPreprocessor, PreprocessorOptions } from "../../shared/lexingpreprocessor";
 import { normalizePath, HostInterface, NormalizedPath } from "../../interfaces/hostinterface";
 import { FullConfigInterface, ConfigKey } from "../../interfaces/configinterface";
+import { ScriptLanguage } from "../../shared/languageservice";
 
 /**
  * Mock configuration class for testing
@@ -291,12 +292,14 @@ suite("Lexing Preprocessor Test Suite", () => {
             const lexer1 = new Lexer(source1, "luau");
             const tokens1 = lexer1.tokenize();
 
-            assert.strictEqual(tokens1[0].type, TokenType.BLOCK_COMMENT_START);
-            assert.strictEqual(tokens1[0].value, "--[=[");
-            assert.strictEqual(tokens1[1].type, TokenType.BLOCK_COMMENT_CONTENT);
-            assert.ok(tokens1[1].value.includes("]] inside"));
-            assert.strictEqual(tokens1[2].type, TokenType.BLOCK_COMMENT_END);
-            assert.strictEqual(tokens1[2].value, "]=]");
+            console.log(tokens1);
+
+            assert.strictEqual(tokens1[0].type, TokenType.BLOCK_COMMENT_START, "Expected Block comment start");
+            assert.strictEqual(tokens1[0].value, "--[=[", `Expected --[=[ got ${tokens1[0].value}`);
+            assert.strictEqual(tokens1[1].type, TokenType.BLOCK_COMMENT_CONTENT, "Expected block comment content");
+            assert.ok(tokens1[1].value.includes("]] inside"), "Comment content did not include expected");
+            assert.strictEqual(tokens1[2].type, TokenType.BLOCK_COMMENT_END, "Expected block comment end");
+            assert.strictEqual(tokens1[2].value, "]=]", `Expected ]=] got ${tokens1[2].value}`);
 
             // Test --[==[ ... ]==]
             const source2 = `--[==[\nDouble equals level\n]==]`;
@@ -340,54 +343,116 @@ suite("Lexing Preprocessor Test Suite", () => {
             assert.strictEqual(lslStrings[1].value, `'single'`);
 
             // Test Luau with double, single, and backticks
-            const luauSource = `"double" 'single' \`backtick\``;
+            const luauSourceStrings = [
+                `"double"`,
+                `'single'`,
+                '`backtick`',
+                "[[square]]",
+                "[=[square equals]=]",
+            ]
+            const luauSource = luauSourceStrings.join(" ");
             const luauLexer = new Lexer(luauSource, "luau");
             const luauTokens = luauLexer.tokenize();
 
+            assert.ok(!luauLexer.getDiagnostics().hasErrors(),"Luau Lexer has errors: " + JSON.stringify(luauLexer.getDiagnostics().getErrors(),null,2));
+
             const luauStrings = luauTokens.filter(t => t.type === TokenType.STRING_LITERAL);
-            assert.strictEqual(luauStrings.length, 3);
-            assert.strictEqual(luauStrings[0].value, `"double"`);
-            assert.strictEqual(luauStrings[1].value, `'single'`);
-            assert.strictEqual(luauStrings[2].value, `\`backtick\``);
+            for(const i in luauSourceStrings) {
+                assert.strictEqual(luauStrings[i]?.value, luauSourceStrings[i]);
+            }
+            assert.strictEqual(luauStrings.length, luauSourceStrings.length);
         });
+
+        const tokenizeAndGetStrings = (strings:string[],lang:ScriptLanguage) : string[] => {
+            const lexer = new Lexer(strings.join(" "),lang);
+            const tokens = lexer.tokenize().filter(t => t.type == TokenType.STRING_LITERAL);
+            return tokens.map(t => t.value);
+        };
 
         test("should handle embedded quotes in strings", () => {
             // Test single quotes inside double-quoted strings
-            const source1 = `"This is a 'string'"`;
-            const lexer1 = new Lexer(source1, "lsl");
-            const tokens1 = lexer1.tokenize();
-
-            const strings1 = tokens1.filter(t => t.type === TokenType.STRING_LITERAL);
-            assert.strictEqual(strings1.length, 1);
-            assert.strictEqual(strings1[0].value, `"This is a 'string'"`);
+            const source1 = [`"This is a 'string'"`];
+            const strings1 = tokenizeAndGetStrings(source1, "lsl");
+            for(const i in source1) {
+                assert.strictEqual(strings1[i], source1[i]);
+            }
+            assert.strictEqual(strings1.length, source1.length);
 
             // Test double quotes inside single-quoted strings
-            const source2 = `'embedded "double" quote'`;
-            const lexer2 = new Lexer(source2, "lsl");
-            const tokens2 = lexer2.tokenize();
-
-            const strings2 = tokens2.filter(t => t.type === TokenType.STRING_LITERAL);
-            assert.strictEqual(strings2.length, 1);
-            assert.strictEqual(strings2[0].value, `'embedded "double" quote'`);
+            const source2 = [`'embedded "double" quote'`];
+            const strings2 = tokenizeAndGetStrings(source2, "lsl");
+            for(const i in source2) {
+                assert.strictEqual(strings2[i], source2[i]);
+            }
+            assert.strictEqual(strings2.length, source2.length);
 
             // Test mixed quotes in Luau with backticks
-            const source3 = `\`can contain "double" and 'single' quotes\``;
-            const lexer3 = new Lexer(source3, "luau");
-            const tokens3 = lexer3.tokenize();
-
-            const strings3 = tokens3.filter(t => t.type === TokenType.STRING_LITERAL);
-            assert.strictEqual(strings3.length, 1);
-            assert.strictEqual(strings3[0].value, `\`can contain "double" and 'single' quotes\``);
+            const source3 = [`\`can contain "double" and 'single' quotes\``];
+            const strings3 = tokenizeAndGetStrings(source3, "luau");
+            for(const i in source3) {
+                assert.strictEqual(strings3[i], source3[i]);
+            }
+            assert.strictEqual(strings3.length, source3.length);
 
             // Test multiple strings with different delimiters
-            const source4 = `"first 'has' single" 'second "has" double'`;
-            const lexer4 = new Lexer(source4, "lsl");
-            const tokens4 = lexer4.tokenize();
+            const source4 = [`"first 'has' single"`,`'second "has" double'`];
+            const strings4 = tokenizeAndGetStrings(source4,"lsl");
+            for(const i in source4) {
+                assert.strictEqual(strings4[i], source4[i]);
+            }
+            assert.strictEqual(strings4.length, source4.length);
 
-            const strings4 = tokens4.filter(t => t.type === TokenType.STRING_LITERAL);
-            assert.strictEqual(strings4.length, 2);
-            assert.strictEqual(strings4[0].value, `"first 'has' single"`);
-            assert.strictEqual(strings4[1].value, `'second "has" double'`);
+            const source5 = [
+                `"first 'has' single"`,
+                `'second "has" double'`,
+                `\`third "has" 'both'\``,
+                `[["fourth" 'has' \`three\`]]`,
+                `[=["fourth" 'has' \`three\` [[and one more]]]=]`,
+            ];
+            const strings5 = tokenizeAndGetStrings(source5,"luau");
+            for(const i in source5) {
+                assert.strictEqual(strings5[i], source5[i]);
+            }
+            assert.strictEqual(strings5.length, source5.length);
+
+            const source6 = [
+                `[===[now we[[[[[]]]]] are [==[]][[[===[]]]] just really messing [][][[][][[[]]]] around]]] ]====] ]===]`,
+                `[===[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[===]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]===]`,
+            ];
+            const strings6 = tokenizeAndGetStrings(source6,"luau");
+            for(const i in source6) {
+                assert.strictEqual(strings6[i], source6[i]);
+            }
+            assert.strictEqual(strings6.length, source6.length);
+
+        });
+
+        test("should handle newlines in strings", () => {
+            // Test that luau can handle newlines in strings delimited by [[ ]]
+            const source1 = [
+                `[===[strings with 'qoutes' \`backticks\` and \n new\nlines\n\n\n\nin\n them \n]===]`,
+                `[===[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[=\n=]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]===]`,
+                `[[hello\nbye]]`,
+                `[[\n]]`,
+                `[[hello\n]]`,
+                `[[\nbye]]`,
+                `[[\nbye]]`,
+                `[[\n\t\t]]`,
+                `[[\t\t\n\t\t]]`,
+            ];
+            const strings1 = tokenizeAndGetStrings(source1,"luau");
+            for(const i in source1) {
+                assert.strictEqual(strings1[i], source1[i]);
+            }
+            assert.strictEqual(strings1.length, source1.length);
+
+            // And windows style
+            const source2 = source1.map(s => s.replaceAll("\n","\r\n"));
+            const strings2 = tokenizeAndGetStrings(source2,"luau");
+            for(const i in source2) {
+                assert.strictEqual(strings2[i], source2[i]);
+            }
+            assert.strictEqual(strings2.length, source2.length);
         });
 
         test("should recognize LSL preprocessor directives", () => {
@@ -623,8 +688,9 @@ suite("Lexing Preprocessor Test Suite", () => {
             // Create a custom language config with Python-style comments
             const customConfig: LanguageLexerConfig = {
                 lineCommentPrefix: "#",
-                blockCommentStart: "'''",
-                blockCommentEnd: "'''",
+                // blockCommentStart: "'''",
+                // blockCommentEnd: "'''",
+                blockCommentDelimiters:[["'''","'''"]],
                 logicalOperators: {
                     and: "&&",
                     or: "||",
@@ -652,8 +718,9 @@ suite("Lexing Preprocessor Test Suite", () => {
             // Create a custom language config with unique operators
             const customConfig: LanguageLexerConfig = {
                 lineCommentPrefix: "//",
-                blockCommentStart: "/*",
-                blockCommentEnd: "*/",
+                // blockCommentStart: "/*",
+                // blockCommentEnd: "*/",
+                blockCommentDelimiters: [["/*","*/"]],
                 logicalOperators: {
                     and: "&&",
                     or: "||",
@@ -681,8 +748,9 @@ suite("Lexing Preprocessor Test Suite", () => {
             // Create a custom language config with standard brackets
             const customConfig: LanguageLexerConfig = {
                 lineCommentPrefix: "//",
-                blockCommentStart: "/*",
-                blockCommentEnd: "*/",
+                // blockCommentStart: "/*",
+                // blockCommentEnd: "*/",
+                blockCommentDelimiters: [["/*","*/"]],
                 logicalOperators: {
                     and: "&&",
                     or: "||",
