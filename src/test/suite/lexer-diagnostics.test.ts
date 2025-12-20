@@ -286,4 +286,22 @@ suite('Lexer Diagnostics', () => {
         assert.strictEqual(diagnostics.hasErrors(), false);
         assert.strictEqual(diagnostics.getCount(), 0);
     });
+
+    test('Unterminated SLua string interp - newline', () => {
+        const source = 'local str = `some string\nnew line`';
+        const diagnostics = new DiagnosticCollector();
+        const lexer = new Lexer(source, "luau", testFile, diagnostics);
+        lexer.tokenize();
+        assert.strictEqual(diagnostics.hasErrors(), true);
+        assert.strictEqual(diagnostics.getCount(), 2);
+    });
+
+    test('Unterminated SLua string interp - {', () => {
+        const source = 'local str = `some string{new line';
+        const diagnostics = new DiagnosticCollector();
+        const lexer = new Lexer(source, "luau", testFile, diagnostics);
+        lexer.tokenize();
+        assert.strictEqual(diagnostics.hasErrors(), true);
+        assert.strictEqual(diagnostics.getCount(), 1);
+    });
 });

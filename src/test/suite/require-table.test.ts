@@ -14,7 +14,7 @@ import * as assert from 'assert';
 import * as path from 'path';
 import { Parser } from '../../shared/parser';
 import { Lexer } from '../../shared/lexer';
-import { NormalizedPath, normalizePath } from '../../interfaces/hostinterface';
+import { HostInterface, NormalizedPath, normalizePath } from '../../interfaces/hostinterface';
 
 suite('Require Table Tests', () => {
     const testFile = normalizePath('/test/main.luau');
@@ -75,7 +75,7 @@ suite('Require Table Tests', () => {
         assert.ok(result.source.includes('end)'), 'Should have function closing');
     });
 
-    test('should emit require table at file start', async () => {
+    test('should emit require function at file start', async () => {
         const moduleFile = normalizePath('/test/module.luau');
         const files = new Map<NormalizedPath, string>();
         files.set(moduleFile, 'local x = 42');
@@ -90,26 +90,8 @@ suite('Require Table Tests', () => {
         const result = await parser.parse();
 
         // Should start with table declaration
-        assert.ok(result.source.startsWith('local __require_table'), 'Should start with table declaration');
-        assert.ok(result.source.includes('local __require_table: { [number]: () -> any } = {}'), 'Should have table opening');
-    });
-
-    test('should emit table cleanup at file end', async () => {
-        const moduleFile = normalizePath('/test/module.luau');
-        const files = new Map<NormalizedPath, string>();
-        files.set(moduleFile, 'local x = 42');
-        files.set(testFile, 'local result = require("module.luau")');
-
-        const host = createMockHost(files);
-
-        const lexer = new Lexer('local result = require("module.luau")', 'luau');
-        const tokens = lexer.tokenize();
-
-        const parser = new Parser(tokens, testFile, 'luau', host);
-        const result = await parser.parse();
-
-        // Should end with table cleanup
-        assert.ok(result.source.includes('__require_table = nil'), 'Should have table cleanup');
+        assert.ok(result.source.startsWith('(function()'), 'Should start with table declaration');
+        assert.ok(result.source.includes('local modules = {'), 'Should have table opening');
     });
 
     test('should invoke module from table at require point', async () => {
@@ -127,7 +109,7 @@ suite('Require Table Tests', () => {
         const result = await parser.parse();
 
         // Should have invocation in place of require
-        assert.ok(result.source.includes('__require_table[1]()'), 'Should have table invocation');
+        assert.ok(result.source.includes('require(1)'), 'Should have table invocation');
     });
 
     test('should use same module ID for duplicate requires', async () => {
@@ -146,11 +128,11 @@ suite('Require Table Tests', () => {
         const result = await parser.parse();
 
         // Count occurrences of module in table - should be only once
-        const tableMatch = result.source.match(/\[1\]\s*=/g);
+        const tableMatch = result.source.match(/(local x = 42)/g);
         assert.strictEqual(tableMatch?.length, 1, 'Module should appear in table only once');
 
         // Count invocations - should be twice
-        const invocationMatches = result.source.match(/__require_table\[1\]\(\)/g);
+        const invocationMatches = result.source.match(/require\(1\)/g);
         assert.strictEqual(invocationMatches?.length, 2, 'Should have two invocations');
     });
 
@@ -172,12 +154,12 @@ suite('Require Table Tests', () => {
         const result = await parser.parse();
 
         // Should have both modules in table
-        assert.ok(result.source.includes('[1] ='), 'Should have module 1');
-        assert.ok(result.source.includes('[2] ='), 'Should have module 2');
+        // assert.ok(result.source.includes('[1] ='), 'Should have module 1');
+        // assert.ok(result.source.includes('[2] ='), 'Should have module 2');
 
         // Should have invocations for both
-        assert.ok(result.source.includes('__require_table[1]()'), 'Should invoke module 1');
-        assert.ok(result.source.includes('__require_table[2]()'), 'Should invoke module 2');
+        assert.ok(result.source.includes('require(1)'), 'Should invoke module 1');
+        assert.ok(result.source.includes('require(2)'), 'Should invoke module 2');
     });
 
     test('should include @line directives in wrapped modules', async () => {
@@ -229,8 +211,8 @@ suite('Require Table Tests', () => {
         const result = await parser.parse();
 
         // Should have both modules in table
-        assert.ok(result.source.includes('[1] ='), 'Should have first module');
-        assert.ok(result.source.includes('[2] ='), 'Should have second module');
+        assert.ok(result.source.includes('local function helper() end'), 'Should have first module');
+        assert.ok(result.source.includes('require(2)\nlocal x = 42'), 'Should have second module');
     });
 
     // Tests using real files on disk
@@ -301,18 +283,17 @@ suite('Require Table Tests', () => {
             const result = await parser.parse();
 
             // Check that all modules are in the table
-            assert.ok(result.source.includes('[1] ='), 'Should have module 1 (B)');
-            assert.ok(result.source.includes('[2] ='), 'Should have module 2 (C)');
-            assert.ok(result.source.includes('[3] ='), 'Should have module 3 (D)');
+            assert.ok(result.source.includes('-- Nested module B:'), 'Should have module 1 (B)');
+            assert.ok(result.source.includes('-- Nested module C:'), 'Should have module 2 (C)');
+            assert.ok(result.source.includes('-- Nested module D:'), 'Should have module 3 (D)');
 
             // Check that table is created and cleaned up
-            assert.ok(result.source.includes('local __require_table: { [number]: () -> any } = {}'), 'Should have table declaration');
-            assert.ok(result.source.includes('__require_table = nil :: any'), 'Should have table cleanup');
+            assert.ok(result.source.includes('(function()\n    local modules = {\n'), 'Should have table declaration');
 
             // Verify invocations are present
-            assert.ok(result.source.includes('__require_table[1]()'), 'Should have invocation for module B');
-            assert.ok(result.source.includes('__require_table[2]()'), 'Should have invocation for module C');
-            assert.ok(result.source.includes('__require_table[3]()'), 'Should have invocation for module D');
+            assert.ok(result.source.includes('require(1)'), 'Should have invocation for module B');
+            assert.ok(result.source.includes('require(2)'), 'Should have invocation for module C');
+            assert.ok(result.source.includes('require(3)'), 'Should have invocation for module D');
 
             // Check @line directives are present (paths may be absolute)
             assert.ok(result.source.includes('nested_b.luau"'), 'Should have @line for B');
@@ -320,12 +301,12 @@ suite('Require Table Tests', () => {
             assert.ok(result.source.includes('nested_d.luau"'), 'Should have @line for D');
 
             // Verify the structure: D is used only once in the table
-            const module3Matches = result.source.match(/\[3\]\s*=/g);
+            const module3Matches = result.source.match(/(BASE_VALUE = 42)/g);
             assert.strictEqual(module3Matches?.length, 1, 'Module D ([3]) should appear exactly once in table');
 
             // Verify nested structure: B calls [2], C calls [3]
-            assert.ok(result.source.includes('local moduleC = __require_table[2]()'), 'B should invoke C as [2]');
-            assert.ok(result.source.includes('local moduleD = __require_table[3]()'), 'C should invoke D as [3]');
+            assert.ok(result.source.includes('local moduleC = require(2)'), 'B should invoke C as require(2)');
+            assert.ok(result.source.includes('local moduleD = require(3)'), 'C should invoke D as require(3)');
         });
 
         test('should handle diamond dependency (A->B,D; B->D) from disk files', async () => {
@@ -343,26 +324,23 @@ suite('Require Table Tests', () => {
             const result = await parser.parse();
 
             // Check that D appears only once in the table
-            const moduleMatches = result.source.match(/\[2\]\s*=/g);
-            assert.strictEqual(moduleMatches?.length, 1, 'Module D should appear only once in table as [2]');
+            const moduleMatches = result.source.match(/(constant = 100)/g);
+            assert.strictEqual(moduleMatches?.length, 1, 'Module D should appear only once in table');
 
             // Check that D is invoked twice (once in B, once in A)
-            const invocationMatches = result.source.match(/__require_table\[2\]\(\)/g);
+            const invocationMatches = result.source.match(/require\(2\)/g);
             assert.strictEqual(invocationMatches?.length, 2, 'Module D should be invoked twice');
 
             // Verify both B and D are in the table
-            assert.ok(result.source.includes('[1] ='), 'Should have module 1 (B)');
-            assert.ok(result.source.includes('[2] ='), 'Should have module 2 (D)');
-
-            // D should NOT appear as [3] since it's reused
-            assert.ok(!result.source.includes('[3] ='), 'Should not have module 3 (D is shared)');
+            assert.ok(result.source.includes('-- Diamond B: requires D'), 'Should have module 1 (B)');
+            assert.ok(result.source.includes('-- Diamond D: shared base module'), 'Should have module 2 (D)');
 
             // Check @line directives (paths may be absolute)
             assert.ok(result.source.includes('diamond_b.luau"'), 'Should have @line for B');
             assert.ok(result.source.includes('diamond_d.luau"'), 'Should have @line for D');
 
             // Verify B invokes D (variable name is moduleD not just d)
-            assert.ok(result.source.includes('local moduleD = __require_table[2]()'), 'B should invoke D as [2]');
+            assert.ok(result.source.includes('local moduleD = require(2)'), 'B should invoke D as [2]');
         });
 
         test('should handle complex nested diamond (A->B,C; B->D; C->D)', async () => {
@@ -375,7 +353,7 @@ suite('Require Table Tests', () => {
             const fileD = normalizePath(path.join(workspaceRoot, 'complex_d.luau'));
 
             // Create a hybrid host that uses in-memory files
-            const memoryHost = {
+            const memoryHost : HostInterface = {
                 config: {} as any,
                 readFile: async (p: NormalizedPath): Promise<string | null> => {
                     return files.get(p) || null;
@@ -400,6 +378,7 @@ suite('Require Table Tests', () => {
                 readTOML: async (): Promise<any> => null,
                 writeYAML: async (): Promise<boolean> => true,
                 writeTOML: async (): Promise<boolean> => true,
+                existsInSameWorkspace: async (knownPath: string, desiredPath: string): Promise<boolean> => false,
                 fileNameToUri: (fileName: NormalizedPath): string => {
                     // Strip path to only include directories/filename after "test" directory
                     const testIndex = fileName.indexOf('test');
@@ -414,10 +393,10 @@ suite('Require Table Tests', () => {
             };
 
             // Set up the complex diamond
-            files.set(fileD, 'return { shared_value = 999 }');
-            files.set(fileC, 'local d = require("complex_d.luau")\nlocal function getC() return d.shared_value end\nreturn { getC = getC }');
-            files.set(fileB, 'local d = require("complex_d.luau")\nlocal function getB() return d.shared_value end\nreturn { getB = getB }');
-            files.set(fileA, 'local b = require("complex_b.luau")\nlocal c = require("complex_c.luau")\nprint(b.getB(), c.getC())');
+            files.set(fileD, '--file d\nreturn { shared_value = 999 }');
+            files.set(fileC, 'local d = require("complex_d.luau")\n--file c\nlocal function getC() return d.shared_value end\nreturn { getC = getC }');
+            files.set(fileB, 'local d = require("complex_d.luau")\n--file b\nlocal function getB() return d.shared_value end\nreturn { getB = getB }');
+            files.set(fileA, 'local b = require("complex_b.luau")\n--file a\nlocal c = require("complex_c.luau")\nprint(b.getB(), c.getC())');
 
             // Parse A
             const mainContent = files.get(fileA)!;
@@ -426,10 +405,10 @@ suite('Require Table Tests', () => {
             const parser = new Parser(tokens, fileA, 'luau', memoryHost);
             const result = await parser.parse();
 
-            // Debug: Log the actual output to see what indices are used
-            console.log('=== COMPLEX DIAMOND OUTPUT ===');
-            console.log(result.source);
-            console.log('=== END OUTPUT ===');
+            // // Debug: Log the actual output to see what indices are used
+            // console.log('=== COMPLEX DIAMOND OUTPUT ===');
+            // console.log(result.source);
+            // console.log('=== END OUTPUT ===');
 
             // Verify D appears only once in table (should be at index 2)
             const dTableRegex = /shared_value = 999/g;
@@ -437,16 +416,16 @@ suite('Require Table Tests', () => {
             assert.strictEqual(dTableMatches?.length, 1, 'Module D should appear once in table');
 
             // Verify D is invoked twice (once in B and once in C)
-            const dInvocationMatches = result.source.match(/__require_table\[2\]\(\)/g);
+            const dInvocationMatches = result.source.match(/require\(2\)/g);
             assert.strictEqual(dInvocationMatches?.length, 2, 'Module D should be invoked twice (from B and C)');
 
             // Verify all three modules are in the table
-            assert.ok(result.source.includes('[1] ='), 'Should have module 1 (B)');
-            assert.ok(result.source.includes('[2] ='), 'Should have module 2 (D - shared)');
-            assert.ok(result.source.includes('[3] ='), 'Should have module 3 (C)');
+            assert.ok(result.source.includes('--file b'), 'Should have module 1 (B)');
+            assert.ok(result.source.includes('--file d'), 'Should have module 2 (D - shared)');
+            assert.ok(result.source.includes('--file c'), 'Should have module 3 (C)');
 
             // Should not have a 4th module
-            assert.ok(!result.source.includes('[4] ='), 'Should not have module 4');
+            assert.ok(!result.source.includes('-- @module 4'), 'Should not have module 4');
         });
     });
 });

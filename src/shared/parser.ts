@@ -25,6 +25,8 @@ import { DiagnosticCollector, PreprocessorDiagnostic, ErrorCodes } from './diagn
 export interface RequireState {
     /** Map of resolved file path to module ID */
     moduleMap: Map<NormalizedPath, number>;
+    /** Map of module ID to resolved file path */
+    modulePathMap: Map<number, NormalizedPath>;
     /** Map of module ID to wrapped module tokens */
     wrappedModules: Map<number, Token[]>;
     /** Next available module ID */
@@ -240,6 +242,7 @@ export class Parser {
     public static createRequireState(): RequireState {
         return {
             moduleMap: new Map(),
+            modulePathMap: new Map(),
             wrappedModules: new Map(),
             nextModuleId: 1,
         };
@@ -275,6 +278,11 @@ export class Parser {
      * Parse the token stream and produce preprocessed output
      */
     public async parse(): Promise<ParserResult> {
+
+        // State Conditionals are passed between parsers
+        // so we need to check that we exit at the same level we came in on
+        const entryBlock = this.state.conditionals.getCurrentBlockIdentifier();
+
         // First pass: process all tokens to discover all required modules
         while (!this.isAtEnd()) {
             const token = this.current();
@@ -307,9 +315,10 @@ export class Parser {
         }
 
         // Check for unclosed conditional blocks (PAR004)
-        const unclosed = this.state.conditionals.getUnclosedBlocks();
-        if (unclosed.length > 0) {
-            for (const block of unclosed) {
+        // State Conditionals are passed between parsers
+        // so we need to check that we exit at the same block we came in on
+        if (this.state.conditionals.getCurrentBlockIdentifier() !== entryBlock) {
+            for (const block of this.state.conditionals.getUnclosedBlocks()) {
                 this.diagnostics.addError(
                     `Unterminated #${block.directive} (started at line ${block.line})`,
                     {
@@ -326,8 +335,7 @@ export class Parser {
         // If this is the top-level parser and we have required modules,
         // prepend the require table to the output
         if (this.isTopLevelParser && this.state.requireState && this.state.requireState.wrappedModules.size > 0) {
-            this.prependRequireTable();
-            this.appendRequireTableCleanup();
+            this.prependRequireFunction();
         }
 
         return {
@@ -395,13 +403,48 @@ export class Parser {
         // Skip to next token (should be whitespace then string literal)
         parser.advance();
 
+        if(!parser.getState().conditionals.isActive()) {
+            return;
+        }
+
         // Skip only horizontal whitespace, not newlines
         while (!parser.isAtEnd() && parser.current().type === TokenType.WHITESPACE) {
             parser.advance();
         }
 
         // PAR002: Check for missing filename argument
-        if (parser.isAtEnd() || parser.current().type === TokenType.NEWLINE || !parser.current().isString()) {
+        let filename:string|null = null;
+
+        if (!parser.isAtEnd()) {
+            const current = parser.current();
+            if (current.isString()) {
+                const fileToken = parser.current();
+                // console.error("INCLUDE",token,fileToken);
+                filename = parser.extractStringValue(fileToken.value);
+            }
+            else if(current.type == TokenType.OPERATOR && current.value == "<") {
+                parser.advance();
+                let closed = false;
+                filename = "";
+                while(!parser.isAtEnd()) {
+                    const current = parser.current();
+                    if(current.type == TokenType.OPERATOR && current.value == ">") {
+                        closed = true;
+                        break;
+                    }
+                    if(current.type == TokenType.BLOCK_COMMENT_START) break;
+                    if(current.type == TokenType.LINE_COMMENT) break;
+                    if(current.type == TokenType.NEWLINE) break;
+                    filename += current.value;
+                    parser.advance();
+                }
+                if(!closed) {
+                    filename = null;
+                }
+            }
+        }
+
+        if(filename == null) {
             parser.diagnostics.addError(
                 '#include directive requires a filename argument',
                 {
@@ -414,9 +457,6 @@ export class Parser {
             );
             return;
         }
-
-        const fileToken = parser.current();
-        const filename = parser.extractStringValue(fileToken.value);
 
         // Record the include for tracking
         const include : IncludeInfo = {
@@ -485,11 +525,12 @@ export class Parser {
         // #define NAME [(params)] replacement-text
         const directiveToken = parser.current();
         parser.advance();
+        if(!parser.getState().conditionals.isActive()) {
+            return;
+        }
 
         // Skip only horizontal whitespace, not newlines
-        while (!parser.isAtEnd() && parser.current().type === TokenType.WHITESPACE) {
-            parser.advance();
-        }
+        parser.skipNonNewlineWhiteSpace();
 
         // PAR002: Check for missing macro name
         if (parser.isAtEnd() || parser.current().type === TokenType.NEWLINE) {
@@ -587,6 +628,9 @@ export class Parser {
         // #undef NAME
         const directiveToken = parser.current();
         parser.advance();
+        if(!parser.getState().conditionals.isActive()) {
+            return;
+        }
 
         // Skip only horizontal whitespace, not newlines
         while (!parser.isAtEnd() && parser.current().type === TokenType.WHITESPACE) {
@@ -1080,6 +1124,12 @@ export class Parser {
         return tokens.slice(start, end);
     }
 
+    private skipNonNewlineWhiteSpace(): void {
+        while (!this.isAtEnd() && this.current().type == TokenType.WHITESPACE) {
+            this.advance();
+        }
+    }
+
     /**
      * Collect tokens for directive body (rest of line)
      * Supports line continuation with backslash (\)
@@ -1090,6 +1140,19 @@ export class Parser {
 
         while (!this.isAtEnd()) {
             const token = this.current();
+
+            if(token.type == TokenType.LINE_COMMENT) {
+                this.advance();
+                break;
+            }
+            if(token.type == TokenType.BLOCK_COMMENT_START) {
+                this.advance();
+                while(!this.isAtEnd() && this.current().type != TokenType.BLOCK_COMMENT_END) {
+                    this.advance();
+                }
+                this.advance();
+                break;
+            }
 
             // Check if token is or contains a newline
             const hasNewline = token.type === TokenType.NEWLINE || token.value.includes('\n');
@@ -1300,6 +1363,7 @@ export class Parser {
             // New module - assign it an ID and process it
             moduleId = this.state.requireState.nextModuleId++;
             this.state.requireState.moduleMap.set(resolvedPath, moduleId);
+            this.state.requireState.modulePathMap.set(moduleId, resolvedPath);
 
             // Parse the required file and wrap it
             // Push to include stack before parsing nested file
@@ -1402,15 +1466,13 @@ export class Parser {
      * Emit the invocation code for a required module
      */
     private emitRequireInvocation(moduleId: number): void {
-        // Emit: __require_table[moduleId]()
+        // Emit: require(<moduleId>)
         const line = this.current().line;
 
-        this.outputTokens.push(new Token(TokenType.IDENTIFIER, '__require_table', line, 1, 15));
-        this.outputTokens.push(new Token(TokenType.BRACKET_OPEN, '[', line, 16, 1));
-        this.outputTokens.push(new Token(TokenType.NUMBER_LITERAL, moduleId.toString(), line, 17, moduleId.toString().length));
-        this.outputTokens.push(new Token(TokenType.BRACKET_CLOSE, ']', line, 17 + moduleId.toString().length, 1));
-        this.outputTokens.push(new Token(TokenType.PAREN_OPEN, '(', line, 18 + moduleId.toString().length, 1));
-        this.outputTokens.push(new Token(TokenType.PAREN_CLOSE, ')', line, 19 + moduleId.toString().length, 1));
+        this.outputTokens.push(new Token(TokenType.IDENTIFIER, 'require', line, 1, 7));
+        this.outputTokens.push(new Token(TokenType.PAREN_OPEN, '(', line, 8, 1));
+        this.outputTokens.push(new Token(TokenType.NUMBER_LITERAL, moduleId.toString(), line, 9, moduleId.toString().length));
+        this.outputTokens.push(new Token(TokenType.PAREN_CLOSE, ')', line, 9 + moduleId.toString().length, 1));
     }
 
     //#endregion
@@ -1537,103 +1599,179 @@ export class Parser {
 
     /**
      * Prepend the require table declaration to the output
-     * Format: local __require_table = {}
-     *         __require_table[1] = <module1>
-     *         __require_table[2] = <module2>
-     *         ...
+     * Format:
+     * (function()
+     *     local mods = {
+     *         ...<modules>
+     *     }
+     *     local cache = {}
+     *     function require(mod)
+     *         if not cache[mod] then
+     *             if not mods[mod] then
+     *                 error(`unkown module '{mod}'`)
+     *             end
+     *             cache[mod] = dangerouslyexecuterequiredmodule(mods[mod])
+     *         end
+     *         return cache[mod]
+     *     end
+     * end)()
      */
-    private prependRequireTable(): void {
+    private prependRequireFunction(): void {
         if (!this.state.requireState) {
             return; // Nothing to do if requireState doesn't exist
         }
 
-        const tableTokens: Token[] = [];
-        const line = 1;
-
-        // local __require_table: { [number]: () -> any } = {}
-        tableTokens.push(new Token(TokenType.IDENTIFIER, 'local', line, 1, 5));
-        tableTokens.push(new Token(TokenType.WHITESPACE, ' ', line, 6, 1));
-        tableTokens.push(new Token(TokenType.IDENTIFIER, '__require_table', line, 7, 15));
-        tableTokens.push(new Token(TokenType.OPERATOR, ':', line, 22, 1));
-        tableTokens.push(new Token(TokenType.WHITESPACE, ' ', line, 23, 1));
-        tableTokens.push(new Token(TokenType.BRACE_OPEN, '{', line, 24, 1));
-        tableTokens.push(new Token(TokenType.WHITESPACE, ' ', line, 25, 1));
-        tableTokens.push(new Token(TokenType.BRACKET_OPEN, '[', line, 26, 1));
-        tableTokens.push(new Token(TokenType.IDENTIFIER, 'number', line, 27, 6));
-        tableTokens.push(new Token(TokenType.BRACKET_CLOSE, ']', line, 33, 1));
-        tableTokens.push(new Token(TokenType.OPERATOR, ':', line, 34, 1));
-        tableTokens.push(new Token(TokenType.WHITESPACE, ' ', line, 35, 1));
-        tableTokens.push(new Token(TokenType.PAREN_OPEN, '(', line, 36, 1));
-        tableTokens.push(new Token(TokenType.PAREN_CLOSE, ')', line, 37, 1));
-        tableTokens.push(new Token(TokenType.WHITESPACE, ' ', line, 38, 1));
-        tableTokens.push(new Token(TokenType.OPERATOR, '->', line, 39, 2));
-        tableTokens.push(new Token(TokenType.WHITESPACE, ' ', line, 41, 1));
-        tableTokens.push(new Token(TokenType.IDENTIFIER, 'any', line, 42, 3));
-        tableTokens.push(new Token(TokenType.WHITESPACE, ' ', line, 45, 1));
-        tableTokens.push(new Token(TokenType.BRACE_CLOSE, '}', line, 46, 1));
-        tableTokens.push(new Token(TokenType.WHITESPACE, ' ', line, 47, 1));
-        tableTokens.push(new Token(TokenType.OPERATOR, '=', line, 48, 1));
-        tableTokens.push(new Token(TokenType.WHITESPACE, ' ', line, 49, 1));
-        tableTokens.push(new Token(TokenType.BRACE_OPEN, '{', line, 50, 1));
-        tableTokens.push(new Token(TokenType.BRACE_CLOSE, '}', line, 51, 1));
-        tableTokens.push(new Token(TokenType.NEWLINE, '\n', line, 52, 1));
-
-        // Add each module as an assignment: __require_table[id] = <wrapped_module>
+        const languageConfig = getLanguageConfig(this.language);
         const sortedIds = Array.from(this.state.requireState.wrappedModules.keys()).sort((a, b) => a - b);
-
+        const moduleTokens: ([TokenType,string]|Token)[]  = [];
         for (const moduleId of sortedIds) {
             const wrappedModule = this.state.requireState.wrappedModules.get(moduleId)!;
-
-            // __require_table[moduleId] =
-            tableTokens.push(new Token(TokenType.IDENTIFIER, '__require_table', line, 1, 15));
-            tableTokens.push(new Token(TokenType.BRACKET_OPEN, '[', line, 16, 1));
-            tableTokens.push(new Token(TokenType.NUMBER_LITERAL, moduleId.toString(), line, 17, moduleId.toString().length));
-            tableTokens.push(new Token(TokenType.BRACKET_CLOSE, ']', line, 17 + moduleId.toString().length, 1));
-            tableTokens.push(new Token(TokenType.WHITESPACE, ' ', line, 18 + moduleId.toString().length, 1));
-            tableTokens.push(new Token(TokenType.OPERATOR, '=', line, 19 + moduleId.toString().length, 1));
-            tableTokens.push(new Token(TokenType.WHITESPACE, ' ', line, 20 + moduleId.toString().length, 1));
-
-            // Add the wrapped module tokens
-            tableTokens.push(...wrappedModule);
+            const modulePath = this.state.requireState.modulePathMap.get(moduleId);
+            const modulePathFormatted = modulePath ? ` ${this.formatPathForLineDirective(modulePath)}` :  "";
+            // Add module comment
+            moduleTokens.push([TokenType.LINE_COMMENT, `${languageConfig.lineCommentPrefix} @module ${moduleId}${modulePathFormatted}`]);
+            moduleTokens.push([TokenType.NEWLINE, "\n"]);
+            // (function() <moduleCode> end)
+            moduleTokens.push(...wrappedModule);
 
             // Add newline
-            tableTokens.push(new Token(TokenType.NEWLINE, '\n', line, 1, 1));
+            moduleTokens.push([TokenType.PUNCTUATION, ","]);
+            moduleTokens.push([TokenType.NEWLINE, "\n"]);
         }
 
-        // Add @line directive to reset to main file
-        const languageConfig = getLanguageConfig(this.language);
-        const lineDirectiveText = `${languageConfig.lineCommentPrefix}@line 1 "${this.sourceFile}"`;
-        tableTokens.push(new Token(TokenType.LINE_COMMENT, lineDirectiveText, line, 1, lineDirectiveText.length));
-        tableTokens.push(new Token(TokenType.NEWLINE, '\n', line, lineDirectiveText.length + 1, 1));
+        const requireCode:([TokenType,string]|Token)[] = [
+            [TokenType.PAREN_OPEN, "("],
+            [TokenType.IDENTIFIER, "function"],
+            [TokenType.PAREN_OPEN, "("],
+            [TokenType.PAREN_CLOSE, ")"],
+            [TokenType.NEWLINE, "\n"],
+
+            [TokenType.WHITESPACE, "    "],
+            [TokenType.IDENTIFIER, 'local'],
+            [TokenType.WHITESPACE, " "],
+            [TokenType.IDENTIFIER, 'modules'],
+            [TokenType.WHITESPACE, " "],
+            [TokenType.OPERATOR, "="],
+            [TokenType.WHITESPACE, " "],
+            [TokenType.BRACE_OPEN, '{'],
+            [TokenType.NEWLINE, "\n"],
+
+            ...moduleTokens,
+
+            [TokenType.WHITESPACE, "    "],
+            [TokenType.BRACE_CLOSE, '}'],
+            [TokenType.NEWLINE, "\n"],
+            [TokenType.WHITESPACE, "    "],
+            [TokenType.IDENTIFIER, 'local'],
+            [TokenType.WHITESPACE, " "],
+            [TokenType.IDENTIFIER, 'cache'],
+            [TokenType.WHITESPACE, " "],
+            [TokenType.OPERATOR, "="],
+            [TokenType.WHITESPACE, " "],
+            [TokenType.BRACE_OPEN, '{'],
+            [TokenType.BRACE_CLOSE, '}'],
+            [TokenType.NEWLINE, "\n"],
+
+            [TokenType.WHITESPACE, "    "],
+            [TokenType.IDENTIFIER,"function"],
+            [TokenType.WHITESPACE," "],
+            [TokenType.IDENTIFIER,"require"],
+            [TokenType.PAREN_OPEN,"("],
+            [TokenType.IDENTIFIER,"mod"],
+            [TokenType.PAREN_CLOSE,")"],
+            [TokenType.NEWLINE,"\n"],
+            [TokenType.WHITESPACE,"        "],
+            [TokenType.IDENTIFIER,"if"],
+            [TokenType.WHITESPACE," "],
+            [TokenType.IDENTIFIER,"not"],
+            [TokenType.WHITESPACE," "],
+            [TokenType.IDENTIFIER,"cache"],
+            [TokenType.BRACKET_OPEN,"["],
+            [TokenType.IDENTIFIER,"mod"],
+            [TokenType.BRACKET_CLOSE,"]"],
+            [TokenType.WHITESPACE," "],
+            [TokenType.IDENTIFIER,"then"],
+            [TokenType.NEWLINE,"\n"],
+            [TokenType.WHITESPACE,"            "],
+            [TokenType.IDENTIFIER,"if"],
+            [TokenType.WHITESPACE," "],
+            [TokenType.IDENTIFIER,"not"],
+            [TokenType.WHITESPACE," "],
+            [TokenType.IDENTIFIER,"modules"],
+            [TokenType.BRACKET_OPEN,"["],
+            [TokenType.IDENTIFIER,"mod"],
+            [TokenType.BRACKET_CLOSE,"]"],
+            [TokenType.WHITESPACE," "],
+            [TokenType.IDENTIFIER,"then"],
+            [TokenType.NEWLINE,"\n"],
+            [TokenType.WHITESPACE,"                "],
+            [TokenType.IDENTIFIER,"error"],
+            [TokenType.PAREN_OPEN,"("],
+            [TokenType.IDENTIFIER,"`unkown module '{mod}'`"],
+            [TokenType.PAREN_CLOSE,")"],
+            [TokenType.NEWLINE,"\n"],
+            [TokenType.WHITESPACE,"            "],
+            [TokenType.IDENTIFIER,"end"],
+            [TokenType.NEWLINE,"\n"],
+            [TokenType.WHITESPACE,"            "],
+            [TokenType.IDENTIFIER,"cache"],
+            [TokenType.BRACKET_OPEN,"["],
+            [TokenType.IDENTIFIER,"mod"],
+            [TokenType.BRACKET_CLOSE,"]"],
+            [TokenType.WHITESPACE," "],
+            [TokenType.IDENTIFIER,"="],
+            [TokenType.WHITESPACE," "],
+            [TokenType.IDENTIFIER,"dangerouslyexecuterequiredmodule"],
+            [TokenType.PAREN_OPEN,"("],
+            [TokenType.IDENTIFIER,"modules"],
+            [TokenType.BRACKET_OPEN,"["],
+            [TokenType.IDENTIFIER,"mod"],
+            [TokenType.BRACKET_CLOSE,"]"],
+            [TokenType.PAREN_CLOSE,")"],
+            [TokenType.NEWLINE,"\n"],
+            [TokenType.WHITESPACE,"        "],
+            [TokenType.IDENTIFIER,"end"],
+            [TokenType.NEWLINE,"\n"],
+            [TokenType.WHITESPACE,"        "],
+            [TokenType.IDENTIFIER,"return"],
+            [TokenType.WHITESPACE," "],
+            [TokenType.IDENTIFIER,"cache"],
+            [TokenType.BRACKET_OPEN,"["],
+            [TokenType.IDENTIFIER,"mod"],
+            [TokenType.BRACKET_CLOSE,"]"],
+            [TokenType.NEWLINE,"\n"],
+            [TokenType.WHITESPACE,"    "],
+            [TokenType.IDENTIFIER,"end"],
+            [TokenType.NEWLINE,"\n"],
+            [TokenType.IDENTIFIER,"end"],
+            [TokenType.PAREN_CLOSE,")"],
+            [TokenType.PAREN_OPEN,"("],
+            [TokenType.PAREN_CLOSE,")"],
+            [TokenType.NEWLINE,"\n"],
+            // [TokenType.LINE_COMMENT, `${languageConfig.lineCommentPrefix}@line 1 "${this.sourceFile}"`],
+            [TokenType.LINE_COMMENT, `${languageConfig.lineCommentPrefix}@line 1 "${this.formatPathForLineDirective(this.sourceFile)}"`],
+            [TokenType.NEWLINE,"\n"],
+        ];
+
+        const requireTokens: Token[] = [];
+        let line = 1;
+        let pos = 1;
+        for(const toke of requireCode) {
+            if(toke instanceof Array) {
+                const [tokeType, text] = toke;
+                requireTokens.push(new Token(tokeType, text, line, pos, text.length));
+                pos += text.length;
+                if(tokeType == TokenType.NEWLINE) {
+                    line++;
+                    pos = 0;
+                }
+            } else {
+                requireTokens.push(toke);
+            }
+        }
 
         // Prepend to output
-        this.outputTokens.unshift(...tableTokens);
-    }
-
-    /**
-     * Append the require table cleanup to the output
-     * Format: __require_table = nil :: any
-     */
-    private appendRequireTableCleanup(): void {
-        let line = this.currentOutputLine;
-
-        const last = this.outputTokens[this.outputTokens.length - 1];
-        if(last && last.type !== TokenType.NEWLINE) {
-            this.outputTokens.push(new Token(TokenType.NEWLINE, this.lineEnding, line, last.column+last.length ,1));
-            line++;
-        }
-
-        // __require_table = nil :: any (type cast to allow nil assignment)
-        this.outputTokens.push(new Token(TokenType.IDENTIFIER, '__require_table', line, 1, 15));
-        this.outputTokens.push(new Token(TokenType.WHITESPACE, ' ', line, 16, 1));
-        this.outputTokens.push(new Token(TokenType.OPERATOR, '=', line, 17, 1));
-        this.outputTokens.push(new Token(TokenType.WHITESPACE, ' ', line, 18, 1));
-        this.outputTokens.push(new Token(TokenType.IDENTIFIER, 'nil', line, 19, 3));
-        this.outputTokens.push(new Token(TokenType.WHITESPACE, ' ', line, 22, 1));
-        this.outputTokens.push(new Token(TokenType.OPERATOR, '::', line, 23, 2));
-        this.outputTokens.push(new Token(TokenType.WHITESPACE, ' ', line, 25, 1));
-        this.outputTokens.push(new Token(TokenType.IDENTIFIER, 'any', line, 26, 3));
-        this.outputTokens.push(new Token(TokenType.NEWLINE, '\n', line, 29, 1));
+        this.outputTokens.unshift(...requireTokens);
     }
 
     //#endregion

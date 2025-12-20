@@ -57,6 +57,10 @@ export class NodeHost implements HostInterface {
         };
     }
 
+    existsInSameWorkspace(_knownPath: string, _desiredPath: string): Promise<boolean> {
+        throw new Error('Method not implemented.');
+    }
+
     // ---------------------------------------------------------------------
     async exists(p: NormalizedPath, _unsafe?: boolean): Promise<boolean> {
         try {

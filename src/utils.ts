@@ -250,6 +250,16 @@ export class VSCodeHost implements HostInterface {
         return (await readTOMLFile(p)) as T | null;
     }
 
+    async existsInSameWorkspace(knownPath: string, desiredPath: string): Promise<boolean> {
+        const knownUri = vscode.Uri.file(normalizePath(knownPath));
+        const workspaceDir = vscode.workspace.getWorkspaceFolder(knownUri);
+        if(!workspaceDir) return false;
+        const desiredUri = vscode.Uri.file(normalizePath(workspaceDir.uri.fsPath + path.sep + desiredPath));
+        const dWorkspaceDir = vscode.workspace.getWorkspaceFolder(desiredUri);
+        if(!dWorkspaceDir) return false;
+        return dWorkspaceDir.uri.fsPath == workspaceDir.uri.fsPath;
+    }
+
     async exists(filename: NormalizedPath, unsafe?: boolean): Promise<boolean> {
         if (unsafe) {
             return await fileExists(filename);
@@ -432,6 +442,8 @@ export class VSCodeHost implements HostInterface {
             return vscode.Uri.file(fileName).toString();
         }
 
+        const relatives = [];
+
         // Find which workspace folder contains this file
         for (const folder of workspaceFolders) {
             const folderPath = folder.uri.fsPath;
@@ -442,8 +454,19 @@ export class VSCodeHost implements HostInterface {
                 const normalizedRelative = relativePath.split(path.sep).join('/');
                 // Include folder name in URI to identify which workspace root
                 return `workspace:///${folder.name}/${normalizedRelative}`;
+            } else {
+                const relativePath = path.relative(folderPath, fileName);
+                if(relativePath.startsWith('..')) {
+                    relatives.push(`workspace:///${folder.name}/${relativePath}`);
+                }
             }
         }
+        if(relatives.length > 0) {
+            relatives.sort((a,b) => a.length - b.length);
+            return relatives[0];
+        }
+
+        // return `workspace:///` + vscode.workspace.asRelativePath(fileName);
 
         // File is outside all workspace folders - return absolute file:// URL
         return vscode.Uri.file(fileName).toString();
@@ -474,10 +497,10 @@ export class VSCodeHost implements HostInterface {
             }
 
             const absolutePath = path.join(folder.uri.fsPath, relativePath);
-            console.log(`uriToFileName: '${uri}' becomes '${absolutePath}'`);
+            // console.log(`uriToFileName: '${uri}' becomes '${absolutePath}'`);
             return normalizePath(absolutePath);
         }
-        console.log(`uriToFileName: ${uri}`)
+        // console.log(`uriToFileName: ${uri}`)
         // Handle standard file:// URLs
         return normalizePath(vscode.Uri.parse(uri).fsPath);
     }

@@ -5,7 +5,7 @@
 
 import * as assert from 'assert';
 import { Parser } from '../../shared/parser';
-import { Lexer } from '../../shared/lexer';
+import { Lexer, TokenType } from '../../shared/lexer';
 import { DiagnosticCollector, DiagnosticSeverity, ErrorCodes } from '../../shared/diagnostics';
 import { normalizePath, NormalizedPath } from '../../interfaces/hostinterface';
 
@@ -350,6 +350,35 @@ float area = PI * radius * radius;
                 d.code?.startsWith('PAR')
             );
             assert.strictEqual(parserErrors.length, 0, 'Should not have any parser errors');
+        });
+
+        test('check correct value capture for #define', async () => {
+            const source = `#define A 1
+#define B 2 // Comment
+#define C 3`;
+            const diagnostics = new DiagnosticCollector();
+            const lexer = new Lexer(source, 'lsl', sourceFile, diagnostics);
+            const tokens = lexer.tokenize();
+            const parser = new Parser(tokens, sourceFile, 'lsl', undefined, undefined, undefined, true, undefined, diagnostics);
+
+            await parser.parse();
+
+            const parserErrors = diagnostics.getAll().filter(d =>
+                d.code?.startsWith('PAR')
+            );
+            assert.strictEqual(parserErrors.length, 0, 'Should not have any parser errors');
+
+            assert.strictEqual(parser.getState().macros.getMacro("A")?.body.length,1);
+            assert.strictEqual(parser.getState().macros.getMacro("A")?.body[0].type,TokenType.NUMBER_LITERAL);
+            assert.strictEqual(parser.getState().macros.getMacro("A")?.body[0].value,"1");
+
+            assert.strictEqual(parser.getState().macros.getMacro("B")?.body.length,1);
+            assert.strictEqual(parser.getState().macros.getMacro("B")?.body[0].type,TokenType.NUMBER_LITERAL);
+            assert.strictEqual(parser.getState().macros.getMacro("B")?.body[0].value,"2");
+
+            assert.strictEqual(parser.getState().macros.getMacro("C")?.body.length,1);
+            assert.strictEqual(parser.getState().macros.getMacro("C")?.body[0].type,TokenType.NUMBER_LITERAL);
+            assert.strictEqual(parser.getState().macros.getMacro("C")?.body[0].value,"3");
         });
     });
 });

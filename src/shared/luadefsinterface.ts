@@ -18,7 +18,9 @@ export type TypeDefinition =
   | FunctionType
   | IntersectionType
   | LiteralUnionType
-  | ReferenceType;
+  | ReferenceType
+  | CallableTableType
+  | TypeofType;
 
 /**
  * Union type (e.g., boolean | number)
@@ -85,6 +87,29 @@ export interface LiteralUnionType {
 export interface ReferenceType {
   kind: "reference";
   name: string;
+}
+
+/**
+ * Callable table type (table with call signature)
+ * e.g., { create: ... } & ((x, y) -> result)
+ */
+export interface CallableTableType {
+  kind: "callable-table";
+  tableType: {
+    properties?: TableProperty[];
+  };
+  callSignature: {
+    parameters: Parameter[];
+    returnType: TypeReference;
+  };
+}
+
+/**
+ * Typeof type (e.g., typeof(quaternion))
+ */
+export interface TypeofType {
+  kind: "typeof";
+  target: string;
 }
 
 /**

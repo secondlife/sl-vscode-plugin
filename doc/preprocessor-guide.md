@@ -409,19 +409,19 @@ The preprocessor supports C-style `#define` directives for creating reusable con
 
 The preprocessor automatically defines the following system macros that are available in all scripts:
 
-| Macro | Description | Example Value |
-|-------|-------------|---------------|
-| `__AGENTID__` | Agent UUID (formatted) | `"550e8400-e29b-41d4-a716-446655440000"` |
-| `__AGENTIDRAW__` | Raw agent ID format (not stringized) | `550e8400e29b41d4a716446655440000` |
-| `__AGENTKEY__` | Alternate name for `__AGENTID__` | `"550e8400-e29b-41d4-a716-446655440000"` |
-| `__AGENTNAME__` | Agent display name | `"Resident Name"` |
-| `__DATE__` | Current date (ISO format) | `"2025-11-18"` |
-| `__FILE__` | Full path/name of current file being processed | `"scripts/main.lsl"` |
-| `__LINE__` | Current line number being processed | `42` |
-| `__SHORTFILE__` | Short filename without path | `"main.lsl"` |
-| `__TIME__` | Current time (ISO format) | `"14:30:45"` |
-| `__TIMESTAMP__` | Full ISO timestamp | `"2025-11-18T14:30:45.123Z"` |
-| `__UNIXTIME__` | Unix timestamp timestamp as an integer | `1763751286` |
+| Macro | Description | Example Value | LSL | SLua |
+|-------|-------------|---------------| --- | ---- |
+| `__AGENTID__` | Agent UUID (formatted) | `"550e8400-e29b-41d4-a716-446655440000"` | ✔️ | ✔️ |
+| `__AGENTIDRAW__` | Raw agent ID format (not stringized) | `550e8400e29b41d4a716446655440000` | ✔️ | ❌ |
+| `__AGENTKEY__` | Alternate name for `__AGENTID__` | LSL : `"550e8400-e29b-41d4-a716-446655440000"`<br>SLua: `uuid("550e8400-e29b-41d4-a716-446655440000")` | ✔️ | ✔️ |
+| `__AGENTNAME__` | Agent display name | `"Resident Name"` | ✔️ | ✔️ |
+| `__DATE__` | Current date (ISO format) | `"2025-11-18"` | ✔️ | ✔️ |
+| `__FILE__` | Full path/name of current file being processed | `"scripts/main.lsl"` | ✔️ | ✔️ |
+| `__LINE__` | Current line number being processed | `42` | ✔️ | ✔️ |
+| `__SHORTFILE__` | Short filename without path | `"main.lsl"` | ✔️ | ✔️ |
+| `__TIME__` | Current time (ISO format) | `"14:30:45"` | ✔️ | ✔️ |
+| `__TIMESTAMP__` | Full ISO timestamp | `"2025-11-18T14:30:45.123Z"` | ✔️ | ✔️ |
+| `__UNIXTIME__` | Unix timestamp timestamp as an integer | `1763751286` | ✔️ | ✔️ |
 
 **Usage Example:**
 
@@ -433,6 +433,12 @@ default {
         llOwnerSay("Running on line " + (string)__LINE__);
     }
 }
+```
+
+```luau
+ll.OwnerSay("Script: " .. __SHORTFILE__ .. " (Agent: " .. __AGENTNAME__ .. ")");
+ll.OwnerSay("Compiled on " .. __DATE__ .. " at " .. __TIME__);
+ll.OwnerSay("Running on line " .. __LINE__);
 ```
 
 ### Simple Defines

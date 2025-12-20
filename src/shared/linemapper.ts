@@ -30,7 +30,7 @@ export class LineMapper {
                 // Extract the content after the directive prefix
                 const directiveContent = line.substring(commentPrefix.length).trim();
 
-                console.log(`Have @line directive: ${directiveContent}`)
+                // console.log(`Have @line directive: ${directiveContent}`)
                 // Parse line number and file path
                 // Expected format: "123 \"uri-or-path\""
                 const parts = directiveContent.split(' ');
@@ -47,12 +47,12 @@ export class LineMapper {
                 }
 
                 const sourceFileString = quotedMatch[1];
-                console.log(`quoted is: ${sourceFileString} `);
+                // console.log(`quoted is: ${sourceFileString} `);
                 const processedLine = i + 1; // Line numbers are 1-based
 
                 // Convert URI to filename using host interface
                 const sourceFileAbsolute: NormalizedPath = host.uriToFileName(sourceFileString);
-                console.log(`absolute is ${sourceFileAbsolute}`);
+                // console.log(`absolute is ${sourceFileAbsolute}`);
                 lineMappings.push({
                     processedLine: processedLine,
                     sourceFile: sourceFileAbsolute,

@@ -41,6 +41,12 @@ export interface LanguageLexerConfig {
     brackets?: Array<[string, string]>; // Bracket pairs
     stringDelimiters?: string[]; // String delimiters for this language (e.g., ['"', "'"] for LSL, ['"', "'", '`'] for Luau)
     multiLineStringDelimiters?: MultiCharDelimiter[]; // String delimiters for multi line strings (e.g., luau `[[` or `[==[` etc)
+    stringInterpDelimiter?: { // String interpolation delimiter (e.g slua `Hello {name}`)
+        char: string;
+        open: string;
+        close: string;
+        escape: string;
+    }
 }
 
 /**
@@ -111,7 +117,7 @@ export const LANGUAGE_CONFIGS: Record<ScriptLanguage, LanguageLexerConfig> = {
             ["(", ")"],  // Parentheses for expressions and function calls
             ["[", "]"],  // Brackets for table indexing
         ],
-        stringDelimiters: ['"', "'", '`'],  // Double quotes, single quotes, and backticks
+        stringDelimiters: ['"', "'"],  // Double quotes, single quotes
         multiLineStringDelimiters: [
             {
                 startingChar: "[",
@@ -121,6 +127,12 @@ export const LANGUAGE_CONFIGS: Record<ScriptLanguage, LanguageLexerConfig> = {
                 // allowsNewLines: true,
             }
         ],  // Double quotes, single quotes, and backticks
+        stringInterpDelimiter: {
+            char: "`",
+            open: "{",
+            close: "}",
+            escape: "\\",
+        }
     },
 };
 
@@ -155,6 +167,9 @@ export enum TokenType {
 
     // Literals
     STRING_LITERAL = "STRING_LITERAL",
+    STRING_INTERP_START = "STRING_INTERP_START",
+    STRING_INTERP_MIDDLE = "STRING_INTERP_MIDDLE",
+    STRING_INTERP_END = "STRING_INTERP_END",
     NUMBER_LITERAL = "NUMBER_LITERAL",
     VECTOR_LITERAL = "VECTOR_LITERAL",    // <x, y, z> or <x, y, z, w> (LSL vectors/rotations)
 
@@ -324,6 +339,7 @@ interface LexerContext {
     blockCommentEndLength: number; // For Lua long bracket syntax: 2 for --[[, 3 for --[=[, etc calculated using RegexMultiCharDelimiter.lengthDifference.
     lineNumber: number;
     columnNumber: number;
+    interpolatedStringDepth: number[];
 }
 
 //#endregion
@@ -357,6 +373,7 @@ export class Lexer {
             blockCommentEndLength: 0,
             lineNumber: 1,
             columnNumber: 1,
+            interpolatedStringDepth: [],
         };
         this.tokens = [];
         this.sourceFile = sourceFile || ("<unknown>" as NormalizedPath);
@@ -394,6 +411,19 @@ export class Lexer {
                     sourceFile: this.sourceFile,
                 },
                 ErrorCodes.UNTERMINATED_BLOCK_COMMENT
+            );
+        }
+        // Check for unterminated string interp
+        if(this.context.interpolatedStringDepth.length > 0) {
+            this.diagnostics.addError(
+                `Unterminated interpolation string`,
+                {
+                    line: this.context.lineNumber,
+                    column: this.context.columnNumber,
+                    length: 0,
+                    sourceFile: this.sourceFile,
+                },
+                ErrorCodes.UNTERMINATED_STRING
             );
         }
 
@@ -451,6 +481,15 @@ export class Lexer {
             return this.readStringLiteral(char);
         }
 
+        // Interpolated String
+        if(this.isInterpolatedStringStart(char)) {
+            return this.readInterpolatedString(char, true);
+        }
+
+        if(this.isStringInterpResume(char)) {
+            return this.readInterpolatedString(char, false)
+        }
+
         // Multi line strings -- check configured delimiters
         if(this.config.multiLineStringDelimiters) {
             const multiLineStringDelimiter = this.isMultiCharBlockStart(this.config.multiLineStringDelimiters);
@@ -505,6 +544,34 @@ export class Lexer {
             startColumn,
             value.length
         );
+    }
+
+    private isInterpolatedStringStart(char: string) : boolean {
+        if(!this.config.stringInterpDelimiter) return false;
+        if(char == this.config.stringInterpDelimiter.char) {
+            this.context.interpolatedStringDepth.push(1);
+            return true;
+        }
+        return false;
+    }
+
+    private isStringInterpResume(char: string): boolean {
+        if(!this.config.stringInterpDelimiter) return false;
+
+        const interp = this.context.interpolatedStringDepth;
+        const current = interp.length - 1;
+        if(interp.length < 0) return false;
+
+        if(char == this.config.stringInterpDelimiter.close) {
+            interp[current]--;
+        }
+        if(char == this.config.stringInterpDelimiter.open) {
+            interp[current]++;
+        }
+        if(interp[current] == 0) {
+            return true;
+        }
+        return false;
     }
 
     //#region Character classification
@@ -882,6 +949,98 @@ export class Lexer {
             startLine,
             startColumn,
             value.length
+        );
+    }
+
+
+
+    private readInterpolatedString(char:string, start:boolean) : Token
+    {
+        const startLine = this.context.lineNumber;
+        const startColumn = this.context.columnNumber;
+
+        if(!this.config.stringInterpDelimiter) {
+            this.diagnostics.addError(
+                `Interpolate without interpolate config...`,
+                {
+                    line: startLine,
+                    column: startColumn,
+                    length: 1,
+                    sourceFile: this.sourceFile,
+                },
+                ErrorCodes.UNTERMINATED_STRING
+            );
+            return new Token(
+                TokenType.UNKNOWN,
+                this.advance(),
+                startLine,
+                startColumn,
+                1
+            );
+        }
+        let str = this.advance();
+        char = this.config.stringInterpDelimiter.char;
+        const open = this.config.stringInterpDelimiter.open;
+        const escape = this.config.stringInterpDelimiter.escape;
+        let escaped = false;
+        let done = false;
+        while(!this.isAtEnd() && !done) {
+            const next = this.peek();
+            if(!escaped) {
+                if(next == escape) {
+                    escaped = true;
+                } else if(next == open) {
+                    done = true;
+                } else if(next == char) {
+                    done = true;
+                } else if(next == "\n") {
+                    this.diagnostics.addError(
+                        "Unterminated string interpolation",
+                        {
+                            line: startLine,
+                            column: startColumn,
+                            length: str.length,
+                            sourceFile: this.sourceFile,
+                        },
+                        ErrorCodes.UNTERMINATED_STRING
+                    )
+                    break;
+                }
+            } else {
+                escaped = false;
+            }
+
+            str += this.advance();
+        }
+
+        const finish = str.endsWith(char);
+
+        const startType = finish ? TokenType.STRING_LITERAL : TokenType.STRING_INTERP_START;
+        const endType = finish ? TokenType.STRING_INTERP_END : TokenType.STRING_INTERP_MIDDLE;
+
+        if(finish) {
+            const pop = this.context.interpolatedStringDepth.pop();
+            if(pop !== 0 && !(pop == 1 && finish && start)) {
+                this.diagnostics.addError(
+                    `String interpolation ended with depth: ${pop}`,
+                    {
+                        line: startLine,
+                        column: startColumn,
+                        length: str.length,
+                        sourceFile: this.sourceFile,
+                    },
+                    ErrorCodes.UNTERMINATED_STRING
+                );
+            }
+        }
+
+
+        return new Token(
+            start ? startType : endType,
+            str,
+            startLine,
+            startColumn,
+            str.length
         );
     }
 

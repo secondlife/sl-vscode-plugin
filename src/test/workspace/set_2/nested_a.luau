@@ -6,4 +6,4 @@ local function processData(value)
 end
 
 
-processData(5)
+print(processData(5))

@@ -46,7 +46,7 @@ default
         // Test basic define substitution
         llOwnerSay("Hello, Owner!");
         llOwnerSay("Version: " + (string)2);
-        llOwnerSay("Unknown API Version");
+        llOwnerSay("Using API Version 2.0");
 
 // @line 93 "unittest:///test/workspace/set_1/test_defines_conditionals.lsl"
         // Test numeric defines
@@ -104,15 +104,22 @@ default
 // @line 136 "unittest:///test/workspace/set_1/test_defines_conditionals.lsl"
         llOwnerSay("DEBUG: " + (string)("Debug logging is enabled"));
 
-// @line 140 "unittest:///test/workspace/set_1/test_defines_conditionals.lsl"
-        llOwnerSay("Verbose logging is enabled");
 
-// @line 154 "unittest:///test/workspace/set_1/test_defines_conditionals.lsl"
-        llOwnerSay("Basic features only");
+// @line 144 "unittest:///test/workspace/set_1/test_defines_conditionals.lsl"
+        llOwnerSay("Advanced features are available");
+
+// @line 146 "unittest:///test/workspace/set_1/test_defines_conditionals.lsl"
+        // Advanced feature code
+        list advanced_items = [];
+        integer i;
+        for (i = 0; i < 10; i++) {
+            advanced_items += ["Advanced Item " + (string)i];
+        }
+        llOwnerSay("Created " + (string)llGetListLength(advanced_items) + " advanced items");
 
 
-// @line 165 "unittest:///test/workspace/set_1/test_defines_conditionals.lsl"
-        llOwnerSay("Using legacy debug features");
+// @line 163 "unittest:///test/workspace/set_1/test_defines_conditionals.lsl"
+        llOwnerSay("Using new debug features for version " + (string)2);
 
 // @line 168 "unittest:///test/workspace/set_1/test_defines_conditionals.lsl"
         // Test clamping macro

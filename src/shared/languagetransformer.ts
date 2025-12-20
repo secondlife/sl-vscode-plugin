@@ -2,8 +2,8 @@
  * @file languagetransformer.ts
  * Copyright (C) 2025, Linden Research, Inc.
  */
-import { LSLFunction, LSLKeywords } from './lslkeywords';
-import { ClassDeclaration, ConstantDeclaration, FunctionSignature, LiteralUnionType, LuaTypeDefinitions, ModuleDeclaration, Parameter, TypeAlias } from './luadefsinterface';
+import { LSLEvent, LSLFunction, LSLKeywords } from './lslkeywords';
+import { ClassDeclaration, ClassProperty, ConstantDeclaration, FunctionSignature, FunctionType, LiteralUnionType, LuaTypeDefinitions, ModuleDeclaration, Parameter, TypeAlias, TypeReference } from './luadefsinterface';
 
 export class LanguageTransformer {
     public static processCombinedDefinitions(lslDefs: LSLKeywords, luaDefs: LuaTypeDefinitions): void {
@@ -22,7 +22,7 @@ export class LanguageTransformer {
     }
 
     private static processFunctions(lslDefs: LSLKeywords, luaDefs: LuaTypeDefinitions): void {
-        const detected_event = LanguageTransformer.findClass(luaDefs, "DetectedEvent");
+        const detected_event = LanguageTransformer.findClass(luaDefs, "LLDetectedEvent");
 
         if (!lslDefs.functions) {
             return;
@@ -72,8 +72,9 @@ export class LanguageTransformer {
     }
 
     private static processEvents(lslDefs: LSLKeywords, luaDefs: LuaTypeDefinitions): void {
-        const detected_event_list = LanguageTransformer.findTypeAlias(luaDefs, "DetectedEventName");
-        const nondetected_event_list = LanguageTransformer.findTypeAlias(luaDefs, "NonDetectedEventName");
+        const detected_event_list = LanguageTransformer.findTypeAlias(luaDefs, "LLDetectedEventName");
+        const nondetected_event_list = LanguageTransformer.findTypeAlias(luaDefs, "LLNonDetectedEventName");
+        const llevents_class = LanguageTransformer.findClass(luaDefs, "LLEvents");
 
         const detected_events = [
             "collision",
@@ -92,6 +93,23 @@ export class LanguageTransformer {
                 (detected_event_list.definition as LiteralUnionType).values.push(lslName);
             } else if (nondetected_event_list) {
                 (nondetected_event_list.definition as LiteralUnionType).values.push(lslName);
+            }
+
+            if (llevents_class) {
+                if (!llevents_class.properties) {
+                    llevents_class.properties = [];
+                }
+                const isDetected = detected_events.includes(lslName);
+                const lslEvent = lslDefs.events![lslName];
+                const handlerType: TypeReference = isDetected
+                    ? '(LLDetectedEventHandler)?'
+                    : this.buildEventHandlerType(lslEvent);
+                const eventProperty: ClassProperty = {
+                    name: lslName,
+                    type: handlerType,
+                    comment: lslEvent.tooltip || `Handler for the '${lslName}' event`,
+                };
+                llevents_class.properties.push(eventProperty);
             }
         }
     }
@@ -127,7 +145,7 @@ export class LanguageTransformer {
             integer: 'number',
             float: 'number',
             string: 'string',
-            key: isParamList ? 'uuid_like' : 'uuid',
+            key: 'uuid',
             list: 'list',
             vector: 'vector',
             rotation: 'quaternion',
@@ -197,6 +215,32 @@ export class LanguageTransformer {
 
     private static isDetectedFunction(lslFunc: string): boolean {
         return (lslFunc === "llAdjustDamage" || lslFunc.startsWith("llDetected"));
+    }
+
+    /**
+     * Build a function type for an event handler based on the LSL event definition
+     * Returns a nullable function type (handler or nil)
+     */
+    private static buildEventHandlerType(lslEvent: LSLEvent): TypeReference {
+        const parameters: Parameter[] = lslEvent.arguments
+            ? lslEvent.arguments.flatMap((lslArg) =>
+                Object.entries(lslArg).map(([paramName, paramDef]) => ({
+                    name: paramName,
+                    type: this.translateLSLTypeToLua(paramDef.type, true) || 'any',
+                })),
+            )
+            : [];
+
+        const handlerType: FunctionType = {
+            kind: 'function',
+            parameters,
+            returnType: '()',
+        };
+
+        return {
+            kind: 'union',
+            types: [handlerType, 'nil'],
+        };
     }
 
     private static convertDetectedSignature(luauaSignature: FunctionSignature): FunctionSignature {

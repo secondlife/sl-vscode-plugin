@@ -24,6 +24,8 @@ interface DocDatabase {
     [key: string]: DocEntry;
 }
 
+const globalsPrefix = `@sl-slua/global/`
+
 /**
  * Generates docs.json file from Lua type definitions
  */
@@ -62,7 +64,7 @@ export class DocsJsonGenerator {
      * Add global function documentation
      */
     private addGlobalFunction(func: GlobalFunction, docs: DocDatabase): void {
-        const key = `@roblox/global/${func.name}`;
+        const key = `${globalsPrefix}${func.name}`;
 
         const entry: DocEntry = {
             documentation: this.formatDocumentation(func.comment || `${func.name} function`)
@@ -81,7 +83,7 @@ export class DocsJsonGenerator {
      */
     private addModule(module: ModuleDeclaration, docs: DocDatabase): void {
         // Add module itself
-        const moduleKey = `@roblox/global/${module.name}`;
+        const moduleKey = `${globalsPrefix}${module.name}`;
         docs[moduleKey] = {
             documentation: module.comment || `${module.name} module`,
             summary: module.comment || `${module.name} module`
@@ -110,7 +112,7 @@ export class DocsJsonGenerator {
      * Add module property documentation
      */
     private addModuleProperty(moduleName: string, prop: ModuleProperty, docs: DocDatabase): void {
-        const key = `@roblox/global/${moduleName}.${prop.name}`;
+        const key = `${globalsPrefix}${moduleName}.${prop.name}`;
 
         const entry: DocEntry = {
             documentation: this.formatDocumentation(prop.comment || `${moduleName}.${prop.name} property`)
@@ -128,7 +130,7 @@ export class DocsJsonGenerator {
      * Add module function documentation
      */
     private addModuleFunction(moduleName: string, func: FunctionSignature, docs: DocDatabase): void {
-        const key = `@roblox/global/${moduleName}.${func.name}`;
+        const key = `${globalsPrefix}${moduleName}.${func.name}`;
 
         const entry: DocEntry = {
             documentation: this.formatDocumentation(func.comment || `${moduleName}.${func.name} function`)
@@ -136,7 +138,7 @@ export class DocsJsonGenerator {
 
         // Generate wiki link for ll.* functions
         if (moduleName === 'll') {
-            entry.learn_more_link = `https://create.secondlife.com/script/slua-reference/functions/ll${func.name}/`
+            entry.learn_more_link = `https://create.secondlife.com/script/slua-reference/functions/ll${func.name.toLowerCase()}/`
         }
 
         docs[key] = entry;
@@ -146,7 +148,7 @@ export class DocsJsonGenerator {
      * Add constant documentation
      */
     private addConstant(constant: ConstantDeclaration, docs: DocDatabase): void {
-        const key = `@roblox/global/${constant.name}`;
+        const key = `${globalsPrefix}${constant.name}`;
 
         const entry: DocEntry = {
             documentation: this.formatDocumentation(constant.comment || `${constant.name} constant`)
@@ -189,7 +191,7 @@ export class DocsJsonGenerator {
         // Handle different naming conventions
         if (name.startsWith('ll.')) {
             // ll.FunctionName -> https://create.secondlife.com/script/slua-reference/functions/llFunctionName/
-            return `https://create.secondlife.com/script/slua-reference/functions/ll${name.slice(3)}/`;
+            return `https://create.secondlife.com/script/slua-reference/functions/ll${name.slice(3).toLowerCase()}/`;
         }
 
         if (name === 'uuid' || name === 'vector' || name === 'quaternion') {

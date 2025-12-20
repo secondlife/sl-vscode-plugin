@@ -15,10 +15,17 @@ import { NormalizedPath } from '../interfaces/hostinterface';
 
 //#region Conditional State
 
+let _conditionIdenifier = 0;
+const getConditionalIdentifier = () : number => {
+    _conditionIdenifier++;
+    return _conditionIdenifier;
+}
+
 /**
  * State for a single conditional block (#if/#ifdef/#ifndef)
  */
 interface ConditionalBlock {
+    identifier: number;
     /** Whether the parent context is including code */
     parentActive: boolean;
     /** Result of the condition evaluation for current branch */
@@ -359,6 +366,7 @@ export class ConditionalProcessor {
         const branchActive = parentActive && condition;
 
         const block: ConditionalBlock = {
+            identifier: getConditionalIdentifier() ,
             parentActive,
             branchActive,
             inElse: false,
@@ -374,6 +382,17 @@ export class ConditionalProcessor {
             success: true,
             shouldInclude: this.isActive(),
         };
+    }
+
+    getCurrentBlock() : ConditionalBlock|null {
+        if(this.stack.length > 0) {
+            return this.stack[this.stack.length - 1];
+        }
+        return null;
+    }
+
+    getCurrentBlockIdentifier() : number|null {
+        return this.getCurrentBlock()?.identifier ?? null;
     }
 
     /**

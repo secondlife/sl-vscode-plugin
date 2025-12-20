@@ -5,7 +5,7 @@
 
 import * as assert from 'assert';
 import { Parser } from '../../shared/parser';
-import { Lexer } from '../../shared/lexer';
+import { Lexer, TokenType } from '../../shared/lexer';
 import { normalizePath, HostInterface, NormalizedPath } from '../../interfaces/hostinterface';
 import { ConfigKey, FullConfigInterface } from '../../interfaces/configinterface';
 
@@ -50,6 +50,9 @@ suite('Parser Tests', () => {
                 return false;
             }
             async writeTOML(p: NormalizedPath, data: Record<string, any>): Promise<boolean> {
+                return false;
+            }
+            async existsInSameWorkspace(knownPath: string, desiredPath: string): Promise<boolean> {
                 return false;
             }
             fileNameToUri(fileName: NormalizedPath): string {
@@ -178,7 +181,7 @@ llOwnerSay("This should appear");`;
         assert.ok(result.source.includes('should appear'));
     });
 
-    test('should handle #else branches', async () => {
+    test('should handle UNDEFINED #else branches', async () => {
         const source = `#ifdef UNDEFINED
 llOwnerSay("Not included");
 #else
@@ -193,6 +196,65 @@ llOwnerSay("Included");
 
         assert.ok(!result.source.includes('Not included'));
         assert.ok(result.source.includes('Included'));
+    });
+
+    test('should handle DEFINED #else branches', async () => {
+        const source = `#define DEFINED
+#ifdef DEFINED
+llOwnerSay("Included");
+#else
+llOwnerSay("Not included");
+#endif`;
+
+        const lexer = new Lexer(source, 'lsl');
+        const tokens = lexer.tokenize();
+
+        const parser = new Parser(tokens, testFile, 'lsl');
+        const result = await parser.parse();
+
+        assert.ok(!result.source.includes('Not included'));
+        assert.ok(result.source.includes('Included'));
+    });
+
+    test('should handle #define in #else branches', async () => {
+        const source1 = `#define DEFINED
+#ifdef DEFINED
+    #define TEST 1
+#else
+    #define TEST 2
+#endif`;
+
+        const lexer1 = new Lexer(source1, 'lsl');
+        const tokens1 = lexer1.tokenize();
+
+        const parser1 = new Parser(tokens1, testFile, 'lsl');
+        const result1 = await parser1.parse();
+
+        const macro1 = parser1.getState().macros.getMacro("TEST");
+        assert.strictEqual(macro1?.body.length, 1);
+        assert.strictEqual(macro1?.body[0].type, TokenType.NUMBER_LITERAL);
+        assert.strictEqual(macro1?.body[0].value, "1");
+
+
+
+        const source2 = `#define DEFINED
+#ifdef UNDEFINED
+    #define TEST 1
+#else
+    #define TEST 2
+#endif`;
+
+        const lexer2 = new Lexer(source2, 'lsl');
+        const tokens2 = lexer2.tokenize();
+
+        const parser2 = new Parser(tokens2, testFile, 'lsl');
+        const result2 = await parser2.parse();
+
+        const macro2 = parser2.getState().macros.getMacro("TEST");
+        assert.strictEqual(macro2?.body.length, 1);
+        assert.strictEqual(macro2?.body[0].type, TokenType.NUMBER_LITERAL);
+        assert.strictEqual(macro2?.body[0].value, "2");
+
     });
 
     test('should create line mappings', async () => {
@@ -789,10 +851,68 @@ llOwnerSay("enabled");
         assert.ok(result.source.includes('"enabled"'), 'Empty macro should be defined for #ifdef');
     });
 
+    test('multiple conditional include', async () => {
+        const source = `#define DEFINED
+#ifdef DEFINED
+#include "lib1.lsl"
+#else
+#include "lib2.lsl"
+#endif
+integer x = 1;`;
+
+        const lexer = new Lexer(source, 'lsl');
+        const tokens = lexer.tokenize();
+
+        const parser = new Parser(tokens, testFile, 'lsl');
+        const result = await parser.parse();
+
+        assert.strictEqual(result.includes.length, 1, 'Should detect 1 include');
+        assert.strictEqual(result.includes[0].file, 'lib1.lsl');
+    });
+
+    test('multiple conditional ELSE include', async () => {
+        const source = `#define DEFINED
+
+#ifdef UNDEFINED
+    #include "lib1.lsl"
+#else
+    #include "lib2.lsl"
+#endif
+
+integer x = 1;`;
+
+        const lexer = new Lexer(source, 'lsl');
+        const tokens = lexer.tokenize();
+
+        const parser = new Parser(tokens, testFile, 'lsl');
+        const result = await parser.parse();
+
+        assert.strictEqual(result.includes.length, 1, 'Should detect 1 include');
+        assert.strictEqual(result.includes[0].file, 'lib2.lsl');
+    });
+
     test('multiple includes in same file', async () => {
         const source = `#include "lib1.lsl"
 #include "lib2.lsl"
 #include "lib3.lsl"
+integer x = 1;`;
+
+        const lexer = new Lexer(source, 'lsl');
+        const tokens = lexer.tokenize();
+
+        const parser = new Parser(tokens, testFile, 'lsl');
+        const result = await parser.parse();
+
+        assert.strictEqual(result.includes.length, 3, 'Should detect 3 includes');
+        assert.strictEqual(result.includes[0].file, 'lib1.lsl');
+        assert.strictEqual(result.includes[1].file, 'lib2.lsl');
+        assert.strictEqual(result.includes[2].file, 'lib3.lsl');
+    });
+
+    test('should detect <> style include', async () => {
+        const source = `#include <lib1.lsl>
+#include <lib2.lsl> // test
+#include <lib3.lsl>
 integer x = 1;`;
 
         const lexer = new Lexer(source, 'lsl');

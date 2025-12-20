@@ -136,6 +136,10 @@ class DiskTestHost implements HostInterface {
         return null;
     }
 
+    async existsInSameWorkspace(knownPath: string, desiredPath: string): Promise<boolean> {
+        return false;
+    }
+
     async readYAML<T = any>(p: NormalizedPath): Promise<T | null> {
         return null;
     }

@@ -9,6 +9,7 @@ import { LuaTypeDefinitions } from "./shared/luadefsinterface";
 import { LuauDefsGenerator } from "./shared/luadefsgenerator";
 import { DocsJsonGenerator } from "./shared/docsjsongenerator";
 import { SeleneYamlGenerator } from "./shared/seleneyamlgenerator";
+import { ConfigKey } from "./interfaces/configinterface";
 
 //=============================================================================
 abstract class BasePlugin {
@@ -148,23 +149,31 @@ export class LuaLSPPlugin extends BasePlugin {
         let configPath: NormalizedPath;
         configPath = await this.host.config.getWorkspaceConfigPath();
 
-        const defsFileName = await this.saveLuauLSPDefs(
+        const defsFiles:{[k:string]:string} = {};
+
+        defsFiles["sl-slua"] = await this.saveLuauLSPDefs(
             configPath,
             version,
             configs[0],
         );
+        console.error("SLUA PRE PROC CONSTANTS",this.host.config.getConfig(ConfigKey.PreprocessorConstantsInSLua, false));
+        if(this.host.config.getConfig(ConfigKey.PreprocessorConstantsInSLua, false)) {
+            defsFiles["sl-slua-consts"] = await this.saveLuauLSPConstantDefs(
+                configPath
+            );
+        }
         const docsFileName = await this.saveLuauLSPDocs(
             configPath,
             version,
             configs[1],
         );
 
-        await this.restartLuauLSP(defsFileName, docsFileName, this.host);
+        await this.restartLuauLSP(defsFiles, docsFileName, this.host);
         return true;
     }
 
     private async restartLuauLSP(
-        defsFile: string,
+        defsFiles: {[k:string]:string},
         docsFile: string,
         _host: HostInterface,
     ): Promise<void> {
@@ -180,13 +189,18 @@ export class LuaLSPPlugin extends BasePlugin {
             // Discard array config, theres not much else we can do to fix it
             luaulspDefs = {}
         }
-        luaulspDefs["sl-slua"] = defsFile;
 
-        await luaulsp.update("types.definitionFiles", luaulspDefs);
+        for(const defKey in luaulspDefs) {
+            if(!defKey.startsWith("sl-")) {
+                defsFiles[defKey] = luaulspDefs[defKey];
+            }
+        }
+
+        await luaulsp.update("types.definitionFiles", defsFiles);
         await luaulsp.update("types.documentationFiles", [docsFile]);
         await luaulsp.update("platform.type", "standard");
         await luaulsp.update("sourcemap.enabled", false);
-        await new Promise((resolve) => setTimeout(resolve, 100));
+        await new Promise((resolve) => setTimeout(resolve, 1000));
         // Execute luau-lsp's command to realod the language sever
         await vscode.commands.executeCommand("luau-lsp.reloadServer")
     }
@@ -202,6 +216,35 @@ export class LuaLSPPlugin extends BasePlugin {
             await this.host.writeFile(fullPath, defs);
         } else {
             await vscode.workspace.fs.writeFile(vscode.Uri.file(fullPath), Buffer.from(defs, "utf8"));
+        }
+        return fullPath;
+    }
+
+    private async saveLuauLSPConstantDefs(
+        configPath: NormalizedPath
+    ) : Promise<NormalizedPath> {
+        const basename = `slua_constants.d.luau`;
+        const constants = [
+            ["__LINE__", "number"],
+            ["__FILE__", "string"],
+            ["__SHORTFILE__", "string"],
+            ["__AGENTID__", "string"],
+            ["__AGENTKEY__", "string"],
+            ["__AGENTNAME__", "string"],
+            ["__DATE__", "string"],
+            ["__TIME__", "string"],
+            ["__TIMESTAMP__", "string"],
+            ["__UNIXTIME__", "number"],
+        ];
+        const slua_constants:string[] = constants.reduce<string[]>((acc, cur) => {
+            acc.push(`declare ${cur[0]} : ${cur[1]}`);
+            return acc;
+        },[]);
+        const fullPath = normalizeJoinPath(configPath, basename);
+        if (this.host.writeFile) {
+            await this.host.writeFile(fullPath, slua_constants.join("\n"));
+        } else {
+            await vscode.workspace.fs.writeFile(vscode.Uri.file(fullPath), Buffer.from(slua_constants.join("\n"), "utf8"));
         }
         return fullPath;
     }

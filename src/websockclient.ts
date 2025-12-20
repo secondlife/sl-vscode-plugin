@@ -454,7 +454,7 @@ export class JSONRPCClient extends WebsockClient implements JSONRPCInterface {
     protected handleMessage(data: WebSocket.RawData): void {
         try {
             const message = JSON.parse(data.toString()) as JSONRPCMessage;
-            console.log("Received JSON-RPC message:", message);
+            // console.log("Received JSON-RPC message:", message);
 
             if (this.isJSONRPCResponse(message)) {
                 this.handleJSONRPCResponse(message);
@@ -533,10 +533,10 @@ export class JSONRPCClient extends WebsockClient implements JSONRPCInterface {
     }
 
     private handleJSONRPCNotification(notification: JSONRPCNotification): void {
-        console.log(
-            `JSON-RPC notification: ${notification.method}`,
-            notification.params,
-        );
+        // console.log(
+        //     `JSON-RPC notification: ${notification.method}`,
+        //     notification.params,
+        // );
 
         // Check for dynamically registered handlers
         const handler = this.methodHandlers.get(notification.method);
@@ -560,7 +560,7 @@ export class JSONRPCClient extends WebsockClient implements JSONRPCInterface {
     }
 
     private async handleJSONRPCRequest(request: JSONRPCRequest): Promise<void> {
-        console.log(`JSON-RPC request: ${request.method}`, request.params);
+        // console.log(`JSON-RPC request: ${request.method}`, request.params);
 
         // For requests, id should not be undefined, but we need to handle it safely
         const requestId = request.id !== undefined ? request.id : null;

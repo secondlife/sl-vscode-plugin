@@ -44,6 +44,9 @@ export function splitFilename(filename: NormalizedPath): { basepath: string; fil
 export interface HostInterface {
     /** Central configuration provider (framework-agnostic). */
     config: FullConfigInterface;
+
+    existsInSameWorkspace(knownPath:string, desiredPath:string): Promise<boolean>;
+
     exists(p: NormalizedPath, unsafe?: boolean): Promise<boolean>;
     resolveFile(
         filename: string,        // raw filename from directive

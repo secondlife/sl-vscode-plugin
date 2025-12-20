@@ -120,6 +120,9 @@ suite("Lexing Preprocessor Test Suite", () => {
             async writeTOML(p: NormalizedPath, data: Record<string, any>): Promise<boolean> {
                 return false;
             }
+            async existsInSameWorkspace(knownPath: string, desiredPath: string): Promise<boolean> {
+                return false;
+            }
             fileNameToUri(fileName: NormalizedPath): string {
                 // Strip path to only include directories/filename after "test" directory
                 const testIndex = fileName.indexOf('test');
@@ -181,6 +184,9 @@ suite("Lexing Preprocessor Test Suite", () => {
                 return false;
             }
             async writeTOML(p: NormalizedPath, data: Record<string, any>): Promise<boolean> {
+                return false;
+            }
+            async existsInSameWorkspace(knownPath: string, desiredPath: string): Promise<boolean> {
                 return false;
             }
             fileNameToUri(fileName: NormalizedPath): string {
@@ -361,6 +367,59 @@ suite("Lexing Preprocessor Test Suite", () => {
                 assert.strictEqual(luauStrings[i]?.value, luauSourceStrings[i]);
             }
             assert.strictEqual(luauStrings.length, luauSourceStrings.length);
+        });
+
+        test("Should support slua string interp", ()=> {
+            const parts = [
+                "local",
+                " ",
+                "a",
+                " ",
+                "=",
+                " ",
+                "`string {",
+                "b",
+                "}`"
+            ];
+            const source = parts.join('');
+            const luauLexer = new Lexer(source, "luau");
+            const luauTokens = luauLexer.tokenize();
+            assert.strictEqual(luauTokens.length, 10);
+            for(const i in parts) {
+                assert.strictEqual(luauTokens[i].value, parts[i]);
+            }
+        });
+
+
+
+        test("Should support nested slua string interp", ()=> {
+            const parts = [
+                "local",
+                " ",
+                "a",
+                " ",
+                "=",
+                " ",
+                "`string {",
+                "b",
+                " ",
+                "..",
+                " ",
+                "`nested{",
+                " ",
+                "`string`",
+                " ",
+                "}`",
+                " ",
+                "}`"
+            ];
+            const source = parts.join('');
+            const luauLexer = new Lexer(source, "luau");
+            const luauTokens = luauLexer.tokenize();
+            assert.strictEqual(luauTokens.length, parts.length + 1);
+            for(const i in parts) {
+                assert.strictEqual(luauTokens[i].value, parts[i]);
+            }
         });
 
         const tokenizeAndGetStrings = (strings:string[],lang:ScriptLanguage) : string[] => {
@@ -1095,6 +1154,8 @@ default {
             // Verify successful preprocessing
             assert.strictEqual(result.success, true, "Preprocessing should succeed");
             assert.ok(result.content.length > 0, "Should have output content");
+
+            fs.writeFileSync(expectedFile + "2", result.content);
 
             // Compare actual output to expected output
             const actualNormalized = normalizeOutput(result.content);

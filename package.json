@@ -2,8 +2,9 @@
   "name": "sl-vscode-plugin",
   "displayName": "Second Life VSCode Plugin",
   "description": "Binding extension for external LSL and SLua editing from the Second Life viewer.",
-  "version": "1.0.2",
+  "version": "1.0.3",
   "publisher": "lindenlab",
+  "icon": "sl-logo-vscode.png",
   "extensionDependencies": [],
   "engines": {
     "vscode": "^1.85.0"
@@ -84,6 +85,21 @@
             "type": "boolean",
             "default": false,
             "description": "Whether the plugin should fisrt check if there have been any actual changes on save, or to just send it to viewer anyway"
+          },
+          "slVscodeEdit.sync.includeFileMetaInOutput": {
+            "type": "boolean",
+            "default": false,
+            "description": "Wether the output script should include some meta information about the file"
+          },
+          "slVscodeEdit.sync.useFileMetaForMatching": {
+            "type": "boolean",
+            "default": false,
+            "description": "Wether the file matcher should use script meta info for matching file"
+          },
+          "slVscodeEdit.sync.includeCreatorInFileMeta": {
+            "type": "boolean",
+            "default": false,
+            "description": "Wether the current sl user info should be included in the meta info"
           }
         }
       },
@@ -117,6 +133,12 @@
             "minimum": 1,
             "maximum": 50,
             "description": "Maximum nesting depth for #include and require() directives"
+          },
+          "slVscodeEdit.preprocessor.constantsInSLua": {
+            "title": "Use constants in SLua",
+            "type": "boolean",
+            "default": false,
+            "description": "Enable predefined LSL stlye preproc macro constants in slua"
           }
         }
       },

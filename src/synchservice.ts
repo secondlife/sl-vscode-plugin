@@ -27,12 +27,15 @@ import {
     showWarningMessage,
     closeEditor,
     logInfo,
+    VSCodeHost,
 } from "./utils";
 import { maybe } from "./shared/sharedutils"; // TODO: migrate needed utilities from sharedutils if required
 import { ScriptLanguage, LanguageService } from "./shared/languageservice";
 import { ScriptSync } from "./scriptsync";
+import { LANGUAGE_CONFIGS } from "./shared/lexer";
+import { HostInterface } from "./interfaces/hostinterface";
 
-type ParsedTempFile = { scriptName: string; scriptId: string; extension: string };
+type ParsedTempFile = { scriptName: string; scriptId: string; extension: string, language: ScriptLanguage};
 
 export class SynchService implements vscode.Disposable {
     // Tracks all active sync relationships between temp files and master files
@@ -44,6 +47,8 @@ export class SynchService implements vscode.Disposable {
     private handshakePromise?: Promise<{ success: boolean; message: string }>;
     private lastActiveChange: number = 0;
     private activeSync: ScriptSync | undefined;
+    private host: HostInterface;
+    private initialGenerationDone: boolean = false;
 
     public viewerName?: string;
     public viewerVersion?: string;
@@ -57,6 +62,7 @@ export class SynchService implements vscode.Disposable {
 
     private constructor(context: vscode.ExtensionContext) {
         this.context = context;
+        this.host = new VSCodeHost();
     }
 
     public static getInstance(context?: vscode.ExtensionContext): SynchService {
@@ -115,7 +121,9 @@ export class SynchService implements vscode.Disposable {
                 this.onChangeActiveTextEditor(editor),
         );
 
-        this.initializeSyntax();
+        ConfigService.getInstance().on(ConfigKey.PreprocessorConstantsInSLua,() => {
+            this.initializeSyntax();
+        });
 
         // TODO: Figure out why restart isn't working on the luau-lsp server
         // TODO: Bug when prepping language syntax on download
@@ -170,7 +178,7 @@ export class SynchService implements vscode.Disposable {
         }
 
         // Look for a file in the workspace with the same name as the master script
-        let masterUri = await SynchService.findMasterFile(parsed);
+        let masterUri = await SynchService.findMasterFile(parsed, viewerDocument);
         if (!masterUri) {
             // There was no master file found, we are our own master
             showInfoMessage(
@@ -216,7 +224,9 @@ export class SynchService implements vscode.Disposable {
                 config,
                 parsed.scriptId,
                 viewerDocument,
+                this.host,
             );
+            await sync.initialize();
             this.activeSyncs.set(masterPath, sync);
         }
 
@@ -559,6 +569,7 @@ export class SynchService implements vscode.Disposable {
                 scriptName: match[1],
                 scriptId: match[2],
                 extension: match[3],
+                language: match[3].toLowerCase() == "lsl" ? "lsl" : "luau",
             }
             : null;
     }
@@ -596,7 +607,23 @@ export class SynchService implements vscode.Disposable {
 
     private static async findMasterFile(
         script: ParsedTempFile,
+        viewerFile: vscode.TextDocument
     ): Promise<vscode.Uri | null> {
+        // Attempt to match by file meta info
+        if(ConfigService.getInstance().getConfig<boolean>(ConfigKey.FileMetaInfoUseForMatching, false)) {
+            const cmt = LANGUAGE_CONFIGS[script.language].lineCommentPrefix;
+            const lineRegExp = new RegExp(`^[\\s]*${cmt}[\\s]*@file[\\s]*[A-z0-9-_/.]*[\\s]*$`,"i");
+            const range = new vscode.Range(0,0,10,0);
+            const start = viewerFile.getText(range).split("\n").filter(line => line.match(lineRegExp))[0] ?? null;
+            if(start) {
+                const files = await vscode.workspace.findFiles(start.split("@file")[1].trim());
+                if(files.length == 1) {
+                    console.warn("Match on meta info");
+                    return files[0];
+                }
+            }
+        }
+
         let files = await vscode.workspace.findFiles(`**/${script.scriptName}.${script.extension}`);
         if(files.length > 0) {
             return files[0];
@@ -614,8 +641,9 @@ export class SynchService implements vscode.Disposable {
                     relative = relative.slice(1);
                 }
                 const matches = [
-                    relative.replaceAll("/","").replaceAll("\\",""), // Try match `folder/script.luau` to `folderscript` or `folder/script` from sl
-                    relative.replaceAll("/","_").replaceAll("\\","_"), // Try to match `folder/script.luau` to `folder_script` from sl
+                    relative.replaceAll(path.sep,""), // Try match `folder/script.luau` to `folderscript` or `folder/script` from sl
+                    relative.replaceAll(path.sep,"_"), // Try to match `folder/script.luau` to `folder_script` from sl
+                    relative.replaceAll(path.sep," "), // Try to match `folder/script.luau` to `folder_script` from sl
                 ];
                 if(matches.includes(`${script.scriptName}.${script.extension}`)) {
                     return possibleFile;
@@ -643,7 +671,15 @@ export class SynchService implements vscode.Disposable {
     //#region Event handlers
     private async onOpenTextDocument(document: vscode.TextDocument): Promise<void> {
         this.lastActiveChange = 0;
+        this.initialDefinitionGeneration(document);
         await this.setupSync(document);
+    }
+
+    private async initialDefinitionGeneration(document: vscode.TextDocument) : Promise<void> {
+        if(this.initialGenerationDone) return;
+        if(!document.uri.fsPath.endsWith(".luau")) return;
+        this.initialGenerationDone = true;
+        this.initializeSyntax();
     }
 
     private onCloseTextDocument(document: vscode.TextDocument): void {

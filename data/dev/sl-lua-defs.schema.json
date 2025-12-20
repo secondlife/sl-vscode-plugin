@@ -124,7 +124,7 @@
               "items": {
                 "type": "string"
               },
-              "minItems": 1,
+              "minItems": 0,
               "description": "Array of literal string values"
             }
           },
@@ -144,6 +144,83 @@
             }
           },
           "required": ["kind", "name"],
+          "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "description": "Callable table type (e.g., { ... } & ((x, y) -> result))",
+          "properties": {
+            "kind": {
+              "const": "callable-table"
+            },
+            "tableType": {
+              "type": "object",
+              "description": "The table portion of the type",
+              "properties": {
+                "properties": {
+                  "type": "array",
+                  "items": {
+                    "type": "object",
+                    "properties": {
+                      "name": {
+                        "type": "string"
+                      },
+                      "type": {
+                        "$ref": "#/$defs/typeReference"
+                      },
+                      "optional": {
+                        "type": "boolean"
+                      },
+                      "comment": {
+                        "type": "string"
+                      }
+                    },
+                    "required": ["name", "type"]
+                  },
+                  "description": "Table properties"
+                },
+                "methods": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/$defs/functionSignature"
+                  },
+                  "description": "Table methods"
+                }
+              }
+            },
+            "callSignature": {
+              "type": "object",
+              "description": "The callable signature of the table",
+              "properties": {
+                "parameters": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/$defs/parameter"
+                  }
+                },
+                "returnType": {
+                  "$ref": "#/$defs/typeReference"
+                }
+              },
+              "required": ["parameters", "returnType"]
+            }
+          },
+          "required": ["kind", "tableType", "callSignature"],
+          "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "description": "Typeof reference (e.g., typeof(quaternion))",
+          "properties": {
+            "kind": {
+              "const": "typeof"
+            },
+            "target": {
+              "type": "string",
+              "description": "The identifier to get the type of"
+            }
+          },
+          "required": ["kind", "target"],
           "additionalProperties": false
         }
       ]
@@ -171,15 +248,18 @@
       "required": [],
       "oneOf": [
         {
-          "required": ["name", "type"]
+          "required": ["name", "type"],
+          "description": "Named parameter with type"
         },
         {
           "required": ["name"],
+          "not": { "required": ["type"] },
           "properties": {
             "name": {
               "const": "self"
             }
-          }
+          },
+          "description": "Self parameter without type"
         },
         {
           "required": ["type", "variadic"],
@@ -187,7 +267,8 @@
             "variadic": {
               "const": true
             }
-          }
+          },
+          "description": "Variadic parameter"
         }
       ]
     },
@@ -348,13 +429,21 @@
                         "description": "Whether the parameter is variadic (...)"
                       }
                     },
-                    "required": ["type"],
+                    "required": [],
                     "oneOf": [
                       {
-                        "required": ["name"]
+                        "required": ["name", "type"]
                       },
                       {
-                        "required": ["variadic"],
+                        "required": ["name"],
+                        "properties": {
+                          "name": {
+                            "const": "self"
+                          }
+                        }
+                      },
+                      {
+                        "required": ["type", "variadic"],
                         "properties": {
                           "variadic": {
                             "const": true
@@ -445,8 +534,8 @@
             "description": "Variable name"
           },
           "type": {
-            "type": "string",
-            "description": "Type annotation"
+            "$ref": "#/$defs/typeReference",
+            "description": "Type annotation (can be simple string or complex type)"
           },
           "comment": {
             "type": "string",

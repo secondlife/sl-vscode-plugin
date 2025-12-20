@@ -150,6 +150,17 @@ end
 
 ## Configuration
 
+### Only use plugin in specific workspaces
+
+The plugin can be configured to only run inside specific workspaces, instead of globally.
+
+To do this, go to `settings` > `extienstions` and find the SL Scipting settings,
+and uncheck the `Enabled` setting.
+
+Then in any workspace you want to use the plugin in, you can either manually set the
+`Enabled` setting at the workspace level, or open the command pallete and run the
+`Second Life: Enable Extension for Workspace` command.
+
 ### Preprocessor Settings
 
 Configure preprocessing behavior in VS Code settings:

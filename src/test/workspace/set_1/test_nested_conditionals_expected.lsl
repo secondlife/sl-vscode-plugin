@@ -7,7 +7,7 @@ default
 {
     state_entry()
     {
-        llOwnerSay("Mode: " + "disabled");
+        llOwnerSay("Mode: " + "advanced");
 
 // @line 27 "unittest:///test/workspace/set_1/test_nested_conditionals.lsl"
         llOwnerSay("Both features enabled");
