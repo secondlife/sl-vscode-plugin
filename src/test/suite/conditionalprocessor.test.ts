@@ -6,11 +6,14 @@
 import * as assert from 'assert';
 import { ConditionalProcessor } from '../../shared/conditionalprocessor';
 import { MacroProcessor, MacroDefinition } from '../../shared/macroprocessor';
-import { Token, TokenType, Lexer } from '../../shared/lexer';
+import { Token, TokenType, Lexer, getLanguageConfig } from '../../shared/lexer';
+import { ScriptLanguage } from '../../shared/languageservice';
 
 suite('ConditionalProcessor (Lexing)', () => {
     let processor: ConditionalProcessor;
     let macros: MacroProcessor;
+    const lslLanguageConfig = getLanguageConfig('lsl');
+    const luauLanguageConfig = getLanguageConfig('luau');
 
     /**
      * Helper to create a simple token
@@ -48,16 +51,17 @@ suite('ConditionalProcessor (Lexing)', () => {
     /**
      * Helper to tokenize an expression for testing
      */
-    function createTokens(expression: string, language: 'lsl' | 'luau' = 'lsl'): Token[] {
-        const lexer = new Lexer(expression, language);
+    function createTokens(expression: string, language: ScriptLanguage = 'lsl'): Token[] {
+        const languageConfig = getLanguageConfig(language);
+        const lexer = new Lexer(expression, languageConfig);
         const allTokens = lexer.tokenize();
         // Filter out EOF token
         return allTokens.filter(token => token.type !== TokenType.EOF);
     }
 
     setup(() => {
-        processor = new ConditionalProcessor('lsl');
-        macros = new MacroProcessor('lsl');
+        processor = new ConditionalProcessor(lslLanguageConfig);
+        macros = new MacroProcessor();
     });
 
     //#region Basic State Management
@@ -754,8 +758,8 @@ suite('ConditionalProcessor (Lexing)', () => {
 
     suite('LSL Arithmetic Operations', () => {
         test('should evaluate addition', () => {
-            const conditionals = new ConditionalProcessor('lsl');
-            const macros = new MacroProcessor('lsl');
+            const conditionals = new ConditionalProcessor(lslLanguageConfig);
+            const macros = new MacroProcessor();
             const tokens = createTokens('2 + 3');
 
             const result = conditionals.processIf(tokens, macros, 1);
@@ -764,8 +768,8 @@ suite('ConditionalProcessor (Lexing)', () => {
         });
 
         test('should evaluate subtraction', () => {
-            const conditionals = new ConditionalProcessor('lsl');
-            const macros = new MacroProcessor('lsl');
+            const conditionals = new ConditionalProcessor(lslLanguageConfig);
+            const macros = new MacroProcessor();
             const tokens = createTokens('10 - 5');
 
             const result = conditionals.processIf(tokens, macros, 1);
@@ -774,8 +778,8 @@ suite('ConditionalProcessor (Lexing)', () => {
         });
 
         test('should evaluate multiplication', () => {
-            const conditionals = new ConditionalProcessor('lsl');
-            const macros = new MacroProcessor('lsl');
+            const conditionals = new ConditionalProcessor(lslLanguageConfig);
+            const macros = new MacroProcessor();
             const tokens = createTokens('3 * 4');
 
             const result = conditionals.processIf(tokens, macros, 1);
@@ -784,8 +788,8 @@ suite('ConditionalProcessor (Lexing)', () => {
         });
 
         test('should evaluate division', () => {
-            const conditionals = new ConditionalProcessor('lsl');
-            const macros = new MacroProcessor('lsl');
+            const conditionals = new ConditionalProcessor(lslLanguageConfig);
+            const macros = new MacroProcessor();
             const tokens = createTokens('20 / 4');
 
             const result = conditionals.processIf(tokens, macros, 1);
@@ -794,8 +798,8 @@ suite('ConditionalProcessor (Lexing)', () => {
         });
 
         test('should evaluate modulo', () => {
-            const conditionals = new ConditionalProcessor('lsl');
-            const macros = new MacroProcessor('lsl');
+            const conditionals = new ConditionalProcessor(lslLanguageConfig);
+            const macros = new MacroProcessor();
             const tokens = createTokens('10 % 3');
 
             const result = conditionals.processIf(tokens, macros, 1);
@@ -804,8 +808,8 @@ suite('ConditionalProcessor (Lexing)', () => {
         });
 
         test('should respect operator precedence', () => {
-            const conditionals = new ConditionalProcessor('lsl');
-            const macros = new MacroProcessor('lsl');
+            const conditionals = new ConditionalProcessor(lslLanguageConfig);
+            const macros = new MacroProcessor();
             // 2 + 3 * 4 = 2 + 12 = 14
             const tokens = createTokens('2 + 3 * 4');
 
@@ -815,8 +819,8 @@ suite('ConditionalProcessor (Lexing)', () => {
         });
 
         test('should handle parentheses', () => {
-            const conditionals = new ConditionalProcessor('lsl');
-            const macros = new MacroProcessor('lsl');
+            const conditionals = new ConditionalProcessor(lslLanguageConfig);
+            const macros = new MacroProcessor();
             // (2 + 3) * 4 = 5 * 4 = 20
             const tokens = createTokens('(2 + 3) * 4');
 
@@ -826,8 +830,8 @@ suite('ConditionalProcessor (Lexing)', () => {
         });
 
         test('should handle unary minus', () => {
-            const conditionals = new ConditionalProcessor('lsl');
-            const macros = new MacroProcessor('lsl');
+            const conditionals = new ConditionalProcessor(lslLanguageConfig);
+            const macros = new MacroProcessor();
             const tokens = createTokens('-5 + 3');
 
             const result = conditionals.processIf(tokens, macros, 1);
@@ -838,8 +842,8 @@ suite('ConditionalProcessor (Lexing)', () => {
 
     suite('LSL Comparison Operations', () => {
         test('should evaluate equal (==)', () => {
-            const conditionals = new ConditionalProcessor('lsl');
-            const macros = new MacroProcessor('lsl');
+            const conditionals = new ConditionalProcessor(lslLanguageConfig);
+            const macros = new MacroProcessor();
             const tokens = createTokens('5 == 5');
 
             const result = conditionals.processIf(tokens, macros, 1);
@@ -848,8 +852,8 @@ suite('ConditionalProcessor (Lexing)', () => {
         });
 
         test('should evaluate not equal (!=)', () => {
-            const conditionals = new ConditionalProcessor('lsl');
-            const macros = new MacroProcessor('lsl');
+            const conditionals = new ConditionalProcessor(lslLanguageConfig);
+            const macros = new MacroProcessor();
             const tokens = createTokens('5 != 3');
 
             const result = conditionals.processIf(tokens, macros, 1);
@@ -858,8 +862,8 @@ suite('ConditionalProcessor (Lexing)', () => {
         });
 
         test('should evaluate less than (<)', () => {
-            const conditionals = new ConditionalProcessor('lsl');
-            const macros = new MacroProcessor('lsl');
+            const conditionals = new ConditionalProcessor(lslLanguageConfig);
+            const macros = new MacroProcessor();
             const tokens = createTokens('3 < 5');
 
             const result = conditionals.processIf(tokens, macros, 1);
@@ -868,8 +872,8 @@ suite('ConditionalProcessor (Lexing)', () => {
         });
 
         test('should evaluate greater than (>)', () => {
-            const conditionals = new ConditionalProcessor('lsl');
-            const macros = new MacroProcessor('lsl');
+            const conditionals = new ConditionalProcessor(lslLanguageConfig);
+            const macros = new MacroProcessor();
             const tokens = createTokens('5 > 3');
 
             const result = conditionals.processIf(tokens, macros, 1);
@@ -878,8 +882,8 @@ suite('ConditionalProcessor (Lexing)', () => {
         });
 
         test('should evaluate less than or equal (<=)', () => {
-            const conditionals = new ConditionalProcessor('lsl');
-            const macros = new MacroProcessor('lsl');
+            const conditionals = new ConditionalProcessor(lslLanguageConfig);
+            const macros = new MacroProcessor();
             const tokens = createTokens('5 <= 5');
 
             const result = conditionals.processIf(tokens, macros, 1);
@@ -888,8 +892,8 @@ suite('ConditionalProcessor (Lexing)', () => {
         });
 
         test('should evaluate greater than or equal (>=)', () => {
-            const conditionals = new ConditionalProcessor('lsl');
-            const macros = new MacroProcessor('lsl');
+            const conditionals = new ConditionalProcessor(lslLanguageConfig);
+            const macros = new MacroProcessor();
             const tokens = createTokens('5 >= 5');
 
             const result = conditionals.processIf(tokens, macros, 1);
@@ -900,8 +904,8 @@ suite('ConditionalProcessor (Lexing)', () => {
 
     suite('LSL Logical Operations', () => {
         test('should evaluate logical AND (&&) - both true', () => {
-            const conditionals = new ConditionalProcessor('lsl');
-            const macros = new MacroProcessor('lsl');
+            const conditionals = new ConditionalProcessor(lslLanguageConfig);
+            const macros = new MacroProcessor();
             const tokens = createTokens('1 && 1');
 
             const result = conditionals.processIf(tokens, macros, 1);
@@ -910,8 +914,8 @@ suite('ConditionalProcessor (Lexing)', () => {
         });
 
         test('should evaluate logical AND (&&) - one false', () => {
-            const conditionals = new ConditionalProcessor('lsl');
-            const macros = new MacroProcessor('lsl');
+            const conditionals = new ConditionalProcessor(lslLanguageConfig);
+            const macros = new MacroProcessor();
             const tokens = createTokens('1 && 0');
 
             const result = conditionals.processIf(tokens, macros, 1);
@@ -920,8 +924,8 @@ suite('ConditionalProcessor (Lexing)', () => {
         });
 
         test('should evaluate logical OR (||) - one true', () => {
-            const conditionals = new ConditionalProcessor('lsl');
-            const macros = new MacroProcessor('lsl');
+            const conditionals = new ConditionalProcessor(lslLanguageConfig);
+            const macros = new MacroProcessor();
             const tokens = createTokens('1 || 0');
 
             const result = conditionals.processIf(tokens, macros, 1);
@@ -930,8 +934,8 @@ suite('ConditionalProcessor (Lexing)', () => {
         });
 
         test('should evaluate logical OR (||) - both false', () => {
-            const conditionals = new ConditionalProcessor('lsl');
-            const macros = new MacroProcessor('lsl');
+            const conditionals = new ConditionalProcessor(lslLanguageConfig);
+            const macros = new MacroProcessor();
             const tokens = createTokens('0 || 0');
 
             const result = conditionals.processIf(tokens, macros, 1);
@@ -940,8 +944,8 @@ suite('ConditionalProcessor (Lexing)', () => {
         });
 
         test('should evaluate logical NOT (!)', () => {
-            const conditionals = new ConditionalProcessor('lsl');
-            const macros = new MacroProcessor('lsl');
+            const conditionals = new ConditionalProcessor(lslLanguageConfig);
+            const macros = new MacroProcessor();
             const tokens = createTokens('!0');
 
             const result = conditionals.processIf(tokens, macros, 1);
@@ -950,8 +954,8 @@ suite('ConditionalProcessor (Lexing)', () => {
         });
 
         test('should respect logical operator precedence', () => {
-            const conditionals = new ConditionalProcessor('lsl');
-            const macros = new MacroProcessor('lsl');
+            const conditionals = new ConditionalProcessor(lslLanguageConfig);
+            const macros = new MacroProcessor();
             // 1 || 0 && 0 = 1 || (0 && 0) = 1 || 0 = 1
             const tokens = createTokens('1 || 0 && 0');
 
@@ -963,8 +967,8 @@ suite('ConditionalProcessor (Lexing)', () => {
 
     suite('LSL Complex Expressions', () => {
         test('should handle combined arithmetic and comparison', () => {
-            const conditionals = new ConditionalProcessor('lsl');
-            const macros = new MacroProcessor('lsl');
+            const conditionals = new ConditionalProcessor(lslLanguageConfig);
+            const macros = new MacroProcessor();
             const tokens = createTokens('(2 + 3) > 4');
 
             const result = conditionals.processIf(tokens, macros, 1);
@@ -973,8 +977,8 @@ suite('ConditionalProcessor (Lexing)', () => {
         });
 
         test('should handle nested parentheses', () => {
-            const conditionals = new ConditionalProcessor('lsl');
-            const macros = new MacroProcessor('lsl');
+            const conditionals = new ConditionalProcessor(lslLanguageConfig);
+            const macros = new MacroProcessor();
             const tokens = createTokens('((2 + 3) * (4 - 1)) == 15');
 
             const result = conditionals.processIf(tokens, macros, 1);
@@ -983,8 +987,8 @@ suite('ConditionalProcessor (Lexing)', () => {
         });
 
         test('should handle complex logical expression', () => {
-            const conditionals = new ConditionalProcessor('lsl');
-            const macros = new MacroProcessor('lsl');
+            const conditionals = new ConditionalProcessor(lslLanguageConfig);
+            const macros = new MacroProcessor();
             const tokens = createTokens('(5 > 3) && (2 < 4) || (1 == 0)');
 
             const result = conditionals.processIf(tokens, macros, 1);
@@ -995,8 +999,8 @@ suite('ConditionalProcessor (Lexing)', () => {
 
     suite('LSL Macro Expansion in Expressions', () => {
         test('should expand macros in expressions', () => {
-            const conditionals = new ConditionalProcessor('lsl');
-            const macros = new MacroProcessor('lsl');
+            const conditionals = new ConditionalProcessor(lslLanguageConfig);
+            const macros = new MacroProcessor();
             macros.define({ name: 'FOO', body: [numToken('5')], isFunctionLike: false });
             macros.define({ name: 'BAR', body: [numToken('3')], isFunctionLike: false });
 
@@ -1008,8 +1012,8 @@ suite('ConditionalProcessor (Lexing)', () => {
         });
 
         test('should handle macros in comparisons', () => {
-            const conditionals = new ConditionalProcessor('lsl');
-            const macros = new MacroProcessor('lsl');
+            const conditionals = new ConditionalProcessor(lslLanguageConfig);
+            const macros = new MacroProcessor();
             macros.define({ name: 'VERSION', body: [numToken('2')], isFunctionLike: false });
 
             const tokens = createTokens('VERSION >= 2');
@@ -1020,8 +1024,8 @@ suite('ConditionalProcessor (Lexing)', () => {
         });
 
         test('should handle empty macro as 1 (true)', () => {
-            const conditionals = new ConditionalProcessor('lsl');
-            const macros = new MacroProcessor('lsl');
+            const conditionals = new ConditionalProcessor(lslLanguageConfig);
+            const macros = new MacroProcessor();
             const emptyDef: MacroDefinition = {
                 name: 'EMPTY',
                 body: [],
@@ -1039,8 +1043,8 @@ suite('ConditionalProcessor (Lexing)', () => {
 
     suite('Luau Logical Operators', () => {
         test('should use "and" operator in Luau', () => {
-            const conditionals = new ConditionalProcessor('luau');
-            const macros = new MacroProcessor('luau');
+            const conditionals = new ConditionalProcessor(luauLanguageConfig);
+            const macros = new MacroProcessor();
             const tokens = createTokens('1 and 1', 'luau');
 
             const result = conditionals.processIf(tokens, macros, 1);
@@ -1049,8 +1053,8 @@ suite('ConditionalProcessor (Lexing)', () => {
         });
 
         test('should use "or" operator in Luau', () => {
-            const conditionals = new ConditionalProcessor('luau');
-            const macros = new MacroProcessor('luau');
+            const conditionals = new ConditionalProcessor(luauLanguageConfig);
+            const macros = new MacroProcessor();
             const tokens = createTokens('0 or 1', 'luau');
 
             const result = conditionals.processIf(tokens, macros, 1);
@@ -1059,8 +1063,8 @@ suite('ConditionalProcessor (Lexing)', () => {
         });
 
         test('should use "not" operator in Luau', () => {
-            const conditionals = new ConditionalProcessor('luau');
-            const macros = new MacroProcessor('luau');
+            const conditionals = new ConditionalProcessor(luauLanguageConfig);
+            const macros = new MacroProcessor();
             const tokens = createTokens('not 0', 'luau');
 
             const result = conditionals.processIf(tokens, macros, 1);
@@ -1069,8 +1073,8 @@ suite('ConditionalProcessor (Lexing)', () => {
         });
 
         test('should use ~= for inequality in Luau', () => {
-            const conditionals = new ConditionalProcessor('luau');
-            const macros = new MacroProcessor('luau');
+            const conditionals = new ConditionalProcessor(luauLanguageConfig);
+            const macros = new MacroProcessor();
             const tokens = createTokens('5 ~= 3', 'luau');
 
             const result = conditionals.processIf(tokens, macros, 1);
@@ -1079,8 +1083,8 @@ suite('ConditionalProcessor (Lexing)', () => {
         });
 
         test('should handle complex Luau expression', () => {
-            const conditionals = new ConditionalProcessor('luau');
-            const macros = new MacroProcessor('luau');
+            const conditionals = new ConditionalProcessor(luauLanguageConfig);
+            const macros = new MacroProcessor();
             const tokens = createTokens('(5 > 3) and (2 < 4) or (1 == 0)', 'luau');
 
             const result = conditionals.processIf(tokens, macros, 1);
@@ -1091,8 +1095,8 @@ suite('ConditionalProcessor (Lexing)', () => {
 
     suite('Expression Error Handling', () => {
         test('should handle division by zero gracefully', () => {
-            const conditionals = new ConditionalProcessor('lsl');
-            const macros = new MacroProcessor('lsl');
+            const conditionals = new ConditionalProcessor(lslLanguageConfig);
+            const macros = new MacroProcessor();
             const tokens = createTokens('1 / 0');
 
             const result = conditionals.processIf(tokens, macros, 1);
@@ -1102,8 +1106,8 @@ suite('ConditionalProcessor (Lexing)', () => {
         });
 
         test('should handle missing closing parenthesis', () => {
-            const conditionals = new ConditionalProcessor('lsl');
-            const macros = new MacroProcessor('lsl');
+            const conditionals = new ConditionalProcessor(lslLanguageConfig);
+            const macros = new MacroProcessor();
             const tokens = createTokens('(1 + 2');
 
             const result = conditionals.processIf(tokens, macros, 1);
@@ -1113,8 +1117,8 @@ suite('ConditionalProcessor (Lexing)', () => {
         });
 
         test('should handle empty expression', () => {
-            const conditionals = new ConditionalProcessor('lsl');
-            const macros = new MacroProcessor('lsl');
+            const conditionals = new ConditionalProcessor(lslLanguageConfig);
+            const macros = new MacroProcessor();
             const tokens = createTokens('');
 
             const result = conditionals.processIf(tokens, macros, 1);
@@ -1125,8 +1129,8 @@ suite('ConditionalProcessor (Lexing)', () => {
 
     suite('Expression Integration with defined()', () => {
         test('should combine defined() with arithmetic', () => {
-            const conditionals = new ConditionalProcessor('lsl');
-            const macros = new MacroProcessor('lsl');
+            const conditionals = new ConditionalProcessor(lslLanguageConfig);
+            const macros = new MacroProcessor();
             macros.define({ name: 'DEBUG', body: [numToken('1')], isFunctionLike: false });
 
             const tokens = createTokens('defined(DEBUG) && 1');
@@ -1137,8 +1141,8 @@ suite('ConditionalProcessor (Lexing)', () => {
         });
 
         test('should combine defined() with comparison', () => {
-            const conditionals = new ConditionalProcessor('lsl');
-            const macros = new MacroProcessor('lsl');
+            const conditionals = new ConditionalProcessor(lslLanguageConfig);
+            const macros = new MacroProcessor();
             macros.define({ name: 'VERSION', body: [numToken('2')], isFunctionLike: false });
 
             const tokens = createTokens('defined(VERSION) && VERSION >= 2');
@@ -1149,8 +1153,8 @@ suite('ConditionalProcessor (Lexing)', () => {
         });
 
         test('should handle !defined() for undefined macro', () => {
-            const conditionals = new ConditionalProcessor('lsl');
-            const macros = new MacroProcessor('lsl');
+            const conditionals = new ConditionalProcessor(lslLanguageConfig);
+            const macros = new MacroProcessor();
 
             const tokens = createTokens('!defined(UNDEFINED)');
             const result = conditionals.processIf(tokens, macros, 1);
@@ -1160,8 +1164,8 @@ suite('ConditionalProcessor (Lexing)', () => {
         });
 
         test('should handle !defined() for defined macro', () => {
-            const conditionals = new ConditionalProcessor('lsl');
-            const macros = new MacroProcessor('lsl');
+            const conditionals = new ConditionalProcessor(lslLanguageConfig);
+            const macros = new MacroProcessor();
             macros.define({ name: 'DEBUG', body: [], isFunctionLike: false });
 
             const tokens = createTokens('!defined(DEBUG)');
@@ -1172,8 +1176,8 @@ suite('ConditionalProcessor (Lexing)', () => {
         });
 
         test('should handle not defined() in Luau', () => {
-            const conditionals = new ConditionalProcessor('luau');
-            const macros = new MacroProcessor('luau');
+            const conditionals = new ConditionalProcessor(luauLanguageConfig);
+            const macros = new MacroProcessor();
 
             const tokens = createTokens('not defined(UNDEFINED)', 'luau');
             const result = conditionals.processIf(tokens, macros, 1);
@@ -1183,8 +1187,8 @@ suite('ConditionalProcessor (Lexing)', () => {
         });
 
         test('should handle complex expression with !defined()', () => {
-            const conditionals = new ConditionalProcessor('lsl');
-            const macros = new MacroProcessor('lsl');
+            const conditionals = new ConditionalProcessor(lslLanguageConfig);
+            const macros = new MacroProcessor();
             macros.define({ name: 'DEBUG', body: [], isFunctionLike: false });
 
             const tokens = createTokens('defined(DEBUG) && !defined(RELEASE)');

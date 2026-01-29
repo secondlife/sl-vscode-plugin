@@ -11,8 +11,7 @@
  */
 
 import { NormalizedPath, HostInterface, normalizeJoinPath, normalizePath } from '../interfaces/hostinterface';
-import { ScriptLanguage } from './languageservice';
-import { Lexer, Token } from './lexer';
+import { LanguageLexerConfig, Lexer, Token } from './lexer';
 import { MacroProcessor } from './macroprocessor';
 import { ConditionalProcessor } from './conditionalprocessor';
 import { DiagnosticCollector, DiagnosticSeverity, ErrorCodes } from './diagnostics';
@@ -63,10 +62,10 @@ export interface IncludeState {
  * Processor for handling include directives
  */
 export class IncludeProcessor {
-    private language: ScriptLanguage;
+    private language: LanguageLexerConfig;
     private host: HostInterface;
 
-    constructor(language: ScriptLanguage, host: HostInterface) {
+    constructor(language: LanguageLexerConfig, host: HostInterface) {
         this.language = language;
         this.host = host;
     }
@@ -124,7 +123,7 @@ export class IncludeProcessor {
         }
 
         // Resolve the include file path
-        const extensions = this.language === "lsl" ? ["lsl"] : ["luau", "lua"];
+        const extensions = this.language.name === "lsl" ? ["lsl"] : ["luau", "lua"];
         let includePaths: string[] = [];
         let aliased = false;
 
@@ -176,7 +175,7 @@ export class IncludeProcessor {
         );
         // console.error("Resolve: ", [filename, sourceFile, extensions, includePaths, aliased, allowExternal], resolvedPath);
 
-        if(!resolvedPath && this.language == "luau") {
+        if(!resolvedPath && this.language.name == "luau") {
             // Luau require supports default file in folder include mechanic 'init.luau'
             if(!filename.toLowerCase().endsWith(".luau") && !filename.toLocaleLowerCase().endsWith(".lua")) {
                 filename += (filename.length ? path.sep : "") + "init";

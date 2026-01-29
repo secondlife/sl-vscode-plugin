@@ -25,7 +25,7 @@ type RegexMultiCharDelimiter = {
 
 type MultiCharDelimiter = RegexMultiCharDelimiter|[string,string];
 
-export interface LanguageLexerConfig {
+interface BaseLanguageLexerConfig {
     lineCommentPrefix: string; // Line comment prefix (e.g., "//" for LSL, "--" for Luau)
     blockCommentDelimiters: Array<MultiCharDelimiter>; // block comment delimiters (e.g., "/*" for LSL, "--[[" for Luau)
     logicalOperators: {
@@ -49,11 +49,21 @@ export interface LanguageLexerConfig {
     }
 }
 
+export interface CustomLanguageLexerConfig extends BaseLanguageLexerConfig  {
+    name: "custom";
+}
+
+export interface LanguageLexerConfig extends BaseLanguageLexerConfig {
+    name: ScriptLanguage; // Language name
+}
+
+
 /**
  * Predefined language configurations
  */
-export const LANGUAGE_CONFIGS: Record<ScriptLanguage, LanguageLexerConfig> = {
+const LANGUAGE_CONFIGS: Record<ScriptLanguage, LanguageLexerConfig> = {
     lsl: {
+        name: "lsl",
         lineCommentPrefix: "//",
         blockCommentDelimiters: [
             ["/*","*/"]
@@ -84,6 +94,7 @@ export const LANGUAGE_CONFIGS: Record<ScriptLanguage, LanguageLexerConfig> = {
         stringDelimiters: ['"', "'"],  // Double and single quotes
     },
     luau: {
+        name: "luau",
         lineCommentPrefix: "--",
         blockCommentDelimiters: [
             {
@@ -140,7 +151,7 @@ export const LANGUAGE_CONFIGS: Record<ScriptLanguage, LanguageLexerConfig> = {
  * Get language configuration for a script language
  */
 export function getLanguageConfig(language: ScriptLanguage): LanguageLexerConfig {
-    return LANGUAGE_CONFIGS[language];
+    return structuredClone(LANGUAGE_CONFIGS[language]);
 }
 
 //#endregion
@@ -208,6 +219,14 @@ export class Token {
      */
     emit(): string {
         return this.value;
+    }
+
+    is(type: TokenType, value: string): boolean {
+        return this.isType(type) && this.value === value;
+    }
+
+    isType(type: TokenType): boolean {
+        return this.type === type;
     }
 
     /**
@@ -354,19 +373,18 @@ export class Lexer {
     private position: number;
     private context: LexerContext;
     private tokens: Token[];
-    private config: LanguageLexerConfig;
+    private config: BaseLanguageLexerConfig;
     private sourceFile: NormalizedPath;
     private diagnostics: DiagnosticCollector;
 
-    constructor(source: string, language: ScriptLanguage, sourceFile?: NormalizedPath, diagnostics?: DiagnosticCollector);
-    constructor(source: string, config: LanguageLexerConfig, sourceFile?: NormalizedPath, diagnostics?: DiagnosticCollector);
     constructor(
         source: string,
-        languageOrConfig: ScriptLanguage | LanguageLexerConfig,
+        languageConfig: BaseLanguageLexerConfig,
         sourceFile?: NormalizedPath,
         diagnostics?: DiagnosticCollector
     ) {
         this.source = source;
+        this.config = languageConfig;
         this.position = 0;
         this.context = {
             inBlockComment: null,
@@ -378,13 +396,6 @@ export class Lexer {
         this.tokens = [];
         this.sourceFile = sourceFile || ("<unknown>" as NormalizedPath);
         this.diagnostics = diagnostics || new DiagnosticCollector();
-
-        // Support both language string and config object
-        if (typeof languageOrConfig === 'string') {
-            this.config = getLanguageConfig(languageOrConfig);
-        } else {
-            this.config = languageOrConfig;
-        }
     }
 
     /**

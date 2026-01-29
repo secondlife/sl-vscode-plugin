@@ -5,12 +5,15 @@
 
 import * as assert from 'assert';
 import { Parser } from '../../shared/parser';
-import { Lexer, TokenType } from '../../shared/lexer';
+import { getLanguageConfig, Lexer, TokenType } from '../../shared/lexer';
 import { normalizePath, HostInterface, NormalizedPath } from '../../interfaces/hostinterface';
 import { ConfigKey, FullConfigInterface } from '../../interfaces/configinterface';
 
 suite('Parser Tests', () => {
     const testFile = normalizePath('/test/script.lsl');
+
+    const lslLanguageConfig = getLanguageConfig('lsl');
+    const luauLanguageConfig = getLanguageConfig('luau');
 
     // Create a minimal mock host for testing URI conversions
     function createMockHost(): HostInterface {
@@ -75,10 +78,10 @@ suite('Parser Tests', () => {
         const source = `integer x = 42;
 string s = "hello";`;
 
-        const lexer = new Lexer(source, 'lsl');
+        const lexer = new Lexer(source, lslLanguageConfig);
         const tokens = lexer.tokenize();
 
-        const parser = new Parser(tokens, testFile, 'lsl');
+        const parser = new Parser(tokens, testFile, lslLanguageConfig);
         const result = await parser.parse();
 
         assert.strictEqual(result.source, source);
@@ -90,10 +93,10 @@ string s = "hello";`;
         const source = `#include "common.lsl"
 integer x = 42;`;
 
-        const lexer = new Lexer(source, 'lsl');
+        const lexer = new Lexer(source, lslLanguageConfig);
         const tokens = lexer.tokenize();
 
-        const parser = new Parser(tokens, testFile, 'lsl');
+        const parser = new Parser(tokens, testFile, lslLanguageConfig);
         const result = await parser.parse();
 
         assert.strictEqual(result.includes.length, 1);
@@ -105,10 +108,10 @@ integer x = 42;`;
         const source = `require("module.luau")
 local x = 42`;
 
-        const lexer = new Lexer(source, 'luau');
+        const lexer = new Lexer(source, luauLanguageConfig);
         const tokens = lexer.tokenize();
 
-        const parser = new Parser(tokens, testFile, 'luau');
+        const parser = new Parser(tokens, testFile, luauLanguageConfig);
         const result = await parser.parse();
 
         assert.strictEqual(result.includes.length, 1);
@@ -120,10 +123,10 @@ local x = 42`;
         const source = `#define PI 3.14159
 float area = PI * r * r;`;
 
-        const lexer = new Lexer(source, 'lsl');
+        const lexer = new Lexer(source, lslLanguageConfig);
         const tokens = lexer.tokenize();
 
-        const parser = new Parser(tokens, testFile, 'lsl');
+        const parser = new Parser(tokens, testFile, lslLanguageConfig);
         const result = await parser.parse();
 
         assert.strictEqual(result.macros.length, 1);
@@ -135,10 +138,10 @@ float area = PI * r * r;`;
         const source = `#define PI 3.14159
 float x = PI;`;
 
-        const lexer = new Lexer(source, 'lsl');
+        const lexer = new Lexer(source, lslLanguageConfig);
         const tokens = lexer.tokenize();
 
-        const parser = new Parser(tokens, testFile, 'lsl');
+        const parser = new Parser(tokens, testFile, lslLanguageConfig);
         const result = await parser.parse();
 
         // Check that PI was expanded to 3.14159
@@ -153,10 +156,10 @@ llOwnerSay("Debug mode");
 #endif
 llOwnerSay("Always");`;
 
-        const lexer = new Lexer(source, 'lsl');
+        const lexer = new Lexer(source, lslLanguageConfig);
         const tokens = lexer.tokenize();
 
-        const parser = new Parser(tokens, testFile, 'lsl');
+        const parser = new Parser(tokens, testFile, lslLanguageConfig);
         const result = await parser.parse();
 
         // Both lines should be in output
@@ -170,10 +173,10 @@ llOwnerSay("This should not appear");
 #endif
 llOwnerSay("This should appear");`;
 
-        const lexer = new Lexer(source, 'lsl');
+        const lexer = new Lexer(source, lslLanguageConfig);
         const tokens = lexer.tokenize();
 
-        const parser = new Parser(tokens, testFile, 'lsl');
+        const parser = new Parser(tokens, testFile, lslLanguageConfig);
         const result = await parser.parse();
 
         // Only the second line should be in output
@@ -188,10 +191,10 @@ llOwnerSay("Not included");
 llOwnerSay("Included");
 #endif`;
 
-        const lexer = new Lexer(source, 'lsl');
+        const lexer = new Lexer(source, lslLanguageConfig);
         const tokens = lexer.tokenize();
 
-        const parser = new Parser(tokens, testFile, 'lsl');
+        const parser = new Parser(tokens, testFile, lslLanguageConfig);
         const result = await parser.parse();
 
         assert.ok(!result.source.includes('Not included'));
@@ -206,10 +209,10 @@ llOwnerSay("Included");
 llOwnerSay("Not included");
 #endif`;
 
-        const lexer = new Lexer(source, 'lsl');
+        const lexer = new Lexer(source, lslLanguageConfig);
         const tokens = lexer.tokenize();
 
-        const parser = new Parser(tokens, testFile, 'lsl');
+        const parser = new Parser(tokens, testFile, lslLanguageConfig);
         const result = await parser.parse();
 
         assert.ok(!result.source.includes('Not included'));
@@ -224,10 +227,10 @@ llOwnerSay("Not included");
     #define TEST 2
 #endif`;
 
-        const lexer1 = new Lexer(source1, 'lsl');
+        const lexer1 = new Lexer(source1, lslLanguageConfig);
         const tokens1 = lexer1.tokenize();
 
-        const parser1 = new Parser(tokens1, testFile, 'lsl');
+        const parser1 = new Parser(tokens1, testFile, lslLanguageConfig);
         const result1 = await parser1.parse();
 
         const macro1 = parser1.getState().macros.getMacro("TEST");
@@ -244,10 +247,10 @@ llOwnerSay("Not included");
     #define TEST 2
 #endif`;
 
-        const lexer2 = new Lexer(source2, 'lsl');
+        const lexer2 = new Lexer(source2, lslLanguageConfig);
         const tokens2 = lexer2.tokenize();
 
-        const parser2 = new Parser(tokens2, testFile, 'lsl');
+        const parser2 = new Parser(tokens2, testFile, lslLanguageConfig);
         const result2 = await parser2.parse();
 
         const macro2 = parser2.getState().macros.getMacro("TEST");
@@ -262,10 +265,10 @@ llOwnerSay("Not included");
 line 2
 line 3`;
 
-        const lexer = new Lexer(source, 'lsl');
+        const lexer = new Lexer(source, lslLanguageConfig);
         const tokens = lexer.tokenize();
 
-        const parser = new Parser(tokens, testFile, 'lsl');
+        const parser = new Parser(tokens, testFile, lslLanguageConfig);
         const result = await parser.parse();
 
         assert.ok(result.mappings.length > 0);
@@ -277,10 +280,10 @@ line 3`;
         const source = `#define MAX(a, b) ((a) > (b) ? (a) : (b))
 integer x = 5;`;
 
-        const lexer = new Lexer(source, 'lsl');
+        const lexer = new Lexer(source, lslLanguageConfig);
         const tokens = lexer.tokenize();
 
-        const parser = new Parser(tokens, testFile, 'lsl');
+        const parser = new Parser(tokens, testFile, lslLanguageConfig);
         const result = await parser.parse();
 
         assert.strictEqual(result.macros.length, 1);
@@ -297,10 +300,10 @@ float x = PI;
 #undef PI
 float y = PI;`;
 
-        const lexer = new Lexer(source, 'lsl');
+        const lexer = new Lexer(source, lslLanguageConfig);
         const tokens = lexer.tokenize();
 
-        const parser = new Parser(tokens, testFile, 'lsl');
+        const parser = new Parser(tokens, testFile, lslLanguageConfig);
         const result = await parser.parse();
 
         // After preprocessing:
@@ -327,10 +330,10 @@ float y = PI;`;
 
     test('define with line continuation', async () => {
         const source = `#define LONG_MACRO \\\n    value1 \\\n    value2 \\\n    value3\nresult`;
-        const lexer = new Lexer(source, 'lsl');
+        const lexer = new Lexer(source, lslLanguageConfig);
         const tokens = lexer.tokenize();
 
-        const parser = new Parser(tokens, testFile, 'lsl');
+        const parser = new Parser(tokens, testFile, lslLanguageConfig);
         await parser.parse();
 
         // Macro should be defined with all three values
@@ -349,10 +352,10 @@ float y = PI;`;
 
     test('define with multiple line continuations', async () => {
         const source = `#define MULTI \\\n    a + \\\n    b + \\\n    c + \\\n    d\nx`;
-        const lexer = new Lexer(source, 'lsl');
+        const lexer = new Lexer(source, lslLanguageConfig);
         const tokens = lexer.tokenize();
 
-        const parser = new Parser(tokens, testFile, 'lsl');
+        const parser = new Parser(tokens, testFile, lslLanguageConfig);
         await parser.parse();
 
         const macros = parser.getState().macros.getAllMacros();
@@ -374,10 +377,10 @@ float y = PI;`;
 
     test('define without line continuation', async () => {
         const source = `#define SIMPLE value\nresult`;
-        const lexer = new Lexer(source, 'lsl');
+        const lexer = new Lexer(source, lslLanguageConfig);
         const tokens = lexer.tokenize();
 
-        const parser = new Parser(tokens, testFile, 'lsl');
+        const parser = new Parser(tokens, testFile, lslLanguageConfig);
         await parser.parse();
 
         const macros = parser.getState().macros.getAllMacros();
@@ -389,10 +392,10 @@ float y = PI;`;
 
     test('line continuation only works at end of line', async () => {
         const source = `#define TEST \\ value\nresult`;
-        const lexer = new Lexer(source, 'lsl');
+        const lexer = new Lexer(source, lslLanguageConfig);
         const tokens = lexer.tokenize();
 
-        const parser = new Parser(tokens, testFile, 'lsl');
+        const parser = new Parser(tokens, testFile, lslLanguageConfig);
         await parser.parse();
 
         const macros = parser.getState().macros.getAllMacros();
@@ -407,10 +410,10 @@ float y = PI;`;
 
     test('function-like macro with line continuation', async () => {
         const source = `#define FUNC(x) \\\n    ((x) * \\\n     (x))\nFUNC(5)`;
-        const lexer = new Lexer(source, 'lsl');
+        const lexer = new Lexer(source, lslLanguageConfig);
         const tokens = lexer.tokenize();
 
-        const parser = new Parser(tokens, testFile, 'lsl');
+        const parser = new Parser(tokens, testFile, lslLanguageConfig);
         await parser.parse();
 
         const macros = parser.getState().macros.getAllMacros();
@@ -425,10 +428,10 @@ float y = PI;`;
 
     test('empty line after backslash', async () => {
         const source = `#define TEST \\\n\\\n    value\nresult`;
-        const lexer = new Lexer(source, 'lsl');
+        const lexer = new Lexer(source, lslLanguageConfig);
         const tokens = lexer.tokenize();
 
-        const parser = new Parser(tokens, testFile, 'lsl');
+        const parser = new Parser(tokens, testFile, lslLanguageConfig);
         await parser.parse();
 
         const macros = parser.getState().macros.getAllMacros();
@@ -441,10 +444,10 @@ float y = PI;`;
 
     test('macro expansion with line-continued definition', async () => {
         const source = `#define ADD(a,b) \\\n    ((a) + \\\n     (b))\nADD(1,2)`;
-        const lexer = new Lexer(source, 'lsl');
+        const lexer = new Lexer(source, lslLanguageConfig);
         const tokens = lexer.tokenize();
 
-        const parser = new Parser(tokens, testFile, 'lsl');
+        const parser = new Parser(tokens, testFile, lslLanguageConfig);
         await parser.parse();
 
         // Verify the macro was defined with line continuation
@@ -469,10 +472,10 @@ float y = PI;`;
         const source = `#define VECTOR <1.0, 2.0, 3.0>
 vector v = VECTOR;`;
 
-        const lexer = new Lexer(source, 'lsl');
+        const lexer = new Lexer(source, lslLanguageConfig);
         const tokens = lexer.tokenize();
 
-        const parser = new Parser(tokens, testFile, 'lsl');
+        const parser = new Parser(tokens, testFile, lslLanguageConfig);
         const result = await parser.parse();
 
         // Verify macro definition
@@ -500,10 +503,10 @@ vector v = VECTOR;`;
         const source = `#define SQUARED_SUM (x * x) + (y * y)
 integer result = SQUARED_SUM;`;
 
-        const lexer = new Lexer(source, 'lsl');
+        const lexer = new Lexer(source, lslLanguageConfig);
         const tokens = lexer.tokenize();
 
-        const parser = new Parser(tokens, testFile, 'lsl');
+        const parser = new Parser(tokens, testFile, lslLanguageConfig);
         const result = await parser.parse();
 
         // Verify macro definition
@@ -524,10 +527,10 @@ integer result = SQUARED_SUM;`;
         const source = `#define MESSAGE "Hello, " + "World!"
 string msg = MESSAGE;`;
 
-        const lexer = new Lexer(source, 'lsl');
+        const lexer = new Lexer(source, lslLanguageConfig);
         const tokens = lexer.tokenize();
 
-        const parser = new Parser(tokens, testFile, 'lsl');
+        const parser = new Parser(tokens, testFile, lslLanguageConfig);
         const result = await parser.parse();
 
         // Verify macro definition
@@ -566,10 +569,10 @@ llOwnerSay("outer2");
 #endif
 llOwnerSay("always");`;
 
-        const lexer = new Lexer(source, 'lsl');
+        const lexer = new Lexer(source, lslLanguageConfig);
         const tokens = lexer.tokenize();
 
-        const parser = new Parser(tokens, testFile, 'lsl');
+        const parser = new Parser(tokens, testFile, lslLanguageConfig);
         const result = await parser.parse();
 
         // All messages should be included
@@ -589,10 +592,10 @@ llOwnerSay("inner");
 #endif
 llOwnerSay("always");`;
 
-        const lexer = new Lexer(source, 'lsl');
+        const lexer = new Lexer(source, lslLanguageConfig);
         const tokens = lexer.tokenize();
 
-        const parser = new Parser(tokens, testFile, 'lsl');
+        const parser = new Parser(tokens, testFile, lslLanguageConfig);
         const result = await parser.parse();
 
         // Only "always" should be included
@@ -613,10 +616,10 @@ llOwnerSay("C");
 llOwnerSay("none");
 #endif`;
 
-        const lexer = new Lexer(source, 'lsl');
+        const lexer = new Lexer(source, lslLanguageConfig);
         const tokens = lexer.tokenize();
 
-        const parser = new Parser(tokens, testFile, 'lsl');
+        const parser = new Parser(tokens, testFile, lslLanguageConfig);
         const result = await parser.parse();
 
         // Only "B" should be included
@@ -636,10 +639,10 @@ integer x = VALUE;
 #define VALUE 20
 integer y = VALUE;`;
 
-        const lexer = new Lexer(source, 'lsl');
+        const lexer = new Lexer(source, lslLanguageConfig);
         const tokens = lexer.tokenize();
 
-        const parser = new Parser(tokens, testFile, 'lsl');
+        const parser = new Parser(tokens, testFile, lslLanguageConfig);
         const result = await parser.parse();
 
         // First usage should expand to 10
@@ -655,10 +658,10 @@ integer y = VALUE;`;
         const source = `#define FUNC() 42
 integer x = FUNC();`;
 
-        const lexer = new Lexer(source, 'lsl');
+        const lexer = new Lexer(source, lslLanguageConfig);
         const tokens = lexer.tokenize();
 
-        const parser = new Parser(tokens, testFile, 'lsl');
+        const parser = new Parser(tokens, testFile, lslLanguageConfig);
         await parser.parse();
 
         // Verify macro definition
@@ -674,10 +677,10 @@ integer x = FUNC();`;
         const source = `#define FUNC(x) x * 2
 integer ptr = FUNC;`;
 
-        const lexer = new Lexer(source, 'lsl');
+        const lexer = new Lexer(source, lslLanguageConfig);
         const tokens = lexer.tokenize();
 
-        const parser = new Parser(tokens, testFile, 'lsl');
+        const parser = new Parser(tokens, testFile, lslLanguageConfig);
         const result = await parser.parse();
 
         // FUNC without parentheses should remain as identifier
@@ -694,10 +697,10 @@ integer ptr = FUNC;`;
 #define MACROB 2 * MACROA
 integer x = MACROB;`;
 
-        const lexer = new Lexer(source, 'lsl');
+        const lexer = new Lexer(source, lslLanguageConfig);
         const tokens = lexer.tokenize();
 
-        const parser = new Parser(tokens, testFile, 'lsl');
+        const parser = new Parser(tokens, testFile, lslLanguageConfig);
         const result = await parser.parse();
 
         // MACROB should expand to "2 * 5" (with MACROA expanded)
@@ -713,10 +716,10 @@ integer x = MACROB;`;
 #define C B + 1
 integer x = C;`;
 
-        const lexer = new Lexer(source, 'lsl');
+        const lexer = new Lexer(source, lslLanguageConfig);
         const tokens = lexer.tokenize();
 
-        const parser = new Parser(tokens, testFile, 'lsl');
+        const parser = new Parser(tokens, testFile, lslLanguageConfig);
         const result = await parser.parse();
 
         // C should expand to "1 + 1 + 1" through recursive expansion
@@ -732,10 +735,10 @@ integer x = C;`;
         const source = `#define RECURSIVE RECURSIVE
 integer x = RECURSIVE;`;
 
-        const lexer = new Lexer(source, 'lsl');
+        const lexer = new Lexer(source, lslLanguageConfig);
         const tokens = lexer.tokenize();
 
-        const parser = new Parser(tokens, testFile, 'lsl');
+        const parser = new Parser(tokens, testFile, lslLanguageConfig);
         const result = await parser.parse();
 
         // RECURSIVE should not expand to prevent infinite recursion
@@ -747,10 +750,10 @@ integer x = RECURSIVE;`;
 #define B A
 integer x = A;`;
 
-        const lexer = new Lexer(source, 'lsl');
+        const lexer = new Lexer(source, lslLanguageConfig);
         const tokens = lexer.tokenize();
 
-        const parser = new Parser(tokens, testFile, 'lsl');
+        const parser = new Parser(tokens, testFile, lslLanguageConfig);
         const result = await parser.parse();
 
         // Should stop at the circular reference
@@ -765,10 +768,10 @@ integer x = A;`;
 #define SIXTEEN FOUR * FOUR
 integer x = SIXTEEN;`;
 
-        const lexer = new Lexer(source, 'lsl');
+        const lexer = new Lexer(source, lslLanguageConfig);
         const tokens = lexer.tokenize();
 
-        const parser = new Parser(tokens, testFile, 'lsl');
+        const parser = new Parser(tokens, testFile, lslLanguageConfig);
         const result = await parser.parse();
 
         // SIXTEEN should expand to "2 * 2 * 2 * 2"
@@ -787,10 +790,10 @@ integer x = SIXTEEN;`;
         const source = `#define EMPTY
 integer x = 1;`;
 
-        const lexer = new Lexer(source, 'lsl');
+        const lexer = new Lexer(source, lslLanguageConfig);
         const tokens = lexer.tokenize();
 
-        const parser = new Parser(tokens, testFile, 'lsl');
+        const parser = new Parser(tokens, testFile, lslLanguageConfig);
         await parser.parse();
 
         // Verify macro exists but has empty body
@@ -804,10 +807,10 @@ integer x = 1;`;
         const source = `#define WHITESPACE
 integer x = 1;`;
 
-        const lexer = new Lexer(source, 'lsl');
+        const lexer = new Lexer(source, lslLanguageConfig);
         const tokens = lexer.tokenize();
 
-        const parser = new Parser(tokens, testFile, 'lsl');
+        const parser = new Parser(tokens, testFile, lslLanguageConfig);
         await parser.parse();
 
         // Verify macro exists but has empty body (whitespace is not included)
@@ -821,10 +824,10 @@ integer x = 1;`;
         const source = `#define EMPTY
 integer x = EMPTY 42;`;
 
-        const lexer = new Lexer(source, 'lsl');
+        const lexer = new Lexer(source, lslLanguageConfig);
         const tokens = lexer.tokenize();
 
-        const parser = new Parser(tokens, testFile, 'lsl');
+        const parser = new Parser(tokens, testFile, lslLanguageConfig);
         const result = await parser.parse();
 
         // EMPTY should expand to nothing, leaving "integer x = 42;"
@@ -841,10 +844,10 @@ integer x = EMPTY 42;`;
 llOwnerSay("enabled");
 #endif`;
 
-        const lexer = new Lexer(source, 'lsl');
+        const lexer = new Lexer(source, lslLanguageConfig);
         const tokens = lexer.tokenize();
 
-        const parser = new Parser(tokens, testFile, 'lsl');
+        const parser = new Parser(tokens, testFile, lslLanguageConfig);
         const result = await parser.parse();
 
         // Empty macro should still be recognized as defined for #ifdef
@@ -860,10 +863,10 @@ llOwnerSay("enabled");
 #endif
 integer x = 1;`;
 
-        const lexer = new Lexer(source, 'lsl');
+        const lexer = new Lexer(source, lslLanguageConfig);
         const tokens = lexer.tokenize();
 
-        const parser = new Parser(tokens, testFile, 'lsl');
+        const parser = new Parser(tokens, testFile, lslLanguageConfig);
         const result = await parser.parse();
 
         assert.strictEqual(result.includes.length, 1, 'Should detect 1 include');
@@ -881,10 +884,10 @@ integer x = 1;`;
 
 integer x = 1;`;
 
-        const lexer = new Lexer(source, 'lsl');
+        const lexer = new Lexer(source, lslLanguageConfig);
         const tokens = lexer.tokenize();
 
-        const parser = new Parser(tokens, testFile, 'lsl');
+        const parser = new Parser(tokens, testFile, lslLanguageConfig);
         const result = await parser.parse();
 
         assert.strictEqual(result.includes.length, 1, 'Should detect 1 include');
@@ -897,10 +900,10 @@ integer x = 1;`;
 #include "lib3.lsl"
 integer x = 1;`;
 
-        const lexer = new Lexer(source, 'lsl');
+        const lexer = new Lexer(source, lslLanguageConfig);
         const tokens = lexer.tokenize();
 
-        const parser = new Parser(tokens, testFile, 'lsl');
+        const parser = new Parser(tokens, testFile, lslLanguageConfig);
         const result = await parser.parse();
 
         assert.strictEqual(result.includes.length, 3, 'Should detect 3 includes');
@@ -915,10 +918,10 @@ integer x = 1;`;
 #include <lib3.lsl>
 integer x = 1;`;
 
-        const lexer = new Lexer(source, 'lsl');
+        const lexer = new Lexer(source, lslLanguageConfig);
         const tokens = lexer.tokenize();
 
-        const parser = new Parser(tokens, testFile, 'lsl');
+        const parser = new Parser(tokens, testFile, lslLanguageConfig);
         const result = await parser.parse();
 
         assert.strictEqual(result.includes.length, 3, 'Should detect 3 includes');
@@ -934,10 +937,10 @@ integer x = 1;`;
 LOG("debug message");
 #endif`;
 
-        const lexer = new Lexer(source, 'lsl');
+        const lexer = new Lexer(source, lslLanguageConfig);
         const tokens = lexer.tokenize();
 
-        const parser = new Parser(tokens, testFile, 'lsl');
+        const parser = new Parser(tokens, testFile, lslLanguageConfig);
         const result = await parser.parse();
 
         // LOG should be expanded within the ifdef block
@@ -954,10 +957,10 @@ llOwnerSay("not defined");
 llOwnerSay("should not appear");
 #endif`;
 
-        const lexer = new Lexer(source, 'lsl');
+        const lexer = new Lexer(source, lslLanguageConfig);
         const tokens = lexer.tokenize();
 
-        const parser = new Parser(tokens, testFile, 'lsl');
+        const parser = new Parser(tokens, testFile, lslLanguageConfig);
         const result = await parser.parse();
 
         assert.ok(result.source.includes('"not defined"'));
@@ -970,7 +973,7 @@ llOwnerSay("should not appear");
 
     test('should process #include directives with host interface', async () => {
         const includeContent = '#define PI 3.14159';
-        const mainContent = `#include "lib.lsl"
+        const source = `#include "lib.lsl"
 float area = PI * r * r;`;
 
         // Create a mock host interface
@@ -997,27 +1000,27 @@ float area = PI * r * r;`;
             },
         };
 
-        const lexer = new Lexer(mainContent, 'lsl');
+        const lexer = new Lexer(source, lslLanguageConfig);
         const tokens = lexer.tokenize();
 
-        console.log('Main tokens:', tokens.map(t => `${t.type}:${t.value}`));
+        // console.log('Main tokens:', tokens.map(t => `${t.type}:${t.value}`));
 
-        const parser = new Parser(tokens, testFile, 'lsl', mockHost as any);
+        const parser = new Parser(tokens, testFile, lslLanguageConfig, mockHost as any);
 
         // Add debugging to see what's happening during parsing
-        console.log('Parser state before parse:', {
-            hasMacros: parser.getState().macros !== undefined,
-            hasConditionals: parser.getState().conditionals !== undefined,
-            hasIncludes: parser.getState().includes !== undefined
-        });
+        // console.log('Parser state before parse:', {
+        //     hasMacros: parser.getState().macros !== undefined,
+        //     hasConditionals: parser.getState().conditionals !== undefined,
+        //     hasIncludes: parser.getState().includes !== undefined
+        // });
 
         const result = await parser.parse();
 
         // Debug: Print the actual result
-        console.log('Result source:', JSON.stringify(result.source));
-        console.log('Result source length:', result.source.length);
-        console.log('Result includes:', result.includes);
-        console.log('Result macros:', result.macros);
+        // console.log('Result source:', JSON.stringify(result.source));
+        // console.log('Result source length:', result.source.length);
+        // console.log('Result includes:', result.includes);
+        // console.log('Result macros:', result.macros);
 
         // The included file should have been processed
         assert.ok(result.includes.length === 1);
@@ -1058,11 +1061,11 @@ float area = PI * r * r;`;
             },
         };
 
-        const mainContent = '#include "a.lsl"';
-        const lexer = new Lexer(mainContent, 'lsl');
+        const source = '#include "a.lsl"';
+        const lexer = new Lexer(source, lslLanguageConfig);
         const tokens = lexer.tokenize();
 
-        const parser = new Parser(tokens, testFile, 'lsl', mockHost as any);
+        const parser = new Parser(tokens, testFile, lslLanguageConfig, mockHost as any);
 
         // Parse should complete but collect circular include error
         const result = await parser.parse();
@@ -1104,14 +1107,14 @@ float area = PI * r * r;`;
             },
         };
 
-        const mainContent = `#include "lib.lsl"
+        const source = `#include "lib.lsl"
 #include "lib.lsl"
 integer x = 1;`;
 
-        const lexer = new Lexer(mainContent, 'lsl');
+        const lexer = new Lexer(source, lslLanguageConfig);
         const tokens = lexer.tokenize();
 
-        const parser = new Parser(tokens, testFile, 'lsl', mockHost as any);
+        const parser = new Parser(tokens, testFile, lslLanguageConfig, mockHost as any);
         const result = await parser.parse();
 
         // The file should only be read and included once due to include guards
@@ -1163,11 +1166,11 @@ integer x = 1;`;
             },
         };
 
-        const mainContent = '#include "a.lsl"';
-        const lexer = new Lexer(mainContent, 'lsl');
+        const source = '#include "a.lsl"';
+        const lexer = new Lexer(source, lslLanguageConfig);
         const tokens = lexer.tokenize();
 
-        const parser = new Parser(tokens, testFile, 'lsl', mockHost as any);
+        const parser = new Parser(tokens, testFile, lslLanguageConfig, mockHost as any);
 
         // Parse should complete but collect depth exceeded error
         const result = await parser.parse();
@@ -1190,7 +1193,7 @@ string s = "hello";
 // @line 5 "${testFile}"
 float y = 3.14;`;
 
-        const mappings = Parser.parseLineMappingsFromContent(content, 'lsl', createMockHost());
+        const mappings = Parser.parseLineMappingsFromContent(content, lslLanguageConfig, createMockHost());
 
         // Should have mappings for actual code lines (not directive lines or blank lines)
         assert.strictEqual(mappings.length, 4);
@@ -1217,7 +1220,7 @@ local s = "hello"
 -- @line 10 "${testFile}"
 local y = 3.14`;
 
-        const mappings = Parser.parseLineMappingsFromContent(content, 'luau', createMockHost());
+        const mappings = Parser.parseLineMappingsFromContent(content, luauLanguageConfig, createMockHost());
 
         assert.strictEqual(mappings.length, 4);
 
@@ -1245,7 +1248,7 @@ float PI = 3.14159;
 // Back to main
 integer y = 2;`;
 
-        const mappings = Parser.parseLineMappingsFromContent(content, 'lsl', createMockHost());
+        const mappings = Parser.parseLineMappingsFromContent(content, lslLanguageConfig, createMockHost());
 
         // Find mapping for line 2 (integer x = 1;)
         const mainMapping = mappings.find(m => m.processedLine === 2);
@@ -1277,7 +1280,7 @@ integer y = 2;`;
 string s = "hello";
 float y = 3.14;`;
 
-        const mappings = Parser.parseLineMappingsFromContent(content, 'lsl', createMockHost());
+        const mappings = Parser.parseLineMappingsFromContent(content, lslLanguageConfig, createMockHost());
 
         // No directives means no mappings
         assert.strictEqual(mappings.length, 0);
@@ -1292,7 +1295,7 @@ integer x = 42;
 // Another comment
 string s = "hello";`;
 
-        const mappings = Parser.parseLineMappingsFromContent(content, 'lsl', createMockHost());
+        const mappings = Parser.parseLineMappingsFromContent(content, lslLanguageConfig, createMockHost());
 
         // Should have mappings for all lines after the directive (including blank and comment lines)
         assert.ok(mappings.length > 0);
@@ -1308,7 +1311,7 @@ string s = "hello";`;
         const content = `// @line 1 "${relativePath}"
 float PI = 3.14159;`;
 
-        const mappings = Parser.parseLineMappingsFromContent(content, 'lsl', createMockHost());
+        const mappings = Parser.parseLineMappingsFromContent(content, lslLanguageConfig, createMockHost());
 
         assert.strictEqual(mappings.length, 1);
         // Relative paths should be resolved to absolute paths
@@ -1324,10 +1327,10 @@ float PI = 3.14159;`;
 integer x = 42;
 string s = "hello";`;
 
-        const lexer = new Lexer(source, 'lsl');
+        const lexer = new Lexer(source, lslLanguageConfig);
         const tokens = lexer.tokenize();
 
-        const parser = new Parser(tokens, testFile, 'lsl');
+        const parser = new Parser(tokens, testFile, lslLanguageConfig);
         const result = await parser.parse();
 
         // Should have at least some mappings (one per newline in output)
@@ -1348,10 +1351,10 @@ string s = "hello";`;
         const source = `integer x = 42;
 integer y = 100;`;
 
-        const lexer = new Lexer(source, 'lsl');
+        const lexer = new Lexer(source, lslLanguageConfig);
         const tokens = lexer.tokenize();
 
-        const parser = new Parser(tokens, testFile, 'lsl');
+        const parser = new Parser(tokens, testFile, lslLanguageConfig);
         const result = await parser.parse();
 
         // For simple single-file code, @line directives are only inserted on line skips
@@ -1369,10 +1372,10 @@ integer y = 100;`;
 
 string s = "hello";`;  // Note: 2 blank lines
 
-        const lexer = new Lexer(source, 'lsl');
+        const lexer = new Lexer(source, lslLanguageConfig);
         const tokens = lexer.tokenize();
 
-        const parser = new Parser(tokens, testFile, 'lsl');
+        const parser = new Parser(tokens, testFile, lslLanguageConfig);
         const result = await parser.parse();
 
         // Should have @line directive for the line skip
@@ -1388,10 +1391,10 @@ string s = "hello";`;  // Note: 2 blank lines
 float circumference = 2 * PI * 5.0;
 integer x = 42;`;
 
-        const lexer = new Lexer(source, 'lsl');
+        const lexer = new Lexer(source, lslLanguageConfig);
         const tokens = lexer.tokenize();
 
-        const parser = new Parser(tokens, testFile, 'lsl');
+        const parser = new Parser(tokens, testFile, lslLanguageConfig);
         const result = await parser.parse();
 
         // Should have at least one mapping (for lines with newlines in output)
@@ -1410,10 +1413,10 @@ integer debugMode = 0;
 #endif
 integer x = 42;`;
 
-        const lexer = new Lexer(source, 'lsl');
+        const lexer = new Lexer(source, lslLanguageConfig);
         const tokens = lexer.tokenize();
 
-        const parser = new Parser(tokens, testFile, 'lsl');
+        const parser = new Parser(tokens, testFile, lslLanguageConfig);
         const result = await parser.parse();
 
         // Should have mappings for lines that made it through preprocessing
@@ -1434,10 +1437,10 @@ integer x = 42;`;
 #endif
 integer y = 2;`;
 
-        const lexer = new Lexer(source, 'lsl');
+        const lexer = new Lexer(source, lslLanguageConfig);
         const tokens = lexer.tokenize();
 
-        const parser = new Parser(tokens, testFile, 'lsl');
+        const parser = new Parser(tokens, testFile, lslLanguageConfig);
         const result = await parser.parse();
 
         // Should have mappings for processed output
@@ -1455,10 +1458,10 @@ integer y = 2;
 
 integer z = 3;`;
 
-        const lexer = new Lexer(source, 'lsl');
+        const lexer = new Lexer(source, lslLanguageConfig);
         const tokens = lexer.tokenize();
 
-        const parser = new Parser(tokens, testFile, 'lsl');
+        const parser = new Parser(tokens, testFile, lslLanguageConfig);
         const result = await parser.parse();
 
         // Blank lines should be preserved in output
@@ -1473,10 +1476,10 @@ integer z = 3;`;
 integer result = SQUARE(5);
 integer y = 10;`;
 
-        const lexer = new Lexer(source, 'lsl');
+        const lexer = new Lexer(source, lslLanguageConfig);
         const tokens = lexer.tokenize();
 
-        const parser = new Parser(tokens, testFile, 'lsl');
+        const parser = new Parser(tokens, testFile, lslLanguageConfig);
         const result = await parser.parse();
 
         // Should have at least one mapping
@@ -1493,10 +1496,10 @@ integer v = VERSION;
 #endif
 integer x = 42;`;
 
-        const lexer = new Lexer(source, 'lsl');
+        const lexer = new Lexer(source, lslLanguageConfig);
         const tokens = lexer.tokenize();
 
-        const parser = new Parser(tokens, testFile, 'lsl');
+        const parser = new Parser(tokens, testFile, lslLanguageConfig);
         const result = await parser.parse();
 
         // Should have mappings for the output
@@ -1515,10 +1518,10 @@ integer x = 42;`;
 integer y = 2;
 integer z = 3;`;
 
-        const lexer = new Lexer(source, 'lsl');
+        const lexer = new Lexer(source, lslLanguageConfig);
         const tokens = lexer.tokenize();
 
-        const parser = new Parser(tokens, testFile, 'lsl');
+        const parser = new Parser(tokens, testFile, lslLanguageConfig);
         const result = await parser.parse();
 
         // Should have at least one mapping

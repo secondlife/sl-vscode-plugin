@@ -28,6 +28,7 @@ export enum ConfigKey {
   PreprocessorIncludePaths = 'preprocessor.includePaths',
   PreprocessorMaxIncludeDepth = 'preprocessor.maxIncludeDepth',
   PreprocessorConstantsInSLua = 'preprocessor.constantsInSLua',
+  PreprocessorLSLSwitchStatements = 'preprocessor.lsl.switchStatements',
   LastSyntaxID = 'syntax.lastID',
   AskIfViewerScriptMismatchesMaster = 'sync.askIfViewerScriptMismatchesMaster',
   CompareHashBeforeSync = 'sync.compareHashBeforeSync',

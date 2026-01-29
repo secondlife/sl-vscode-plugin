@@ -139,6 +139,12 @@
             "type": "boolean",
             "default": false,
             "description": "Enable predefined LSL style preproc macro constants in slua"
+          },
+          "slVscodeEdit.preprocessor.lsl.switchStatements": {
+            "title": "Enable LSL switch statements",
+            "type": "boolean",
+            "default": false,
+            "description": "Enable LSL switch statements in the preprocessor"
           }
         }
       },
@@ -176,7 +182,7 @@
     "lint:fix": "eslint src --fix",
     "test": "node ./out/test/runTest.js",
     "test-basic": "npx mocha \"./out/test/suite/basic.test.js\" --ui tdd --timeout 5000",
-    "test-unit": "npx mocha \"./out/test/suite/{basic,preprocessor,include-disk-integration}.test.js\" --ui tdd --timeout 5000",
+    "test-unit": "npx mocha \"./out/test/suite/{basic,preprocessor,include-disk-integration,lexingpreprocessor}.test.js\" --ui tdd --timeout 5000",
     "test-compile": "tsc -p . --outDir out --skipLibCheck",
     "precommit": "npm run lint && npm run test-compile && npm run test-unit"
   },

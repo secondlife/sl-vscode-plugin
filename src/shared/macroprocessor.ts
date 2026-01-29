@@ -23,7 +23,6 @@
  */
 
 import { Token, TokenType } from './lexer';
-import { ScriptLanguage } from './languageservice';
 import { DiagnosticCollector, ErrorCodes, DiagnosticSeverity } from './diagnostics';
 import { NormalizedPath } from '../interfaces/hostinterface';
 
@@ -62,12 +61,10 @@ export interface MacroDefinition {
  */
 export class MacroProcessor {
     private macros: Map<string, MacroDefinition>;
-    private language: ScriptLanguage;
     private enabled: boolean;
 
-    constructor(language: ScriptLanguage) {
+    constructor() {
         this.macros = new Map();
-        this.language = language;
         this.enabled = true;
     }
 
@@ -403,8 +400,29 @@ export class MacroProcessor {
             return null;
         }
 
-        // Get parameter names
-        const parameters = macro.parameters || [];
+        // Get parameter names -- as a new array so that we can modify it without changing the original.
+        const parameters = [... (macro.parameters || [])];
+
+        // Support for variadic function expansions. e.g.
+        // #define func(...) llOwnerSay((string)[__VA_ARGS__]))
+        const variadic = parameters[parameters.length - 1] == "...";
+        if(variadic) {
+            parameters[parameters.length - 1] = "__VA_ARGS__";
+            if(args.length > parameters.length) {
+                // Cut off variadic args, and combine them seperated by `, ` as a single argument
+                const varArgs = args.splice(parameters.length - 1);
+                const tokens = [];
+                let first = true;
+                for(const tokes of varArgs) {
+                    if(!first) {
+                        tokens.push(new Token(TokenType.PUNCTUATION, ",", 0,0,1));
+                        tokens.push(new Token(TokenType.WHITESPACE, " ", 0,0,1));
+                    } else first = false;
+                    tokens.push(...tokes);
+                }
+                args.push(tokens);
+            }
+        }
 
         // MAC002: Validate argument count
         if (args.length !== parameters.length) {

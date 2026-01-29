@@ -13,11 +13,13 @@
 import * as assert from 'assert';
 import * as path from 'path';
 import { Parser } from '../../shared/parser';
-import { Lexer } from '../../shared/lexer';
+import { getLanguageConfig, Lexer } from '../../shared/lexer';
 import { HostInterface, NormalizedPath, normalizePath } from '../../interfaces/hostinterface';
+import { get } from 'http';
 
 suite('Require Table Tests', () => {
     const testFile = normalizePath('/test/main.luau');
+    const luauLanguageConfig = getLanguageConfig('luau');
 
     /**
      * Create a minimal mock host for testing with in-memory files
@@ -64,10 +66,10 @@ suite('Require Table Tests', () => {
 
         const host = createMockHost(files);
 
-        const lexer = new Lexer('local result = require("module.luau")', 'luau');
+        const lexer = new Lexer('local result = require("module.luau")', luauLanguageConfig);
         const tokens = lexer.tokenize();
 
-        const parser = new Parser(tokens, testFile, 'luau', host);
+        const parser = new Parser(tokens, testFile, luauLanguageConfig, host);
         const result = await parser.parse();
 
         // Should contain function wrapper
@@ -83,10 +85,10 @@ suite('Require Table Tests', () => {
 
         const host = createMockHost(files);
 
-        const lexer = new Lexer('local result = require("module.luau")', 'luau');
+        const lexer = new Lexer('local result = require("module.luau")', luauLanguageConfig);
         const tokens = lexer.tokenize();
 
-        const parser = new Parser(tokens, testFile, 'luau', host);
+        const parser = new Parser(tokens, testFile, luauLanguageConfig, host);
         const result = await parser.parse();
 
         // Should start with table declaration
@@ -102,10 +104,10 @@ suite('Require Table Tests', () => {
 
         const host = createMockHost(files);
 
-        const lexer = new Lexer('local result = require("module.luau")', 'luau');
+        const lexer = new Lexer('local result = require("module.luau")', luauLanguageConfig);
         const tokens = lexer.tokenize();
 
-        const parser = new Parser(tokens, testFile, 'luau', host);
+        const parser = new Parser(tokens, testFile, luauLanguageConfig, host);
         const result = await parser.parse();
 
         // Should have invocation in place of require
@@ -121,10 +123,10 @@ suite('Require Table Tests', () => {
         const host = createMockHost(files);
 
         const source = 'require("module.luau")\nrequire("module.luau")';
-        const lexer = new Lexer(source, 'luau');
+        const lexer = new Lexer(source, luauLanguageConfig);
         const tokens = lexer.tokenize();
 
-        const parser = new Parser(tokens, testFile, 'luau', host);
+        const parser = new Parser(tokens, testFile, luauLanguageConfig, host);
         const result = await parser.parse();
 
         // Count occurrences of module in table - should be only once
@@ -147,10 +149,10 @@ suite('Require Table Tests', () => {
         const host = createMockHost(files);
 
         const source = 'require("module1.luau")\nrequire("module2.luau")';
-        const lexer = new Lexer(source, 'luau');
+        const lexer = new Lexer(source, luauLanguageConfig);
         const tokens = lexer.tokenize();
 
-        const parser = new Parser(tokens, testFile, 'luau', host);
+        const parser = new Parser(tokens, testFile, luauLanguageConfig, host);
         const result = await parser.parse();
 
         // Should have both modules in table
@@ -170,10 +172,11 @@ suite('Require Table Tests', () => {
 
         const host = createMockHost(files);
 
-        const lexer = new Lexer('require("module.luau")', 'luau');
+        const source = 'require("module.luau")';
+        const lexer = new Lexer(source, luauLanguageConfig);
         const tokens = lexer.tokenize();
 
-        const parser = new Parser(tokens, testFile, 'luau', host);
+        const parser = new Parser(tokens, testFile, luauLanguageConfig, host);
         const result = await parser.parse();
 
         // Should have @line directive in wrapped module
@@ -184,10 +187,10 @@ suite('Require Table Tests', () => {
 
     test('should not emit table if no requires', async () => {
         const source = 'local x = 42';
-        const lexer = new Lexer(source, 'luau');
+        const lexer = new Lexer(source, luauLanguageConfig);
         const tokens = lexer.tokenize();
 
-        const parser = new Parser(tokens, testFile, 'luau');
+        const parser = new Parser(tokens, testFile, luauLanguageConfig);
         const result = await parser.parse();
 
         // Should not have require table if no requires
@@ -204,10 +207,11 @@ suite('Require Table Tests', () => {
 
         const host = createMockHost(files);
 
-        const lexer = new Lexer('require("module.luau")', 'luau');
+        const source = 'require("module.luau")';
+        const lexer = new Lexer(source, luauLanguageConfig);
         const tokens = lexer.tokenize();
 
-        const parser = new Parser(tokens, testFile, 'luau', host);
+        const parser = new Parser(tokens, testFile, luauLanguageConfig, host);
         const result = await parser.parse();
 
         // Should have both modules in table
@@ -274,12 +278,12 @@ suite('Require Table Tests', () => {
             const host = createFileHost(workspaceRoot);
 
             // Read the main file
-            const mainContent = fs.readFileSync(mainFile, 'utf8');
-            const lexer = new Lexer(mainContent, 'luau');
+            const source = fs.readFileSync(mainFile, 'utf8');
+            const lexer = new Lexer(source, luauLanguageConfig);
             const tokens = lexer.tokenize();
 
             // Parse with the file host
-            const parser = new Parser(tokens, mainFile, 'luau', host);
+            const parser = new Parser(tokens, mainFile, luauLanguageConfig, host);
             const result = await parser.parse();
 
             // Check that all modules are in the table
@@ -315,12 +319,12 @@ suite('Require Table Tests', () => {
             const host = createFileHost(workspaceRoot);
 
             // Read the main file
-            const mainContent = fs.readFileSync(mainFile, 'utf8');
-            const lexer = new Lexer(mainContent, 'luau');
+            const source = fs.readFileSync(mainFile, 'utf8');
+            const lexer = new Lexer(source, luauLanguageConfig);
             const tokens = lexer.tokenize();
 
             // Parse with the file host
-            const parser = new Parser(tokens, mainFile, 'luau', host);
+            const parser = new Parser(tokens, mainFile, luauLanguageConfig, host);
             const result = await parser.parse();
 
             // Check that D appears only once in the table
@@ -399,10 +403,10 @@ suite('Require Table Tests', () => {
             files.set(fileA, 'local b = require("complex_b.luau")\n--file a\nlocal c = require("complex_c.luau")\nprint(b.getB(), c.getC())');
 
             // Parse A
-            const mainContent = files.get(fileA)!;
-            const lexer = new Lexer(mainContent, 'luau');
+            const source = files.get(fileA)!;
+            const lexer = new Lexer(source, luauLanguageConfig);
             const tokens = lexer.tokenize();
-            const parser = new Parser(tokens, fileA, 'luau', memoryHost);
+            const parser = new Parser(tokens, fileA, luauLanguageConfig, memoryHost);
             const result = await parser.parse();
 
             // // Debug: Log the actual output to see what indices are used

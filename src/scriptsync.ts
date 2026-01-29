@@ -29,7 +29,7 @@ import { HostInterface, normalizePath } from "./interfaces/hostinterface";
 import { SynchService } from "./synchservice";
 import { IncludeInfo } from "./shared/parser";
 import { sha256 } from "js-sha256";
-import { LANGUAGE_CONFIGS } from "./shared/lexer";
+import { getLanguageConfig, LanguageLexerConfig } from "./shared/lexer";
 
 //====================================================================
 interface TrackedDocument {
@@ -68,7 +68,7 @@ export class ScriptSync implements vscode.Disposable {
 
         // Create macro processor first
         this.language = language;
-        this.macros = new MacroProcessor(this.language);
+        this.macros = new MacroProcessor();
         this.initializeSystemMacros(language);
 
         this.host = host ?? new VSCodeHost();
@@ -398,10 +398,12 @@ export class ScriptSync implements vscode.Disposable {
             console.log(`Preprocessing enabled for: ${baseName}`);
 
             this.macros.clearNonSystemMacros();
+            const languageConfig = this.getLanuageConfig();
+            console.error("LANG CONFIG", languageConfig);
             preprocessorResult = await this.preprocessor.process(
                 originalContent,
                 normalizePath(masterFilePath),
-                this.language
+                languageConfig,
             );
 
             if (preprocessorResult.issues && preprocessorResult.issues.length > 0) {
@@ -437,6 +439,14 @@ export class ScriptSync implements vscode.Disposable {
             vscode.window.showErrorMessage(errorMessage);
         }
         return finalContent;
+    }
+
+    private getLanuageConfig(): LanguageLexerConfig {
+        const config = getLanguageConfig(this.language);
+        if(config.name === "lsl" && this.config.getConfig<boolean>(ConfigKey.PreprocessorLSLSwitchStatements, false)) {
+            config.directiveKeywords.push("switch");
+        }
+        return config;
     }
 
     public async handleMasterSaved(): Promise<void> {
@@ -494,7 +504,7 @@ export class ScriptSync implements vscode.Disposable {
 
         const path = vscode.workspace.asRelativePath(this.masterDocument.uri.fsPath);
 
-        const comment =  LANGUAGE_CONFIGS[this.language].lineCommentPrefix;
+        const comment =  this.getLanuageConfig().lineCommentPrefix;
         meta.push(`${comment} ================ sl-vscode-plugin meta ================`);
         meta.push(`${comment} @file ${path}`);
         meta.push(`${comment} @hash ${hash}`);

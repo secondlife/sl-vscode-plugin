@@ -14,7 +14,7 @@
 import { ScriptLanguage } from "./languageservice";
 import { NormalizedPath, HostInterface } from "../interfaces/hostinterface";
 import { FullConfigInterface, ConfigKey } from "../interfaces/configinterface";
-import { Lexer } from "./lexer";
+import { LanguageLexerConfig, Lexer } from "./lexer";
 import { IncludeInfo, Parser } from "./parser";
 import { MacroProcessor } from "./macroprocessor";
 import { DiagnosticSeverity } from "./diagnostics";
@@ -36,6 +36,7 @@ export interface PreprocessorOptions {
     flags: OptionFlags;
     includePaths?: string[];
     maxIncludeDepth?: number; // Maximum nesting depth for #include and require() directives
+    config?: { [key in ConfigKey]?: any };
 }
 
 export interface PreprocessorError {
@@ -75,6 +76,7 @@ export interface DirectiveImplementations {
     endif?: (parser: any) => void | Promise<void>;
     include?: (parser: any) => void | Promise<void>;
     require?: (parser: any) => void | Promise<void>;
+    switch?: (parser: any) => void | Promise<void>;
 }
 
 //#region Lexing Preprocessor Main Class
@@ -99,7 +101,7 @@ export class LexingPreprocessor {
      * that should be available in all scripts of the given language.
      */
     private initializePredefinedMacros(language: ScriptLanguage): MacroProcessor {
-        const macros = new MacroProcessor(language);
+        const macros = new MacroProcessor();
 
         // Add standard predefined macros based on language
         if (language === 'lsl') {
@@ -121,7 +123,7 @@ export class LexingPreprocessor {
     public async process(
         source: string,
         sourceFile: NormalizedPath,
-        language: ScriptLanguage
+        language: LanguageLexerConfig
     ): Promise<PreprocessorResult> {
         // Check if preprocessing is enabled
         const enabled = this.config.getConfig<boolean>(ConfigKey.PreprocessorEnable) ?? true;
@@ -129,7 +131,7 @@ export class LexingPreprocessor {
             return {
                 content: source,
                 success: true,
-                language,
+                language: language.name,
                 issues: [],
             };
         }
@@ -153,7 +155,7 @@ export class LexingPreprocessor {
             const includePaths = this.config.getConfig<string[]>(ConfigKey.PreprocessorIncludePaths) ?? ['.'];
 
             // Use provided macros or initialize predefined macros
-            const predefinedMacros = this.macros ?? this.initializePredefinedMacros(language);
+            const predefinedMacros = this.macros ?? this.initializePredefinedMacros(language.name);
 
             // Create initial parser state with predefined macros
             const initialState = Parser.createInitialState(
@@ -161,7 +163,7 @@ export class LexingPreprocessor {
                 this.fs,
                 predefinedMacros,
                 maxIncludeDepth,
-                language == "lsl" ? includePaths : undefined
+                language.name == "lsl" ? includePaths : undefined
             );
 
             // Phase 2: Parsing and directive processing
@@ -205,7 +207,7 @@ export class LexingPreprocessor {
             return {
                 content: result.success ? result.source : source,  // Return original source on error, processed source on success
                 success: result.success,  // Use parser's success determination
-                language,
+                language: language.name,
                 lineMappings: result.mappings,
                 issues,
                 includes: result.includes,
@@ -216,7 +218,7 @@ export class LexingPreprocessor {
             return {
                 content: source,
                 success: false,
-                language,
+                language: language.name,
                 issues: [{
                     message: `Preprocessing failed: ${error instanceof Error ? error.message : String(error)}`,
                     lineNumber: 1,

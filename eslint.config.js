@@ -26,6 +26,7 @@ export default [
         require: 'readonly',
         module: 'readonly',
         exports: 'readonly',
+        structuredClone: 'readonly',
         // Browser/Web globals that Node.js also has
         TextEncoder: 'readonly',
         // VS Code extension globals

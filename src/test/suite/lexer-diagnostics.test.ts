@@ -5,17 +5,19 @@
  */
 
 import * as assert from 'assert';
-import { Lexer, TokenType } from '../../shared/lexer';
+import { getLanguageConfig, Lexer, TokenType } from '../../shared/lexer';
 import { DiagnosticCollector, DiagnosticSeverity, ErrorCodes } from '../../shared/diagnostics';
 import { NormalizedPath } from '../../interfaces/hostinterface';
 
 suite('Lexer Diagnostics', () => {
     const testFile = "test.lsl" as NormalizedPath;
+    const lslLanguageConfig = getLanguageConfig('lsl');
+    const luauLanguageConfig = getLanguageConfig('luau');
 
     test('Unterminated string - newline', () => {
         const source = '"unterminated string\n';
         const diagnostics = new DiagnosticCollector();
-        const lexer = new Lexer(source, 'lsl', testFile, diagnostics);
+        const lexer = new Lexer(source, lslLanguageConfig, testFile, diagnostics);
 
         const tokens = lexer.tokenize();
 
@@ -35,7 +37,7 @@ suite('Lexer Diagnostics', () => {
     test('Unterminated string - EOF', () => {
         const source = '"unterminated string';
         const diagnostics = new DiagnosticCollector();
-        const lexer = new Lexer(source, 'lsl', testFile, diagnostics);
+        const lexer = new Lexer(source, lslLanguageConfig, testFile, diagnostics);
 
         const tokens = lexer.tokenize();
 
@@ -52,7 +54,7 @@ suite('Lexer Diagnostics', () => {
     test('Properly terminated string - no error', () => {
         const source = '"properly terminated"';
         const diagnostics = new DiagnosticCollector();
-        const lexer = new Lexer(source, 'lsl', testFile, diagnostics);
+        const lexer = new Lexer(source, lslLanguageConfig, testFile, diagnostics);
 
         const tokens = lexer.tokenize();
 
@@ -67,7 +69,7 @@ suite('Lexer Diagnostics', () => {
     test('Unterminated block comment', () => {
         const source = '/* unterminated block comment\nmore lines\n';
         const diagnostics = new DiagnosticCollector();
-        const lexer = new Lexer(source, 'lsl', testFile, diagnostics);
+        const lexer = new Lexer(source, lslLanguageConfig, testFile, diagnostics);
 
         const tokens = lexer.tokenize();
 
@@ -88,7 +90,7 @@ suite('Lexer Diagnostics', () => {
     test('Properly terminated block comment - no error', () => {
         const source = '/* properly terminated */';
         const diagnostics = new DiagnosticCollector();
-        const lexer = new Lexer(source, 'lsl', testFile, diagnostics);
+        const lexer = new Lexer(source, lslLanguageConfig, testFile, diagnostics);
 
         const tokens = lexer.tokenize();
 
@@ -104,7 +106,7 @@ suite('Lexer Diagnostics', () => {
     test('Multiple errors in same file', () => {
         const source = '"unterminated\n/* also unterminated';
         const diagnostics = new DiagnosticCollector();
-        const lexer = new Lexer(source, 'lsl', testFile, diagnostics);
+        const lexer = new Lexer(source, lslLanguageConfig, testFile, diagnostics);
 
         lexer.tokenize();
 
@@ -194,7 +196,7 @@ suite('Lexer Diagnostics', () => {
     test('Invalid number literal - exponent without digits', () => {
         const source = 'float x = 123e;';
         const diagnostics = new DiagnosticCollector();
-        const lexer = new Lexer(source, 'lsl', testFile, diagnostics);
+        const lexer = new Lexer(source, lslLanguageConfig, testFile, diagnostics);
 
         const tokens = lexer.tokenize();
 
@@ -214,7 +216,7 @@ suite('Lexer Diagnostics', () => {
     test('Invalid number literal - exponent with sign but no digits', () => {
         const source = 'float x = 1.5e+;';
         const diagnostics = new DiagnosticCollector();
-        const lexer = new Lexer(source, 'lsl', testFile, diagnostics);
+        const lexer = new Lexer(source, lslLanguageConfig, testFile, diagnostics);
 
         const tokens = lexer.tokenize();
 
@@ -233,7 +235,7 @@ suite('Lexer Diagnostics', () => {
     test('Valid number literals - no errors', () => {
         const source = 'float a = 123; float b = 1.5; float c = 1e10; float d = 1.5e-5; float e = 1.0f;';
         const diagnostics = new DiagnosticCollector();
-        const lexer = new Lexer(source, 'lsl', testFile, diagnostics);
+        const lexer = new Lexer(source, lslLanguageConfig, testFile, diagnostics);
 
         lexer.tokenize();
 
@@ -245,7 +247,7 @@ suite('Lexer Diagnostics', () => {
     test('Unterminated vector literal - EOF', () => {
         const source = 'vector v = <1.0, 2.0, 3.0';
         const diagnostics = new DiagnosticCollector();
-        const lexer = new Lexer(source, 'lsl', testFile, diagnostics);
+        const lexer = new Lexer(source, lslLanguageConfig, testFile, diagnostics);
 
         const tokens = lexer.tokenize();
 
@@ -264,7 +266,7 @@ suite('Lexer Diagnostics', () => {
     test('Unterminated vector literal - newline', () => {
         const source = 'vector v = <1.0, 2.0, 3.0\nvector v2 = <1,2,3>;';
         const diagnostics = new DiagnosticCollector();
-        const lexer = new Lexer(source, 'lsl', testFile, diagnostics);
+        const lexer = new Lexer(source, lslLanguageConfig, testFile, diagnostics);
 
         const tokens = lexer.tokenize();
 
@@ -278,7 +280,7 @@ suite('Lexer Diagnostics', () => {
     test('Valid vector literals - no errors', () => {
         const source = 'vector v = <1.0, 2.0, 3.0>; rotation r = <0.0, 0.0, 0.0, 1.0>;';
         const diagnostics = new DiagnosticCollector();
-        const lexer = new Lexer(source, 'lsl', testFile, diagnostics);
+        const lexer = new Lexer(source, lslLanguageConfig, testFile, diagnostics);
 
         lexer.tokenize();
 
@@ -290,7 +292,7 @@ suite('Lexer Diagnostics', () => {
     test('Unterminated SLua string interp - newline', () => {
         const source = 'local str = `some string\nnew line`';
         const diagnostics = new DiagnosticCollector();
-        const lexer = new Lexer(source, "luau", testFile, diagnostics);
+        const lexer = new Lexer(source, luauLanguageConfig, testFile, diagnostics);
         lexer.tokenize();
         assert.strictEqual(diagnostics.hasErrors(), true);
         assert.strictEqual(diagnostics.getCount(), 2);
@@ -299,7 +301,7 @@ suite('Lexer Diagnostics', () => {
     test('Unterminated SLua string interp - {', () => {
         const source = 'local str = `some string{new line';
         const diagnostics = new DiagnosticCollector();
-        const lexer = new Lexer(source, "luau", testFile, diagnostics);
+        const lexer = new Lexer(source, luauLanguageConfig, testFile, diagnostics);
         lexer.tokenize();
         assert.strictEqual(diagnostics.hasErrors(), true);
         assert.strictEqual(diagnostics.getCount(), 1);
