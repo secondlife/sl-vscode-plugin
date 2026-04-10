@@ -222,6 +222,12 @@ When `true` (default), configuration files are stored in your workspace's `.vsco
 5. **Edit in VS Code** with full preprocessing support
 6. **Save** to sync changes back to the viewer
 
+### Linux-specific instructions
+If using the flatpak version of vscode, the External Script Editor command is:
+```
+/usr/bin/flatpak run --file-forwarding com.visualstudio.code --reuse-window @@ "%s" @@
+```
+
 ---
 
 ## Additional Features

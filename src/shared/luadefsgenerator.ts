@@ -55,7 +55,7 @@ export class LuauDefsGenerator {
         // Split classes into those that depend on type aliases and those that don't
         const baseClasses: ClassDeclaration[] = [];
         const dependentClasses: ClassDeclaration[] = [];
-        
+
         if (defs.classes && defs.classes.length > 0) {
             for (const cls of defs.classes) {
                 if (this.classUsesTypeAliases(cls)) {
@@ -289,9 +289,10 @@ export class LuauDefsGenerator {
      */
     private generateCallableTableType(type: CallableTableType): string {
         // Call signature comes first
+        const typeParams = this.generateTypeParameterList(type.callSignature.typeParameters);
         const params = this.generateParameterList(type.callSignature.parameters);
         const returnType = this.generateTypeReference(type.callSignature.returnType);
-        const callSig = `((${params}) -> ${returnType})`;
+        const callSig = `(${typeParams}(${params}) -> ${returnType})`;
 
         const lines: string[] = ['{'];
 
@@ -305,7 +306,7 @@ export class LuauDefsGenerator {
         }
 
         lines.push('}');
-        
+
         return `${callSig} & ${lines.join('\n')}`;
     }
 
@@ -314,6 +315,17 @@ export class LuauDefsGenerator {
      */
     private generateTypeofType(type: TypeofType): string {
         return `typeof(${type.target})`;
+    }
+
+    /**
+     * Generate type parameter list for functions
+     */
+    private generateTypeParameterList(params?: string[]): string {
+        if (!params || params.length === 0) {
+            return '';
+        } else {
+            return `<${params.join(', ')}>`;
+        }
     }
 
     /**
@@ -362,24 +374,26 @@ export class LuauDefsGenerator {
      * Generate function signature (used for methods and overloads)
      */
     private generateFunctionSignature(func: FunctionSignature, includeOverloads: boolean = true, selfTypeName?: string): string {
+        const typeParams = this.generateTypeParameterList(func.typeParameters);
         const params = this.generateParameterList(func.parameters, selfTypeName);
         const returnType = this.generateTypeReference(func.returnType);
 
         // For intersection types (overloaded methods in table types)
         if (includeOverloads && func.overloads && func.overloads.length > 0) {
             const signatures: string[] = [];
-            signatures.push(`(${params}) -> ${returnType}`);
+            signatures.push(`${typeParams}(${params}) -> ${returnType}`);
 
             for (const overload of func.overloads) {
+                const overloadTypeParams = this.generateTypeParameterList(overload.typeParameters);
                 const overloadParams = this.generateParameterList(overload.parameters, selfTypeName);
                 const overloadReturn = this.generateTypeReference(overload.returnType);
-                signatures.push(`(${overloadParams}) -> ${overloadReturn}`);
+                signatures.push(`${overloadTypeParams}(${overloadParams}) -> ${overloadReturn}`);
             }
 
             return `(${signatures.join(') & (')})`;
         }
 
-        return `(${params}) -> ${returnType}`;
+        return `${typeParams}(${params}) -> ${returnType}`;
     }
 
     /**
@@ -401,18 +415,20 @@ export class LuauDefsGenerator {
             // Methods
             if (cls.methods && cls.methods.length > 0) {
                 for (const method of cls.methods) {
+                    const typeParams = this.generateTypeParameterList(method.typeParameters);
                     const params = this.generateParameterList(method.parameters);
                     const returnType = this.generateTypeReference(method.returnType);
 
                     // Main signature
-                    lines.push(`${this.indent}function ${method.name}(${params}): ${returnType}`);
+                    lines.push(`${this.indent}function ${method.name}${typeParams}(${params}): ${returnType}`);
 
                     // Overloads
                     if (method.overloads && method.overloads.length > 0) {
                         for (const overload of method.overloads) {
+                            const overloadTypeParams = this.generateTypeParameterList(overload.typeParameters);
                             const overloadParams = this.generateParameterList(overload.parameters);
                             const overloadReturn = this.generateTypeReference(overload.returnType);
-                            lines.push(`${this.indent}function ${method.name}(${overloadParams}): ${overloadReturn}`);
+                            lines.push(`${this.indent}function ${method.name}${overloadTypeParams}(${overloadParams}): ${overloadReturn}`);
                         }
                     }
                 }
@@ -439,18 +455,20 @@ export class LuauDefsGenerator {
      */
     private generateGlobalFunctions(funcs: GlobalFunction[]): string {
         return funcs.map(func => {
+            const typeParams = this.generateTypeParameterList(func.typeParameters);
             const params = this.generateParameterList(func.parameters);
             const returnType = this.generateTypeReference(func.returnType);
 
             const lines: string[] = [];
-            lines.push(`declare function ${func.name}(${params}): ${returnType}`);
+            lines.push(`declare function ${func.name}(${typeParams}${params}): ${returnType}`);
 
             // Overloads
             if (func.overloads && func.overloads.length > 0) {
                 for (const overload of func.overloads) {
+                    const overloadTypeParams = this.generateTypeParameterList(overload.typeParameters);
                     const overloadParams = this.generateParameterList(overload.parameters);
                     const overloadReturn = this.generateTypeReference(overload.returnType);
-                    lines.push(`declare function ${func.name}(${overloadParams}): ${overloadReturn}`);
+                    lines.push(`declare function ${func.name}${overloadTypeParams}(${overloadParams}): ${overloadReturn}`);
                 }
             }
 
@@ -482,23 +500,25 @@ export class LuauDefsGenerator {
             // Functions
             if (mod.functions && mod.functions.length > 0) {
                 for (const func of mod.functions) {
+                    const typeParams = this.generateTypeParameterList(func.typeParameters);
                     const params = this.generateParameterList(func.parameters);
                     const returnType = this.generateTypeReference(func.returnType);
 
                     // Check if function has overloads - if so, use intersection type
                     if (func.overloads && func.overloads.length > 0) {
                         const signatures: string[] = [];
-                        signatures.push(`((${params}) -> ${returnType})`);
+                        signatures.push(`(${typeParams}(${params}) -> ${returnType})`);
 
                         for (const overload of func.overloads) {
+                            const overloadTypeParams = this.generateTypeParameterList(overload.typeParameters);
                             const overloadParams = this.generateParameterList(overload.parameters);
                             const overloadReturn = this.generateTypeReference(overload.returnType);
-                            signatures.push(`((${overloadParams}) -> ${overloadReturn})`);
+                            signatures.push(`(${overloadTypeParams}(${overloadParams}) -> ${overloadReturn})`);
                         }
 
                         lines.push(`${this.indent}${func.name}: ${signatures.join(' & ')},`);
                     } else {
-                        lines.push(`${this.indent}${func.name}: (${params}) -> ${returnType},`);
+                        lines.push(`${this.indent}${func.name}: ${typeParams}(${params}) -> ${returnType},`);
                     }
                 }
             }

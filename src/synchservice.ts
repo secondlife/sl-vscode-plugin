@@ -32,10 +32,10 @@ import {
 import { maybe } from "./shared/sharedutils"; // TODO: migrate needed utilities from sharedutils if required
 import { ScriptLanguage, LanguageService } from "./shared/languageservice";
 import { ScriptSync } from "./scriptsync";
-import { LANGUAGE_CONFIGS } from "./shared/lexer";
+import { getLanguageConfig } from "./shared/lexer";
 import { HostInterface } from "./interfaces/hostinterface";
 
-type ParsedTempFile = { scriptName: string; scriptId: string; extension: string, language: ScriptLanguage};
+type ParsedTempFile = { scriptName: string; scriptId: string; extension: string, language: ScriptLanguage };
 
 export class SynchService implements vscode.Disposable {
     // Tracks all active sync relationships between temp files and master files
@@ -58,7 +58,7 @@ export class SynchService implements vscode.Disposable {
     public agentId?: string;
     public agentName?: string;
 
-    private disposables : vscode.Disposable[] = [];
+    private disposables: vscode.Disposable[] = [];
 
     private constructor(context: vscode.ExtensionContext) {
         this.context = context;
@@ -78,7 +78,7 @@ export class SynchService implements vscode.Disposable {
     }
 
     dispose(): void {
-    // Dispose of all active script syncs
+        // Dispose of all active script syncs
         for (const [tempFilePath, scriptSync] of this.activeSyncs) {
             try {
                 scriptSync.dispose();
@@ -87,7 +87,7 @@ export class SynchService implements vscode.Disposable {
             }
         }
         this.activeSyncs.clear();
-        for(const disposable of this.disposables) {
+        for (const disposable of this.disposables) {
             disposable.dispose();
         }
         this.disposables = [];
@@ -121,7 +121,7 @@ export class SynchService implements vscode.Disposable {
                 this.onChangeActiveTextEditor(editor),
         );
 
-        ConfigService.getInstance().on(ConfigKey.PreprocessorConstantsInSLua,() => {
+        ConfigService.getInstance().on(ConfigKey.PreprocessorConstantsInSLua, () => {
             this.initializeSyntax();
         });
 
@@ -139,6 +139,10 @@ export class SynchService implements vscode.Disposable {
     }
 
     private async initializeSyntax(): Promise<void> {
+        const autoUpdate: boolean = ConfigService.getInstance().getConfig<boolean>(ConfigKey.AutoUpdateLanguageFiles) != false
+        if (!autoUpdate) {
+            return;
+        }
         let loaded = false;
         const lastSyntaxID = ConfigService.getInstance().getConfig<string>(ConfigKey.LastSyntaxID);
         const languageService = LanguageService.getInstance();
@@ -190,7 +194,9 @@ export class SynchService implements vscode.Disposable {
         const masterPath = masterUri.fsPath;
         // Open the master script file in the editor
         showInfoMessage(`Opening master script: ${path.basename(masterPath)}`);
-        let masterDoc = await SynchService.openMasterScript(masterUri);
+        let masterEditor = await SynchService.openMasterScript(masterUri);
+        let masterDoc = masterEditor.document
+        SynchService.checkAndUpdateMasterDocumentInBackground(masterEditor, viewerDocument)
 
         // Connection goes on in the background
         let viewerConnecting: Promise<boolean> = this.setupConnection();
@@ -244,10 +250,10 @@ export class SynchService implements vscode.Disposable {
     }
 
     public removeSync(filePath: string, close: boolean): void {
-    // seeing if we closed a temp file or a master file
+        // seeing if we closed a temp file or a master file
         let sync =
-      this.findSyncByTempFilePath(filePath) ??
-      this.findSyncByMasterFilePath(filePath);
+            this.findSyncByTempFilePath(filePath) ??
+            this.findSyncByMasterFilePath(filePath);
         if (!sync) {
             // No sync found for this file, we are not tracking it
             return;
@@ -306,7 +312,10 @@ export class SynchService implements vscode.Disposable {
             this.getHandshakePromise();
         showStatusMessage("Connecting to Second Life viewer...", handshake);
 
-        this.websocket = new ViewerEditWSClient(this.context);
+        this.websocket = new ViewerEditWSClient(
+            this.context,
+            `ws://localhost:${this.host.config.getConfig<number>(ConfigKey.NetworkWebsocketPort, 9020)}`
+        );
         this.websocket.setup(handlers);
         let connected = await this.websocket.connect();
 
@@ -367,7 +376,7 @@ export class SynchService implements vscode.Disposable {
     }
 
     private onHandshakeOk(): void {
-    // Session established successfully
+        // Session established successfully
         console.log(
             `Session established with viewer ${this.viewerName} v${this.viewerVersion}`,
         );
@@ -403,8 +412,8 @@ export class SynchService implements vscode.Disposable {
             );
         }
 
-    // Don't dispose immediately - let the connection close handler do the cleanup
-    // The websocket will be closed by the server, triggering our close handler
+        // Don't dispose immediately - let the connection close handler do the cleanup
+        // The websocket will be closed by the server, triggering our close handler
     }
 
     private onScriptUnsubscribe(message: ScriptUnsubscribe): void {
@@ -456,8 +465,7 @@ export class SynchService implements vscode.Disposable {
         if (sync) {
             sync.handleRuntimeError(message);
         }
-        else
-        {
+        else {
             console.warn(`Runtime:Error in ${message.object_name}:${message.line}: ${message.error}`);
         }
     }
@@ -523,6 +531,11 @@ export class SynchService implements vscode.Disposable {
     //====================================================================
     //#region Language version checking and management
     public checkLanguageVersion(): boolean | undefined {
+        const autoUpdate: boolean = ConfigService.getInstance().getConfig<boolean>(ConfigKey.AutoUpdateLanguageFiles) != false
+        if (!autoUpdate) {
+            return true;
+        }
+
         if (!this.syntaxId) {
             return;
         }
@@ -537,6 +550,10 @@ export class SynchService implements vscode.Disposable {
 
     public async forceLanguageUpdate(): Promise<void> {
         const service = LanguageService.getInstance();
+        const defaultSuccess = await service.changeSyntaxVersion('default');
+        if (!defaultSuccess) {
+            showWarningMessage("Failed to update default syntax.");
+        }
         const socket = this.getWebSocket();
         if (!socket || !socket.isConnected()) {
             showWarningMessage("No viewer connection for syntax update.");
@@ -596,9 +613,9 @@ export class SynchService implements vscode.Disposable {
     public findSyncByIncludeFilePath(
         includePath: string,
     ): ScriptSync[] {
-        const syncs : ScriptSync[] = [];
-        for(const sync of this.activeSyncs.values()) {
-            if(sync.usesInclude(includePath)) {
+        const syncs: ScriptSync[] = [];
+        for (const sync of this.activeSyncs.values()) {
+            if (sync.usesInclude(includePath)) {
                 syncs.push(sync);
             }
         }
@@ -610,14 +627,14 @@ export class SynchService implements vscode.Disposable {
         viewerFile: vscode.TextDocument
     ): Promise<vscode.Uri | null> {
         // Attempt to match by file meta info
-        if(ConfigService.getInstance().getConfig<boolean>(ConfigKey.FileMetaInfoUseForMatching, false)) {
-            const cmt = LANGUAGE_CONFIGS[script.language].lineCommentPrefix;
-            const lineRegExp = new RegExp(`^[\\s]*${cmt}[\\s]*@file[\\s]*[A-z0-9-_/.]*[\\s]*$`,"i");
-            const range = new vscode.Range(0,0,10,0);
+        if (ConfigService.getInstance().getConfig<boolean>(ConfigKey.FileMetaInfoInOutput, false)) {
+            const cmt = getLanguageConfig(script.language).lineCommentPrefix;
+            const lineRegExp = new RegExp(`^[\\s]*${cmt}[\\s]*@file[\\s]*[A-z0-9-_/.]*[\\s]*$`, "i");
+            const range = new vscode.Range(0, 0, 10, 0);
             const start = viewerFile.getText(range).split("\n").filter(line => line.match(lineRegExp))[0] ?? null;
-            if(start) {
+            if (start) {
                 const files = await vscode.workspace.findFiles(start.split("@file")[1].trim());
-                if(files.length == 1) {
+                if (files.length == 1) {
                     console.warn("Match on meta info");
                     return files[0];
                 }
@@ -625,27 +642,27 @@ export class SynchService implements vscode.Disposable {
         }
 
         let files = await vscode.workspace.findFiles(`**/${script.scriptName}.${script.extension}`);
-        if(files.length > 0) {
+        if (files.length > 0) {
             return files[0];
         } else {
             // Not found a glob match, try a broader fit
             // Get all files with right extenstion
             const possibleFiles = await vscode.workspace.findFiles(`**/*.${script.extension}`)
-            for(const possibleFile of possibleFiles) {
+            for (const possibleFile of possibleFiles) {
                 const wsFile = vscode.Uri.file(vscode.workspace.asRelativePath(possibleFile));
                 // filter out paths with hidden directories
-                if(wsFile.path.includes("/.") || wsFile.path.includes("\\.")) continue;
+                if (wsFile.path.includes("/.") || wsFile.path.includes("\\.")) continue;
                 let relative = wsFile.path;
                 // Remove leading `/` or `\` characters
-                while(relative.startsWith("/") || relative.startsWith("\\")) {
+                while (relative.startsWith("/") || relative.startsWith("\\")) {
                     relative = relative.slice(1);
                 }
                 const matches = [
-                    relative.replaceAll(path.sep,""), // Try match `folder/script.luau` to `folderscript` or `folder/script` from sl
-                    relative.replaceAll(path.sep,"_"), // Try to match `folder/script.luau` to `folder_script` from sl
-                    relative.replaceAll(path.sep," "), // Try to match `folder/script.luau` to `folder_script` from sl
+                    relative.replaceAll(path.sep, ""), // Try match `folder/script.luau` to `folderscript` or `folder/script` from sl
+                    relative.replaceAll(path.sep, "_"), // Try to match `folder/script.luau` to `folder_script` from sl
+                    relative.replaceAll(path.sep, " "), // Try to match `folder/script.luau` to `folder_script` from sl
                 ];
-                if(matches.includes(`${script.scriptName}.${script.extension}`)) {
+                if (matches.includes(`${script.scriptName}.${script.extension}`)) {
                     return possibleFile;
                 }
                 logInfo(relative);
@@ -656,10 +673,34 @@ export class SynchService implements vscode.Disposable {
 
     private static async openMasterScript(
         masterUri: vscode.Uri,
-    ): Promise<vscode.TextDocument> {
+    ): Promise<vscode.TextEditor> {
         const masterDoc = await vscode.workspace.openTextDocument(masterUri);
-        await vscode.window.showTextDocument(masterDoc, { preview: false });
-        return masterDoc;
+        return await vscode.window.showTextDocument(masterDoc, { preview: false });
+    }
+
+    private static checkAndUpdateMasterDocumentInBackground(masterEditor: vscode.TextEditor, viewerDocument: vscode.TextDocument): void {
+        if (!ConfigService.getInstance().getConfig<boolean>(ConfigKey.AskIfViewerScriptMismatchesMaster, true)) return;
+        if (masterEditor.document.getText() == viewerDocument.getText()) return;
+        const viewerFileName = SynchService.parseTempFile(viewerDocument.fileName)?.scriptName;
+        const masterFileName = path.basename(masterEditor.document.fileName);
+        vscode.window.showInformationMessage(`Viewer script "${viewerFileName}" differs from master script "${masterFileName}". What would you like to do?`,
+            "Ignore", "Overwrite master", "Compare", "Always ignore")
+            .then(async (pick) => {
+                if (pick === "Always ignore") {
+                    ConfigService.getInstance().setConfig<boolean>(ConfigKey.AskIfViewerScriptMismatchesMaster, false);
+                } else if (pick === "Overwrite master") {
+                    const firstLine = masterEditor.document.lineAt(0);
+                    const lastLine = masterEditor.document.lineAt(masterEditor.document.lineCount - 1);
+                    const textRange = new vscode.Range(firstLine.range.start, lastLine.range.end);
+                    masterEditor.edit(edit => edit.replace(textRange, viewerDocument.getText()));
+                } else if (pick === "Compare") {
+                    const viewer = viewerDocument.uri;
+                    const master = masterEditor.document.uri;
+                    const title = `${viewerFileName} (Viewer) ↔ ${masterFileName} (Master)`;
+                    await vscode.commands.executeCommand("vscode.diff", viewer, master, title); //, { preview: false });
+                }
+            })
+        //*/
     }
 
     public getWebSocket(): ViewerEditWSClient | undefined {
@@ -675,9 +716,9 @@ export class SynchService implements vscode.Disposable {
         await this.setupSync(document);
     }
 
-    private async initialDefinitionGeneration(document: vscode.TextDocument) : Promise<void> {
-        if(this.initialGenerationDone) return;
-        if(!document.uri.fsPath.endsWith(".luau")) return;
+    private async initialDefinitionGeneration(document: vscode.TextDocument): Promise<void> {
+        if (this.initialGenerationDone) return;
+        if (!document.uri.fsPath.endsWith(".luau")) return;
         this.initialGenerationDone = true;
         this.initializeSyntax();
     }
@@ -698,10 +739,10 @@ export class SynchService implements vscode.Disposable {
     private async onSaveTextDocument(document: vscode.TextDocument): Promise<void> {
         const filePath = path.normalize(document.fileName);
         const sync = this.findSyncByMasterFilePath(filePath);
-        if(sync) {
+        if (sync) {
             await sync.handleMasterSaved();
         } else {
-            for(const sync of this.findSyncByIncludeFilePath(filePath)) {
+            for (const sync of this.findSyncByIncludeFilePath(filePath)) {
                 await sync.handleMasterSaved();
             }
         }

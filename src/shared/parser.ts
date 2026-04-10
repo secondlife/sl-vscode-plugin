@@ -7,15 +7,14 @@
  */
 
 import * as path from 'path';
-import { Token, TokenType, getLanguageConfig } from './lexer';
-import { ScriptLanguage } from './languageservice';
+import { LanguageLexerConfig, Token, TokenType } from './lexer';
 import { NormalizedPath, HostInterface } from '../interfaces/hostinterface';
 import { FullConfigInterface, ConfigKey } from '../interfaces/configinterface';
 import type { DirectiveImplementations } from './lexingpreprocessor';
 import { MacroProcessor, MacroExpansionContext } from './macroprocessor';
 import { ConditionalProcessor } from './conditionalprocessor';
 import { IncludeProcessor, IncludeState } from './includeprocessor';
-import { DiagnosticCollector, PreprocessorDiagnostic, ErrorCodes } from './diagnostics';
+import { DiagnosticCollector, PreprocessorDiagnostic, ErrorCodes, DiagnosticError, DiagnosticSeverity } from './diagnostics';
 
 //#region Parser State
 
@@ -47,6 +46,33 @@ export interface ParserState {
     includeState: IncludeState;
     /** Require state (for SLua require() directives) - only present when require is supported */
     requireState?: RequireState;
+    /** Set of unique identifiers to use for naming things like switch/loop jumps */
+    uniqueIdentifiers: Set<string>;
+    /** Random number state, for deterministic random number generation */
+    random: RNG;
+}
+
+class RNG {
+    private state: number;
+    constructor(seed: number = 9863369152) {
+        // Ensure seed is treated as a 32-bit signed integer
+        this.state = seed | 0;
+    }
+    public next(): number {
+        // Xorshift* algorithm (32-bit integer arithmetic)
+        let x = this.state;
+        x ^= x << 13;
+        x ^= x >> 17;
+        x ^= x << 5;
+        // Clamp back to 32-bit signed integer
+        x |= 0;
+        this.state = x;
+        return x & 0x7FFFFFFF;
+    }
+
+    public nextHex(): string {
+        return this.next().toString(16).padStart(8, '0');
+    }
 }
 
 //#endregion
@@ -102,6 +128,18 @@ export interface MacroInfo {
     parameters?: string[];
 }
 
+class HaltParseError extends Error{}
+
+type CaseBlock = {
+    defaultCase: boolean;
+    condition: Token[];
+    conditionComment: Token[];
+    body: Token[];
+    identifier: string;
+    commentsBefore: Token[];
+    commentsAfter: Token[];
+}
+
 //#endregion
 
 //#region Parser
@@ -114,7 +152,7 @@ export class Parser {
     private position: number;
     private state: ParserState;
     private sourceFile: NormalizedPath;
-    private language: ScriptLanguage;
+    private language: LanguageLexerConfig;
 
     // Output accumulators
     private outputTokens: Token[];
@@ -125,9 +163,11 @@ export class Parser {
     // Current line tracking for mapping
     private currentOutputLine: number;
     private lastSourceLine: number;
+    private lastSourceColumn: number;
     private lastSourceFile: NormalizedPath;
     private lineDirectiveEmittedForCurrentLine: boolean;
     private lastEmittedTokenType: TokenType | null;
+    private lineCommentsDisabled: boolean;
 
     // Line ending style (detected from source)
     private lineEnding: string;
@@ -150,13 +190,14 @@ export class Parser {
     // Diagnostic collector
     private diagnostics: DiagnosticCollector;
 
-    // Flag wether external require is allowed, passed down when using .luarc
+    // Flag whether external require is allowed, passed down when using .luarc
     private allowExternalRequires: boolean = false;
+    private indentationLevel: number = 0;
 
     constructor(
         tokens: Token[],
         sourceFile: NormalizedPath,
-        language: ScriptLanguage,
+        language: LanguageLexerConfig,
         host?: HostInterface,
         directives?: DirectiveImplementations,
         initialState?: Partial<ParserState>,
@@ -188,16 +229,18 @@ export class Parser {
 
         // Initialize parser state
         this.state = {
-            macros: initialState?.macros || new MacroProcessor(language),
-            conditionals: initialState?.conditionals || new ConditionalProcessor(language),
-            includes: initialState?.includes || (host ? new IncludeProcessor(language, host) : undefined as any),
+            macros: initialState?.macros || new MacroProcessor(),
+            conditionals: initialState?.conditionals || new ConditionalProcessor(this.language),
+            includes: initialState?.includes || (host ? new IncludeProcessor(this.language, host) : undefined as any),
             includeState: initialState?.includeState || IncludeProcessor.createState(maxIncludeDepth, includePaths),
+            uniqueIdentifiers: initialState?.uniqueIdentifiers || new Set<string>(),
+            random: initialState?.random || new RNG(),
         };
 
         // Only initialize requireState for SLua (luau) files or if explicitly provided
         if (initialState?.requireState !== undefined) {
             this.state.requireState = initialState.requireState;
-        } else if (language === 'luau' && isTopLevel) {
+        } else if (this.language.name === 'luau' && isTopLevel) {
             this.state.requireState = Parser.createRequireState();
         }
 
@@ -208,7 +251,9 @@ export class Parser {
         this.macroInfos = [];
         this.currentOutputLine = 1;
         this.lastSourceLine = 0;
+        this.lastSourceColumn = 0;
         this.lastSourceFile = sourceFile;
+        this.lineCommentsDisabled = false;
         this.lineDirectiveEmittedForCurrentLine = false;
         this.lastEmittedTokenType = null;
 
@@ -233,6 +278,7 @@ export class Parser {
             endif: async (parser: Parser) => Parser.handleEndifDirective(parser),
             include: async (parser: Parser) => Parser.handleIncludeDirective(parser),
             require: async (parser: Parser) => Parser.handleRequireDirective(parser),
+            switch: async (parser: Parser) => Parser.handleSwitchDirective(parser),
         };
     }
 
@@ -253,17 +299,19 @@ export class Parser {
      * This allows the preprocessor to inject predefined macros before parsing begins
      */
     public static createInitialState(
-        language: ScriptLanguage,
+        language: LanguageLexerConfig,
         host?: HostInterface,
         macros?: MacroProcessor,
         maxIncludeDepth: number = 5,
         includePaths: string[] = ['.']
     ): ParserState {
         return {
-            macros: macros ?? new MacroProcessor(language),
+            macros: macros ?? new MacroProcessor(),
             conditionals: new ConditionalProcessor(language),
             includes: host ? new IncludeProcessor(language, host) : undefined as any,
             includeState: IncludeProcessor.createState(maxIncludeDepth, includePaths),
+            uniqueIdentifiers: new Set<string>(),
+            random: new RNG(),
         };
     }
 
@@ -287,18 +335,16 @@ export class Parser {
         while (!this.isAtEnd()) {
             const token = this.current();
 
-            if (token.isDirective()) {
-                const positionAdvanced = await this.handleDirective(token);
-                if (!positionAdvanced) {
-                    this.advance();
+            try {
+                await this.parseToken(token);
+            } catch(error) {
+                if(error instanceof HaltParseError) {
+                    // Stop processing on HaltParseError
+                } else if(error instanceof DiagnosticError) {
+                    this.diagnostics.add(error.diagnostic);
+                } else {
+                    throw error;
                 }
-            } else if (this.shouldEmitToken()) {
-                const positionAdvanced = this.emitToken(token);
-                if (!positionAdvanced) {
-                    this.advance();
-                }
-            } else {
-                this.advance();
             }
 
             // Stop processing immediately if we encounter any errors
@@ -348,6 +394,25 @@ export class Parser {
         };
     }
 
+    private async parseToken(token: Token): Promise<void> {
+        if (token.isDirective()) {
+            const positionAdvanced = await this.handleDirective(token);
+            if (!positionAdvanced) {
+                this.advance();
+            }
+        } else if (this.shouldEmitToken()) {
+            const positionAdvanced = this.emitToken(token);
+            if (!positionAdvanced) {
+                this.advance();
+            }
+        } else {
+            this.advance();
+        }
+        if(this.diagnostics.hasErrors()) {
+            throw new HaltParseError();
+        }
+    }
+
     //#region Directive Handling
 
     /**
@@ -384,7 +449,7 @@ export class Parser {
         }
 
         // Consume rest of directive line (but not for require, which is inline)
-        if (directiveName !== 'require') {
+        if (directiveName !== 'require' && directiveName !== 'switch') {
             this.consumeDirectiveLine();
             return false; // Let caller advance past the directive token
         } else {
@@ -711,6 +776,289 @@ export class Parser {
     }
 
     /**
+     * Handle switch directive (LSL)
+     */
+    private static async handleSwitchDirective(parser: Parser): Promise<void> {
+        const directiveToken = parser.current();
+        parser.advance();
+
+        parser.disableLineComments();
+        const indentation = parser.indentationLevel;
+        const indentationWhitespace = ' '.repeat(indentation);
+        parser.skipWhitespace();
+        parser.consumeTokenOfType(TokenType.PAREN_OPEN, 'SWITCH directive');
+        const condition :Token[] = [];
+        let depth = 1;
+        while(!parser.isAtEnd()) {
+            const current = parser.current();
+            if(current.type === TokenType.PAREN_OPEN) {
+                depth++;
+            } else if(current.type === TokenType.PAREN_CLOSE) {
+                depth--;
+                if(depth < 1) {
+                    parser.advance();
+                    break;
+                }
+            }
+            condition.push(current);
+            parser.advance();
+        }
+        const commentsBefore = this.trimTrailingWhiteSpace(parser.consumeWhiteSpaceAndComments());
+
+        parser.consumeTokenOfType(TokenType.BRACE_OPEN, 'SWITCH directive');
+        parser.skipWhitespace();
+
+        let caseBlock = await this.consumeCaseBlock(parser);
+        let cases = [];
+        while(caseBlock) {
+            cases.push(caseBlock);
+            caseBlock = await this.consumeCaseBlock(parser);
+        }
+
+        if(cases.length < 1) {
+            throw new DiagnosticError({
+                severity: DiagnosticSeverity.ERROR,
+                message: `SWITCH directive requires at least one CASE block`,
+                line: directiveToken.line,
+                column: directiveToken.column,
+                length: directiveToken.value.length,
+                sourceFile: parser.sourceFile,
+            });
+        }
+
+        parser.consumeTokenOfType(TokenType.BRACE_CLOSE, 'SWITCH directive');
+
+        if(cases.filter(c=>c.defaultCase).length > 1) {
+            throw new DiagnosticError({
+                severity: DiagnosticSeverity.ERROR,
+                message: `SWITCH directive cannot have more than one DEFAULT case`,
+                line: directiveToken.line,
+                column: directiveToken.column,
+                length: directiveToken.value.length,
+                sourceFile: parser.sourceFile,
+            });
+        }
+        const defaultCase = cases.find(c=>c.defaultCase);
+        const outJump = parser.generateUniqueIdentifier(5,"s");
+        if(commentsBefore.length > 0) {
+            parser.emitTokens(commentsBefore);
+            parser.appendGeneratedToken(TokenType.NEWLINE, "\n");
+        }
+
+        let first = true;
+        for(const c of cases) {
+            if(c.defaultCase) continue;
+            if(!first)parser.appendGeneratedToken(TokenType.WHITESPACE, indentationWhitespace);
+            first = false;
+            this.emitCaseIfStatement(parser,condition,c);
+        }
+
+        if(!first)parser.appendGeneratedToken(TokenType.WHITESPACE, indentationWhitespace);
+        parser.appendGeneratedToken(TokenType.IDENTIFIER, `jump`);
+        parser.appendGeneratedToken(TokenType.WHITESPACE, " ");
+        parser.appendGeneratedToken(TokenType.IDENTIFIER, defaultCase ? defaultCase.identifier : outJump);
+        parser.appendGeneratedToken(TokenType.PUNCTUATION, ";");
+        if(defaultCase) parser.emitTokens(defaultCase.commentsBefore);
+        parser.appendGeneratedToken(TokenType.NEWLINE, "\n");
+        parser.enableLineComments();
+
+        for(const c of cases) {
+            this.emitCaseBlock(parser,c,outJump,indentationWhitespace);
+        }
+
+        parser.disableLineComments();
+        parser.appendGeneratedToken(TokenType.WHITESPACE, indentationWhitespace);
+        parser.appendGeneratedToken(TokenType.IDENTIFIER, `@${outJump}`);
+        parser.appendGeneratedToken(TokenType.PUNCTUATION, ";");
+        parser.enableLineComments();
+        // parser.appendGeneratedToken(TokenType.NEWLINE, "\n");
+    }
+
+    private createTokenWithLastEmit(type: TokenType, value:string) : Token {
+        return new Token(type, value, this.lastSourceLine, this.lastSourceColumn, 0)
+    }
+
+    private appendGeneratedToken(type: TokenType, value:string) : boolean {
+        return this.emitToken(this.createTokenWithLastEmit(type, value));
+    }
+
+    private static emitCaseBlock(parser: Parser, caseBlock: CaseBlock, outJump: string, indentationWhitespace: string): void {
+        parser.appendGeneratedToken(TokenType.WHITESPACE, indentationWhitespace);
+        parser.appendGeneratedToken(TokenType.IDENTIFIER, `@${caseBlock.identifier}`);
+        parser.appendGeneratedToken(TokenType.PUNCTUATION, ";");
+        parser.emitTokens(caseBlock.commentsBefore);
+        parser.appendGeneratedToken(TokenType.NEWLINE, "\n");
+        if(caseBlock.body.filter(t=>!t.isWhitespaceOrNewline()).length < 1) return;
+        parser.appendGeneratedToken(TokenType.WHITESPACE, indentationWhitespace);
+        parser.appendGeneratedToken(TokenType.BRACE_OPEN, "{");
+        parser.appendGeneratedToken(TokenType.NEWLINE, "\n");
+        // parser.appendGeneratedToken(TokenType.WHITESPACE, indentationWhitespace);
+        let indentation = 0;
+        let lastNewLine = true;
+        for(const t of caseBlock.body) {
+            if(t.is(TokenType.IDENTIFIER,"break")) {
+                parser.appendGeneratedToken(TokenType.IDENTIFIER, `jump`);
+                parser.appendGeneratedToken(TokenType.WHITESPACE, " ");
+                parser.appendGeneratedToken(TokenType.IDENTIFIER, outJump);
+                continue;
+            }
+            let tokenToEmit = t;
+            if(lastNewLine) {
+                if(!t.isType(TokenType.WHITESPACE)) {
+                    if (indentation == 0) {
+                        parser.appendGeneratedToken(TokenType.WHITESPACE, indentationWhitespace + '    ');
+                    }
+                    lastNewLine = false;
+                } else {
+                    tokenToEmit = new Token(TokenType.WHITESPACE, t.value.substring(4),t.line,t.column,t.length);
+                }
+            }
+            parser.emitToken(tokenToEmit);
+            if(lastNewLine && tokenToEmit.type == TokenType.WHITESPACE) {
+                indentation += tokenToEmit.value.length;
+            }
+            if(tokenToEmit.isType(TokenType.NEWLINE)) {
+                indentation = 0;
+                lastNewLine = true;
+            }
+        }
+        // parser.appendGeneratedToken(TokenType.NEWLINE, "\n");
+        // parser.appendGeneratedToken(TokenType.WHITESPACE, indentationWhitespace);
+        parser.appendGeneratedToken(TokenType.BRACE_CLOSE, "}");
+        parser.emitTokens(caseBlock.commentsAfter);
+        parser.appendGeneratedToken(TokenType.NEWLINE, "\n");
+    }
+
+    private static emitCaseIfStatement(parser: Parser, condition: Token[], caseBlock: CaseBlock): void {
+        parser.appendGeneratedToken(TokenType.IDENTIFIER, `if`);
+        parser.appendGeneratedToken(TokenType.PAREN_OPEN, "(");
+        parser.appendGeneratedToken(TokenType.PAREN_OPEN, "(");
+
+        parser.emitTokens(parser.trimWhitespace(condition));
+
+        parser.appendGeneratedToken(TokenType.PAREN_CLOSE, ")");
+        parser.appendGeneratedToken(TokenType.WHITESPACE, " ");
+        parser.appendGeneratedToken(TokenType.OPERATOR, "==");
+        parser.appendGeneratedToken(TokenType.WHITESPACE, " ");
+        parser.appendGeneratedToken(TokenType.PAREN_OPEN, "(");
+
+        parser.emitTokens(parser.trimWhitespace(caseBlock.condition));
+
+        parser.appendGeneratedToken(TokenType.PAREN_CLOSE, ")");
+        parser.appendGeneratedToken(TokenType.PAREN_CLOSE, ")");
+        parser.appendGeneratedToken(TokenType.WHITESPACE, " ");
+        parser.appendGeneratedToken(TokenType.IDENTIFIER, "jump");
+        parser.appendGeneratedToken(TokenType.WHITESPACE, " ");
+        parser.appendGeneratedToken(TokenType.IDENTIFIER, caseBlock.identifier);
+        parser.appendGeneratedToken(TokenType.PUNCTUATION, ";");
+        parser.emitTokens(parser.trimWhitespace(caseBlock.conditionComment));
+        parser.appendGeneratedToken(TokenType.NEWLINE, "\n");
+    }
+
+    private static async consumeCaseBlock(parser: Parser): Promise<CaseBlock | null> {
+        if(parser.isAtEnd()) return null;
+        parser.skipWhitespace();
+        const keyword = parser.consumeTokenIfType(TokenType.IDENTIFIER);
+        if(!keyword) {
+            return null;
+        }
+        if(keyword.value !== 'case' && keyword.value !== 'default') {
+            throw new DiagnosticError({
+                severity: DiagnosticSeverity.ERROR,
+                message: `Expected 'case' or 'default' keyword in SWITCH directive`,
+                line: keyword.line,
+                column: keyword.column,
+                length: keyword.value.length,
+                sourceFile: parser.sourceFile,
+            });
+        }
+        const defaultCase = keyword.value === 'default';
+        parser.skipWhitespace();
+        const condition :Token[] = [];
+        const conditionComment: Token[] = []
+        let lastWasComment = false;
+        while(!parser.isAtEnd()) {
+            const current = parser.current();
+            if(current.type == TokenType.BRACE_OPEN) break;
+            if(current.is(TokenType.OPERATOR,":")) break;
+            if(current.isComment()) {
+                lastWasComment = true;
+                conditionComment.push(current);
+            } else if (lastWasComment && current.isWhitespaceOrNewline()) {
+                conditionComment.push(current)
+            } else {
+                lastWasComment = false;
+                condition.push(current);
+            }
+            parser.advance();
+        }
+        if(parser.isAtEnd()) {
+            throw new DiagnosticError({
+                severity: DiagnosticSeverity.ERROR,
+                message: `Unexpected end of file while parsing CASE block in SWITCH directive`,
+                line: keyword.line,
+                column: keyword.column,
+                length: keyword.value.length,
+                sourceFile: parser.sourceFile,
+            });
+        }
+
+        const commentsBefore = this.trimTrailingWhiteSpace(parser.consumeWhiteSpaceAndComments());
+        let current = parser.current();
+
+        if(current.is(TokenType.OPERATOR, ":")) {
+            parser.advance();
+            commentsBefore.push(...this.trimTrailingWhiteSpace(parser.consumeWhiteSpaceAndComments()));
+            current = parser.current();
+            if(current.is(TokenType.IDENTIFIER, "case") || current.is(TokenType.IDENTIFIER, "default")) {
+                return {
+                    identifier: parser.generateUniqueIdentifier(5,"c"),
+                    defaultCase,
+                    condition,
+                    conditionComment,
+                    body: [],
+                    commentsBefore,
+                    commentsAfter:[],
+                };
+            }
+        }
+
+        parser.consumeTokenOfType(TokenType.BRACE_OPEN, 'case condition');
+        parser.skipNonNewlineWhiteSpace();
+        parser.consumeTokenIfType(TokenType.NEWLINE);
+
+        let depth = 1;
+        const outputTokenCount = parser.outputTokens.length;
+        while(!parser.isAtEnd() && depth > 0) {
+            const current = parser.current();
+            if(current.type === TokenType.BRACE_OPEN) {
+                depth++;
+            } else if(current.type === TokenType.BRACE_CLOSE) {
+                depth--;
+                if(depth === 0) {
+                    parser.advance();
+                    break;
+                }
+            }
+            await parser.parseToken(current);
+        }
+        const body = parser.outputTokens.splice(outputTokenCount);
+        return {
+            identifier: parser.generateUniqueIdentifier(5,"c"),
+            defaultCase,
+            condition,
+            conditionComment,
+            body,
+            commentsBefore,
+            commentsAfter: this.trimTrailingWhiteSpace(parser.consumeWhiteSpaceAndComments()),
+        };
+    }
+
+    private outputToken(token: Token) : number {
+        return this.outputTokens.push(token);
+    }
+
+    /**
      * Handle #if directive (LSL)
      */
     private static handleIfDirective(parser: Parser): void {
@@ -808,6 +1156,20 @@ export class Parser {
 
     //#region Token Emission
 
+    private emitTokens(tokens: Token[]): void {
+        for (const token of tokens) {
+            this.emitToken(token);
+        }
+    }
+
+    private disableLineComments() : void {
+        this.lineCommentsDisabled = true;
+    }
+
+    private enableLineComments() : void {
+        this.lineCommentsDisabled = false;
+    }
+
     /**
      * Emit a token to output and track line mapping
      * @returns true if the position was advanced beyond the current token (e.g., for function-like macros)
@@ -820,10 +1182,11 @@ export class Parser {
 
         // Handle newlines first - emit the newline, then check for line skips on the NEXT line
         if (token.type === TokenType.NEWLINE) {
-            this.outputTokens.push(token);
+            this.outputToken(token);
             this.lastEmittedTokenType = TokenType.NEWLINE;
             this.currentOutputLine++;
             this.lineDirectiveEmittedForCurrentLine = false;  // Reset for next line
+            this.indentationLevel = 0;
             return false;
         }
 
@@ -836,6 +1199,11 @@ export class Parser {
             token.type !== TokenType.BLOCK_COMMENT_CONTENT &&
             token.type !== TokenType.BLOCK_COMMENT_END;
 
+        if(isLeadingWhitespace) {
+            // Track indentation level
+            this.indentationLevel += token.value.length;
+        }
+
         if ((isLeadingWhitespace || isMeaningfulToken) &&
             !this.lineDirectiveEmittedForCurrentLine) {
 
@@ -843,9 +1211,8 @@ export class Parser {
             const fileChanged = this.sourceFile !== this.lastSourceFile;
 
             // Insert @line directive if we skipped lines (gap > 1) or changed files
-            if ((lineSkip > 1 || fileChanged) && this.lastSourceLine > 0) {
-                const languageConfig = getLanguageConfig(this.language);
-                const lineDirectiveText = `${languageConfig.lineCommentPrefix} @line ${token.line} "${this.formatPathForLineDirective(this.sourceFile)}"`;
+            if ((lineSkip > 1 || fileChanged) && this.lastSourceLine > 0 && !this.lineCommentsDisabled) {
+                const lineDirectiveText = `${this.language.lineCommentPrefix} @line ${token.line} "${this.formatPathForLineDirective(this.sourceFile)}"`;
                 const lineDirective = new Token(
                     TokenType.LINE_COMMENT,
                     lineDirectiveText,
@@ -853,8 +1220,8 @@ export class Parser {
                     1,
                     lineDirectiveText.length
                 );
-                this.outputTokens.push(lineDirective);
-                this.outputTokens.push(new Token(TokenType.NEWLINE, this.lineEnding, token.line, lineDirectiveText.length + 1, 1));
+                this.outputToken(lineDirective);
+                this.outputToken(new Token(TokenType.NEWLINE, this.lineEnding, token.line, lineDirectiveText.length + 1, 1));
                 this.lastEmittedTokenType = TokenType.NEWLINE;
                 this.currentOutputLine++;
                 this.lineDirectiveEmittedForCurrentLine = true;
@@ -868,11 +1235,12 @@ export class Parser {
             // This handles the case where we didn't emit a directive but still need to track
             if (isMeaningfulToken) {
                 this.lastSourceLine = token.line;
+                this.lastSourceColumn = token.column;
                 this.lastSourceFile = this.sourceFile;
             }
         }
 
-        this.outputTokens.push(token);
+        this.outputToken(token);
         this.lastEmittedTokenType = token.type;
         return false;
     }
@@ -894,7 +1262,7 @@ export class Parser {
         const macro = this.state.macros.getMacro(token.value);
         if (!macro) {
             // Macro not found - emit as-is
-            this.outputTokens.push(token);
+            this.outputToken(token);
             return false;
         }
 
@@ -920,7 +1288,7 @@ export class Parser {
                 );
                 // Restore position and emit identifier as-is
                 this.position = savedPos;
-                this.outputTokens.push(token);
+                this.outputToken(token);
                 return false;
             }
 
@@ -945,12 +1313,12 @@ export class Parser {
             );
             if (expanded) {
                 for (const expandedToken of expanded) {
-                    this.outputTokens.push(expandedToken);
+                    this.outputToken(expandedToken);
                 }
             } else {
                 // Expansion failed (diagnostics already added by MacroProcessor)
                 // Emit the original token
-                this.outputTokens.push(token);
+                this.outputToken(token);
             }
             // Position was advanced past the closing parenthesis by parseArgumentList()
             return true;
@@ -973,7 +1341,7 @@ export class Parser {
             );
             if (expanded) {
                 for (const expandedToken of expanded) {
-                    this.outputTokens.push(expandedToken);
+                    this.outputToken(expandedToken);
                 }
             }
             // Simple macros don't advance position
@@ -985,14 +1353,23 @@ export class Parser {
 
     //#region Token Stream Navigation
 
+    private peek(offset: number): Token|null {
+        offset += this.position;
+        if(offset >= this.tokens.length) {
+            return null;
+        }
+        return this.tokens[offset];
+    }
+
     private current(): Token {
         return this.tokens[this.position];
     }
 
-    private advance(): Token {
+    private advance(steps:number = 1): Token {
         const token = this.current();
-        if (this.position < this.tokens.length - 1) {
-            this.position++;
+        steps += this.position;
+        if (steps < this.tokens.length) {
+            this.position = steps;
         }
         return token;
     }
@@ -1005,6 +1382,92 @@ export class Parser {
     private skipWhitespace(): void {
         while (!this.isAtEnd() && this.current().isWhitespaceOrNewline()) {
             this.advance();
+        }
+    }
+
+    private static trimTrailingWhiteSpace(tokens: Token[]): Token[] {
+        const out = [];
+        let white = [];
+        for(const token of tokens) {
+            if(token.isWhitespaceOrNewline()) {
+                white.push(token);
+            } else {
+                out.push(...white);
+                white = [];
+                out.push(token);
+            }
+        }
+        return out;
+    }
+
+    private consumeWhiteSpaceAndComments(): Token[] {
+        const comments: Token[] = [];
+        while(!this.isAtEnd()) {
+            const current = this.current();
+            if(current.isComment() || current.isWhitespaceOrNewline()) {
+                comments.push(current);
+                this.advance();
+                continue;
+            }
+            break;
+        }
+        return comments;
+    }
+
+    private generateUniqueIdentifier(len: number = 6, prefix: string = "u"): string {
+        let identifier: string = "";
+        while(identifier.length < 1 || this.state.uniqueIdentifiers.has(identifier)) {
+            const rand = this.state.random.nextHex();
+            identifier = prefix + rand.substring(rand.length - len);
+        }
+        this.state.uniqueIdentifiers.add(identifier);
+        return identifier;
+    }
+
+    private checkTokenOfType(type: TokenType): boolean {
+        if (this.isAtEnd()) {
+            return false;
+        }
+        return this.current().type === type;
+    }
+
+    private consumeTokenIfType(type: TokenType): Token | null {
+        if (this.isAtEnd()) {
+            return null;
+        }
+        const token = this.current();
+        if (token.type === type) {
+            this.advance();
+            return token;
+        }
+        return null;
+    }
+
+    private consumeTokenOfType(type: TokenType, after?: string): Token {
+        if (this.isAtEnd()) {
+            const token = this.tokens[this.tokens.length - 1];
+            throw new DiagnosticError({
+                severity: DiagnosticSeverity.ERROR,
+                message: `Expected token of type ${type}${after ? ` after ${after}` : ""}, but reached end of input`,
+                line: token.line,
+                column: token.column,
+                length: token.value.length,
+                sourceFile: this.sourceFile,
+            });
+        }
+        const token = this.current();
+        if (token.type === type) {
+            this.advance();
+            return token;
+        } else {
+            throw new DiagnosticError({
+                severity: DiagnosticSeverity.ERROR,
+                message: `Expected token of type ${type}${after ? ` after ${after}` : ""}, got ${token.type}`,
+                line: token.line,
+                column: token.column,
+                length: token.value.length,
+                sourceFile: this.sourceFile,
+            });
         }
     }
 
@@ -1268,8 +1731,7 @@ export class Parser {
             this.diagnostics.merge(includeParser.diagnostics);
 
             // Add @line directive at the start of the included file's output
-            const languageConfig = getLanguageConfig(this.language);
-            const lineDirectiveText = `${languageConfig.lineCommentPrefix} @line 1 "${this.formatPathForLineDirective(result.resolvedPath!)}"`;
+            const lineDirectiveText = `${this.language.lineCommentPrefix} @line 1 "${this.formatPathForLineDirective(result.resolvedPath!)}"`;
             const lineDirective = new Token(
                 TokenType.LINE_COMMENT,
                 lineDirectiveText,
@@ -1277,14 +1739,14 @@ export class Parser {
                 1,
                 lineDirectiveText.length
             );
-            this.outputTokens.push(lineDirective);
+            this.outputToken(lineDirective);
 
             // Add a newline after the line directive (using parent file's line ending style)
-            this.outputTokens.push(new Token(TokenType.NEWLINE, this.lineEnding, 1, lineDirectiveText.length + 1, 1));
+            this.outputToken(new Token(TokenType.NEWLINE, this.lineEnding, 1, lineDirectiveText.length + 1, 1));
 
             // Directly add the output tokens from the included file to our output
             for (const token of includeParser.outputTokens) {
-                this.outputTokens.push(token);
+                this.outputToken(token);
             }
 
             // After adding included tokens, we need to update tracking to reflect
@@ -1434,7 +1896,6 @@ export class Parser {
      */
     private wrapModuleInFunction(moduleTokens: Token[], resolvedPath: NormalizedPath, lineNumber: number): Token[] {
         const wrapped: Token[] = [];
-        const languageConfig = getLanguageConfig(this.language);
 
         // Opening: (function()
         wrapped.push(new Token(TokenType.PAREN_OPEN, '(', lineNumber, 1, 1));
@@ -1444,7 +1905,7 @@ export class Parser {
         wrapped.push(new Token(TokenType.NEWLINE, this.lineEnding, lineNumber, 12, 1));
 
         // Add @line directive
-        const lineDirectiveText = `${languageConfig.lineCommentPrefix} @line 1 "${this.formatPathForLineDirective(resolvedPath)}"`;
+        const lineDirectiveText = `${this.language.lineCommentPrefix} @line 1 "${this.formatPathForLineDirective(resolvedPath)}"`;
         wrapped.push(new Token(TokenType.LINE_COMMENT, lineDirectiveText, lineNumber + 1, 1, lineDirectiveText.length));
         wrapped.push(new Token(TokenType.NEWLINE, this.lineEnding, lineNumber + 1, lineDirectiveText.length + 1, 1));
 
@@ -1469,10 +1930,10 @@ export class Parser {
         // Emit: require(<moduleId>)
         const line = this.current().line;
 
-        this.outputTokens.push(new Token(TokenType.IDENTIFIER, 'require', line, 1, 7));
-        this.outputTokens.push(new Token(TokenType.PAREN_OPEN, '(', line, 8, 1));
-        this.outputTokens.push(new Token(TokenType.NUMBER_LITERAL, moduleId.toString(), line, 9, moduleId.toString().length));
-        this.outputTokens.push(new Token(TokenType.PAREN_CLOSE, ')', line, 9 + moduleId.toString().length, 1));
+        this.outputToken(new Token(TokenType.IDENTIFIER, 'require', line, 1, 7));
+        this.outputToken(new Token(TokenType.PAREN_OPEN, '(', line, 8, 1));
+        this.outputToken(new Token(TokenType.NUMBER_LITERAL, moduleId.toString(), line, 9, moduleId.toString().length));
+        this.outputToken(new Token(TokenType.PAREN_CLOSE, ')', line, 9 + moduleId.toString().length, 1));
     }
 
     //#endregion
@@ -1489,8 +1950,7 @@ export class Parser {
         let outputLine = 1;
         let currentSourceFile: NormalizedPath = this.sourceFile;
         let currentSourceLine = 1;
-        const languageConfig = getLanguageConfig(this.language);
-        const lineDirectivePrefix = `${languageConfig.lineCommentPrefix} @line `;
+        const lineDirectivePrefix = `${this.language.lineCommentPrefix} @line `;
 
         for (let i = 0; i < this.outputTokens.length; i++) {
             const token = this.outputTokens[i];
@@ -1550,11 +2010,10 @@ export class Parser {
      * // Line 2 -> main.lsl:1
      * // Line 4 -> math.lsl:3
      */
-    public static parseLineMappingsFromContent(content: string, language: ScriptLanguage = "lsl", host: HostInterface): LineMapping[] {
+    public static parseLineMappingsFromContent(content: string, language: LanguageLexerConfig, host: HostInterface): LineMapping[] {
         const lines = content.split('\n');
         const lineMappings: LineMapping[] = [];
-        const languageConfig = getLanguageConfig(language);
-        const commentPrefix = `${languageConfig.lineCommentPrefix} @line`;
+        const commentPrefix = `${language.lineCommentPrefix} @line`;
 
         let currentSourceFile: NormalizedPath | null = null;
         let currentSourceLine = 1;
@@ -1608,7 +2067,7 @@ export class Parser {
      *     function require(mod)
      *         if not cache[mod] then
      *             if not mods[mod] then
-     *                 error(`unkown module '{mod}'`)
+     *                 error(`unknown module '{mod}'`)
      *             end
      *             cache[mod] = dangerouslyexecuterequiredmodule(mods[mod])
      *         end
@@ -1621,7 +2080,6 @@ export class Parser {
             return; // Nothing to do if requireState doesn't exist
         }
 
-        const languageConfig = getLanguageConfig(this.language);
         const sortedIds = Array.from(this.state.requireState.wrappedModules.keys()).sort((a, b) => a - b);
         const moduleTokens: ([TokenType,string]|Token)[]  = [];
         for (const moduleId of sortedIds) {
@@ -1629,7 +2087,7 @@ export class Parser {
             const modulePath = this.state.requireState.modulePathMap.get(moduleId);
             const modulePathFormatted = modulePath ? ` ${this.formatPathForLineDirective(modulePath)}` :  "";
             // Add module comment
-            moduleTokens.push([TokenType.LINE_COMMENT, `${languageConfig.lineCommentPrefix} @module ${moduleId}${modulePathFormatted}`]);
+            moduleTokens.push([TokenType.LINE_COMMENT, `${this.language.lineCommentPrefix} @module ${moduleId}${modulePathFormatted}`]);
             moduleTokens.push([TokenType.NEWLINE, "\n"]);
             // (function() <moduleCode> end)
             moduleTokens.push(...wrappedModule);
@@ -1707,7 +2165,7 @@ export class Parser {
             [TokenType.WHITESPACE,"                "],
             [TokenType.IDENTIFIER,"error"],
             [TokenType.PAREN_OPEN,"("],
-            [TokenType.IDENTIFIER,"`unkown module '{mod}'`"],
+            [TokenType.IDENTIFIER,"`unknown module '{mod}'`"],
             [TokenType.PAREN_CLOSE,")"],
             [TokenType.NEWLINE,"\n"],
             [TokenType.WHITESPACE,"            "],
@@ -1749,7 +2207,7 @@ export class Parser {
             [TokenType.PAREN_CLOSE,")"],
             [TokenType.NEWLINE,"\n"],
             // [TokenType.LINE_COMMENT, `${languageConfig.lineCommentPrefix}@line 1 "${this.sourceFile}"`],
-            [TokenType.LINE_COMMENT, `${languageConfig.lineCommentPrefix}@line 1 "${this.formatPathForLineDirective(this.sourceFile)}"`],
+            [TokenType.LINE_COMMENT, `${this.language.lineCommentPrefix}@line 1 "${this.formatPathForLineDirective(this.sourceFile)}"`],
             [TokenType.NEWLINE,"\n"],
         ];
 

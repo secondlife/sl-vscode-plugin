@@ -742,6 +742,7 @@
       "COMBAT_LOG_ID": {
         "tooltip": "Messages from the region to the COMBAT_CHANNEL will all be from this ID.\\n Scripts may filter llListen calls on this ID to receive only system generated combat log messages.",
         "type": "string",
+        "luaType": "uuid",
         "value": "45e0fcfa-2268-4490-a51c-3e51bdfe80d1"
       },
       "CONTENT_TYPE_ATOM": {
@@ -1347,56 +1348,67 @@
       "IMG_USE_BAKED_AUX1": {
         "tooltip": "",
         "type": "string",
+        "luaType": "uuid",
         "value": "9742065b-19b5-297c-858a-29711d539043"
       },
       "IMG_USE_BAKED_AUX2": {
         "tooltip": "",
         "type": "string",
+        "luaType": "uuid",
         "value": "03642e83-2bd1-4eb9-34b4-4c47ed586d2d"
       },
       "IMG_USE_BAKED_AUX3": {
         "tooltip": "",
         "type": "string",
+        "luaType": "uuid",
         "value": "edd51b77-fc10-ce7a-4b3d-011dfc349e4f"
       },
       "IMG_USE_BAKED_EYES": {
         "tooltip": "",
         "type": "string",
+        "luaType": "uuid",
         "value": "52cc6bb6-2ee5-e632-d3ad-50197b1dcb8a"
       },
       "IMG_USE_BAKED_HAIR": {
         "tooltip": "",
         "type": "string",
+        "luaType": "uuid",
         "value": "09aac1fb-6bce-0bee-7d44-caac6dbb6c63"
       },
       "IMG_USE_BAKED_HEAD": {
         "tooltip": "",
         "type": "string",
+        "luaType": "uuid",
         "value": "5a9f4a74-30f2-821c-b88d-70499d3e7183"
       },
       "IMG_USE_BAKED_LEFTARM": {
         "tooltip": "",
         "type": "string",
+        "luaType": "uuid",
         "value": "ff62763f-d60a-9855-890b-0c96f8f8cd98"
       },
       "IMG_USE_BAKED_LEFTLEG": {
         "tooltip": "",
         "type": "string",
+        "luaType": "uuid",
         "value": "8e915e25-31d1-cc95-ae08-d58a47488251"
       },
       "IMG_USE_BAKED_LOWER": {
         "tooltip": "",
         "type": "string",
+        "luaType": "uuid",
         "value": "24daea5f-0539-cfcf-047f-fbc40b2786ba"
       },
       "IMG_USE_BAKED_SKIRT": {
         "tooltip": "",
         "type": "string",
+        "luaType": "uuid",
         "value": "43529ce8-7faa-ad92-165a-bc4078371687"
       },
       "IMG_USE_BAKED_UPPER": {
         "tooltip": "",
         "type": "string",
+        "luaType": "uuid",
         "value": "ae2de45c-d252-50b8-5c6e-19f39ce79317"
       },
       "INVENTORY_ALL": {
@@ -1792,6 +1804,7 @@
       "NULL_KEY": {
         "tooltip": "",
         "type": "string",
+        "luaType": "uuid",
         "value": "00000000-0000-0000-0000-000000000000"
       },
       "OBJECT_ACCOUNT_LEVEL": {
@@ -4481,26 +4494,31 @@
       "TEXTURE_BLANK": {
         "tooltip": "",
         "type": "string",
+        "luaType": "uuid",
         "value": "5748decc-f629-461c-9a36-a35a221fe21f"
       },
       "TEXTURE_DEFAULT": {
         "tooltip": "",
         "type": "string",
+        "luaType": "uuid",
         "value": "89556747-24cb-43ed-920b-47caed15465f"
       },
       "TEXTURE_MEDIA": {
         "tooltip": "",
         "type": "string",
+        "luaType": "uuid",
         "value": "8b5fec65-8d8d-9dc5-cda8-8fdf2716e361"
       },
       "TEXTURE_PLYWOOD": {
         "tooltip": "",
         "type": "string",
+        "luaType": "uuid",
         "value": "89556747-24cb-43ed-920b-47caed15465f"
       },
       "TEXTURE_TRANSPARENT": {
         "tooltip": "",
         "type": "string",
+        "luaType": "uuid",
         "value": "8dcd4a48-2d37-4909-9f78-f7a9eb4ef903"
       },
       "TOUCH_INVALID_FACE": {
@@ -5411,7 +5429,8 @@
           {
             "ID": {
               "tooltip": "",
-              "type": "key"
+              "type": "key",
+              "luaType": "string"
             }
           }
         ],
@@ -5822,7 +5841,8 @@
           {
             "Flag": {
               "tooltip": "Boolean, If TRUE allows anyone to drop inventory on prim, FALSE revokes.",
-              "type": "integer"
+              "type": "integer",
+              "luaType": "numeric"
             }
           }
         ],
@@ -5864,7 +5884,8 @@
           {
             "Local": {
               "tooltip": "Boolean, if TRUE, force is treated as a local directional vector instead of region directional vector.",
-              "type": "integer"
+              "type": "integer",
+              "luaType": "numeric"
             }
           }
         ],
@@ -5885,7 +5906,8 @@
           {
             "Local": {
               "tooltip": "Boolean, if TRUE, uses local axis, if FALSE, uses region axis.",
-              "type": "integer"
+              "type": "integer",
+              "luaType": "numeric"
             }
           }
         ],
@@ -6097,6 +6119,7 @@
         "bool_semantics": false,
         "energy": 10,
         "return": "list",
+        "luaReturn": "{string}",
         "sleep": 0,
         "tooltip": "Create a list from a string of comma separated values specified in Text."
       },
@@ -6449,11 +6472,13 @@
         "tooltip": "\n                   Starts an asychronous transaction to delete a key-value pair. The dataserver callback will be executed with the key returned from this call and a string describing the result. The result is a two element commma-delimited list. The first item is an integer specifying if the transaction succeeded (1) or not (0). In the failure case, the second item will be an integer corresponding to one of the XP_ERROR_... constants. In the success case the second item will be the value associated with the key.\n                "
       },
       "llDeleteSubList": {
+        "typeParameters": ["T"],
         "arguments": [
           {
             "Source": {
               "tooltip": "",
-              "type": "list"
+              "type": "list",
+              "luaType": "{T}"
             }
           },
           {
@@ -6472,6 +6497,7 @@
         "bool_semantics": false,
         "energy": 10,
         "return": "list",
+        "luaReturn": "{T}",
         "sleep": 0,
         "tooltip": "Removes the slice from start to end and returns the remainder of the list.\\nRemove a slice from the list and return the remainder, start and end are inclusive.\\nUsing negative numbers for start and/or end causes the index to count backwards from the length of the list, so 0, -1 would delete the entire list.\\nIf Start is larger than End the list deleted is the exclusion of the entries; so 6, 4 would delete the entire list except for the 5th list entry."
       },
@@ -7126,7 +7152,9 @@
           {
             "Enable": {
               "tooltip": "Boolean, if TRUE when an avatar sits on the prim, the avatar will be forced into mouse-look mode.\\nFALSE is the default setting and will undo a previously set TRUE or do nothing.",
-              "type": "integer"
+              "type": "integer",
+              "luaType": "numeric"
+
             }
           }
         ],
@@ -7321,6 +7349,7 @@
         "bool_semantics": false,
         "energy": 10,
         "return": "list",
+        "luaReturn": "{uuid}",
         "sleep": 0,
         "tooltip": "Returns a list of keys of all visible (not HUD) attachments on the avatar identified by the ID argument"
       },
@@ -7342,6 +7371,7 @@
         "bool_semantics": false,
         "energy": 10,
         "return": "list",
+        "luaReturn": "{uuid}",
         "sleep": 0,
         "tooltip": "Retrieves a list of attachments on an avatar."
       },
@@ -7357,6 +7387,7 @@
         "bool_semantics": false,
         "energy": 10,
         "return": "list",
+        "luaReturn": "{vector}",
         "sleep": 0,
         "tooltip": "Returns the bounding box around the object (including any linked prims) relative to its root prim, as a list in the format [ (vector) min_corner, (vector) max_corner ]."
       },
@@ -8295,7 +8326,8 @@
           {
             "SimWide": {
               "tooltip": "Boolean. If FALSE then the return is the maximum prims supported by the parcel. If TRUE then it is the combined number of prims on all parcels in the region owned by the specified parcel's owner.",
-              "type": "integer"
+              "type": "integer",
+              "luaType": "numeric"
             }
           }
         ],
@@ -8330,7 +8362,9 @@
           {
             "SimWide": {
               "tooltip": "Boolean. If FALSE then the return is the maximum prims supported by the parcel. If TRUE then it is the combined number of prims on all parcels in the region owned by the specified parcel's owner.",
-              "type": "integer"
+              "type": "integer",
+              "luaType": "numeric"
+
             }
           }
         ],
@@ -9075,7 +9109,8 @@
           {
             "Water": {
               "tooltip": "Boolean, if TRUE then hover above water too.",
-              "type": "integer"
+              "type": "integer",
+              "luaType": "numeric"
             }
           },
           {
@@ -9530,7 +9565,9 @@
           {
             "QueueEnable": {
               "tooltip": "Boolean, sound queuing for the linked prim: TRUE enables, FALSE disables (default).",
-              "type": "integer"
+              "type": "integer",
+              "luaType": "numeric"
+
             }
           }
         ],
@@ -9931,11 +9968,13 @@
         "tooltip": "Copies the key at Index in the list.\\nReturns the value at Index in the specified list. If Index describes a location not in the list, or the value cannot be type-cast to a key, then null string is returned."
       },
       "llList2List": {
+        "typeParameters": ["T"],
         "arguments": [
           {
             "ListVariable": {
               "tooltip": "",
-              "type": "list"
+              "type": "list",
+              "luaType": "{T}"
             }
           },
           {
@@ -9954,15 +9993,18 @@
         "bool_semantics": false,
         "energy": 10,
         "return": "list",
+        "luaReturn": "{T}",
         "sleep": 0,
         "tooltip": "Returns a subset of entries from ListVariable, in a range specified by the Start and End indicies (inclusive).\\nUsing negative numbers for Start and/or End causes the index to count backwards from the length of the string, so 0, -1 would capture the entire string.\\nIf Start is greater than End, the sub string is the exclusion of the entries."
       },
       "llList2ListSlice": {
+        "typeParameters": ["T"],
         "arguments": [
           {
             "ListVariable": {
               "tooltip": "",
-              "type": "list"
+              "type": "list",
+              "luaType": "{T}"
             }
           },
           {
@@ -9993,15 +10035,18 @@
         "bool_semantics": false,
         "energy": 10,
         "return": "list",
+        "luaReturn": "{T}",
         "sleep": 0,
         "tooltip": "Returns a subset of entries from ListVariable, in a range specified by Start and End indices (inclusive) return the slice_index element of each stride.\\n Using negative numbers for Start and/or End causes the index to count backwards from the length of the list. (e.g. 0, -1 captures entire list)\\nIf slice_index is less than 0, it is counted backwards from the end of the stride.\\n Stride must be a positive integer > 0 or an empy list is returned.  If slice_index falls outside range of stride, an empty list is returned. slice_index is zero-based. (e.g. A stride of 2 has valid indices 0,1)"
       },
       "llList2ListStrided": {
+        "typeParameters": ["T"],
         "arguments": [
           {
             "ListVariable": {
               "tooltip": "",
-              "type": "list"
+              "type": "list",
+              "luaType": "{T}"
             }
           },
           {
@@ -10026,6 +10071,7 @@
         "bool_semantics": false,
         "energy": 10,
         "return": "list",
+        "luaReturn": "{T}",
         "sleep": 0,
         "tooltip": "Copies the strided slice of the list from Start to End.\\nReturns a copy of the strided slice of the specified list from Start to End."
       },
@@ -10180,17 +10226,20 @@
         "tooltip": "Returns the index of the first instance of Find in ListVariable. Returns -1 if not found.\\nReturns the position of the first instance of the Find list in the ListVariable after the start index and before the end index. Steps through ListVariable by stride.  Returns -1 if not found."
       },
       "llListInsertList": {
+        "typeParameters": ["T"],
         "arguments": [
           {
             "Target": {
               "tooltip": "",
-              "type": "list"
+              "type": "list",
+              "luaType": "{T}"
             }
           },
           {
             "ListVariable": {
               "tooltip": "",
-              "type": "list"
+              "type": "list",
+              "luaType": "{T}"
             }
           },
           {
@@ -10203,15 +10252,18 @@
         "bool_semantics": false,
         "energy": 10,
         "return": "list",
+        "luaReturn": "{T}",
         "sleep": 0,
         "tooltip": "Returns a list that contains all the elements from Target but with the elements from ListVariable inserted at Position start.\\nReturns a new list, created by inserting ListVariable into the Target list at Position. Note this does not alter the Target."
       },
       "llListRandomize": {
+        "typeParameters": ["T"],
         "arguments": [
           {
             "ListVariable": {
               "tooltip": "",
-              "type": "list"
+              "type": "list",
+              "luaType": "{T}"
             }
           },
           {
@@ -10224,21 +10276,25 @@
         "bool_semantics": false,
         "energy": 10,
         "return": "list",
+        "luaReturn": "{T}",
         "sleep": 0,
         "tooltip": "Returns a version of the input ListVariable which has been randomized by blocks of size Stride.\\nIf the remainder from the length of the list, divided by the stride is non-zero, this function does not randomize the list."
       },
       "llListReplaceList": {
+        "typeParameters": ["T"],
         "arguments": [
           {
             "Target": {
               "tooltip": "",
-              "type": "list"
+              "type": "list",
+              "luaType": "{T}"
             }
           },
           {
             "ListVariable": {
               "tooltip": "",
-              "type": "list"
+              "type": "list",
+              "luaType": "{T}"
             }
           },
           {
@@ -10257,15 +10313,18 @@
         "bool_semantics": false,
         "energy": 10,
         "return": "list",
+        "luaReturn": "{T}",
         "sleep": 0,
         "tooltip": "Returns a list that is Target with Start through End removed and ListVariable inserted at Start.\\nReturns a list replacing the slice of the Target list from Start to End with the specified ListVariable. Start and End are inclusive, so 0, 1 would replace the first two entries and 0, 0 would replace only the first list entry."
       },
       "llListSort": {
+        "typeParameters": ["T"],
         "arguments": [
           {
             "ListVariable": {
               "tooltip": "List to sort.",
-              "type": "list"
+              "type": "list",
+              "luaType": "{T}"
             }
           },
           {
@@ -10277,22 +10336,26 @@
           {
             "Ascending": {
               "tooltip": "Boolean. TRUE = result in ascending order, FALSE = result in descending order.",
-              "type": "integer"
+              "type": "integer",
+              "luaType": "numeric"
             }
           }
         ],
         "bool_semantics": false,
         "energy": 10,
         "return": "list",
+        "luaReturn": "{T}",
         "sleep": 0,
         "tooltip": "Returns the specified list, sorted into blocks of stride in ascending order (if Ascending is TRUE, otherwise descending). Note that sort only works if the first entry of each block is the same datatype."
       },
       "llListSortStrided": {
+        "typeParameters": ["T"],
         "arguments": [
           {
             "ListVariable": {
               "tooltip": "List to sort.",
-              "type": "list"
+              "type": "list",
+              "luaType": "{T}"
             }
           },
           {
@@ -10310,13 +10373,15 @@
           {
             "Ascending": {
               "tooltip": "Boolean. TRUE = result in ascending order, FALSE = result in descending order.",
-              "type": "integer"
+              "type": "integer",
+              "luaType": "numeric"
             }
           }
         ],
         "bool_semantics": false,
         "energy": 10,
         "return": "list",
+        "luaReturn": "{T}",
         "sleep": 0,
         "tooltip": "Returns the specified list, sorted by the specified element into blocks of stride in ascending order (if Ascending is TRUE, otherwise descending). Note that sort only works if the first entry of each block is the same datatype."
       },
@@ -10890,13 +10955,15 @@
           {
             "Text": {
               "tooltip": "",
-              "type": "string"
+              "type": "string",
+              "luaType": "string | uuid"
             }
           },
           {
             "ID": {
               "tooltip": "",
-              "type": "key"
+              "type": "key",
+              "luaType": "string | uuid"
             }
           }
         ],
@@ -11181,19 +11248,22 @@
           {
             "Separators": {
               "tooltip": "",
-              "type": "list"
+              "type": "list",
+              "luaType": "{string}"
             }
           },
           {
             "Spacers": {
               "tooltip": "",
-              "type": "list"
+              "type": "list",
+              "luaType": "{string}"
             }
           }
         ],
         "bool_semantics": false,
         "energy": 10,
         "return": "list",
+        "luaReturn": "{string}",
         "sleep": 0,
         "tooltip": "Converts Text into a list, discarding Separators, keeping Spacers (Separators and Spacers must be lists of strings, maximum of 8 each).\\nSeparators and Spacers are lists of strings with a maximum of 8 entries each."
       },
@@ -11208,19 +11278,22 @@
           {
             "Separators": {
               "tooltip": "",
-              "type": "list"
+              "type": "list",
+              "luaType": "{string}"
             }
           },
           {
             "Spacers": {
               "tooltip": "",
-              "type": "list"
+              "type": "list",
+              "luaType": "{string}"
             }
           }
         ],
         "bool_semantics": false,
         "energy": 10,
         "return": "list",
+        "luaReturn": "{string}",
         "sleep": 0,
         "tooltip": "Breaks Text into a list, discarding separators, keeping spacers, keeping any null values generated. (separators and spacers must be lists of strings, maximum of 8 each).\\nllParseStringKeepNulls works almost exactly like llParseString2List, except that if a null is found it will add a null-string instead of discarding it like llParseString2List does."
       },
@@ -11244,7 +11317,8 @@
           {
             "Pass": {
               "tooltip": "Boolean, if TRUE, collisions are passed from children on to parents.",
-              "type": "integer"
+              "type": "integer",
+              "luaType": "numeric"
             }
           }
         ],
@@ -11259,7 +11333,8 @@
           {
             "Pass": {
               "tooltip": "Boolean, if TRUE, touches are passed from children on to parents.",
-              "type": "integer"
+              "type": "integer",
+              "luaType": "numeric"
             }
           }
         ],
@@ -11599,7 +11674,9 @@
           {
             "Running": {
               "tooltip": "If the script should be set running in the target prim.",
-              "type": "integer"
+              "type": "integer",
+              "luaType": "numeric"
+
             }
           },
           {
@@ -12880,7 +12957,8 @@
           {
             "Local": {
               "tooltip": "Boolean, if TRUE uses local axis, if FALSE uses region axis.",
-              "type": "integer"
+              "type": "integer",
+              "luaType": "numeric"
             }
           }
         ],
@@ -12907,7 +12985,9 @@
           {
             "Local": {
               "tooltip": "Boolean, if TRUE uses local axis, if FALSE uses region axis.",
-              "type": "integer"
+              "type": "integer",
+              "luaType": "numeric"
+
             }
           }
         ],
@@ -12943,7 +13023,8 @@
           {
             "Water": {
               "tooltip": "Boolean, if TRUE then hover above water too.",
-              "type": "integer"
+              "type": "integer",
+              "luaType": "numeric"
             }
           },
           {
@@ -13405,7 +13486,8 @@
           {
             "ForSale": {
               "tooltip": "If TRUE, the parcel is put up for sale.",
-              "type": "integer"
+              "type": "integer",
+              "luaType": "numeric"
             }
           },
           {
@@ -13656,7 +13738,8 @@
           {
             "Running": {
               "tooltip": "",
-              "type": "integer"
+              "type": "integer",
+              "luaType": "numeric"
             }
           }
         ],
@@ -13686,7 +13769,8 @@
           {
             "QueueEnable": {
               "tooltip": "Boolean, sound queuing: TRUE enables, FALSE disables (default).",
-              "type": "integer"
+              "type": "integer",
+              "luaType": "numeric"
             }
           }
         ],
@@ -13722,7 +13806,8 @@
           {
             "Value": {
               "tooltip": "",
-              "type": "integer"
+              "type": "integer",
+              "luaType": "numeric"
             }
           }
         ],
@@ -13857,7 +13942,9 @@
           {
             "Local": {
               "tooltip": "Boolean, if TRUE uses local axis, if FALSE uses region axis.",
-              "type": "integer"
+              "type": "integer",
+              "luaType": "numeric"
+
             }
           }
         ],
@@ -14372,13 +14459,15 @@
           {
             "Accept": {
               "tooltip": "Boolean, determines whether control events are generated.",
-              "type": "integer"
+              "type": "integer",
+              "luaType": "numeric"
             }
           },
           {
             "PassOn": {
               "tooltip": "Boolean, determines whether controls are disabled.",
-              "type": "integer"
+              "type": "integer",
+              "luaType": "numeric"
             }
           }
         ],
@@ -14900,7 +14989,8 @@
           {
             "DetectEnabled": {
               "tooltip": "TRUE enables, FALSE disables.",
-              "type": "integer"
+              "type": "integer",
+              "luaType": "numeric"
             }
           }
         ],
@@ -15291,7 +15381,7 @@
             "returnType": "vector"
           },
           {
-            "comment": "LSL-style multiplication: vector * vector -> number (Dot Product), vector * quaternion -> vector (Rotation)",
+            "comment": "Multiplication: vector * vector / number -> vector (Scale), vector * quaternion -> vector (Rotation)",
             "name": "__mul",
             "parameters": [
               {
@@ -15299,13 +15389,14 @@
               },
               {
                 "name": "other",
-                "type": "vector | quaternion"
+                "type": "number | vector | quaternion"
               }
             ],
-            "returnType": "number | vector"
+            "returnType": "vector",
+            "luaReturnType": "vector"
           },
           {
-            "comment": "LSL-style division: vector / number -> vector (Scale), vector / quaternion -> vector (Rotation by inverse)",
+            "comment": "Division: vector / number -> vector (Scale), vector / quaternion -> vector (Rotation by inverse)",
             "name": "__div",
             "parameters": [
               {
@@ -15313,7 +15404,7 @@
               },
               {
                 "name": "other",
-                "type": "number | quaternion"
+                "type": "number | vector | quaternion"
               }
             ],
             "returnType": "vector"
@@ -15574,60 +15665,6 @@
           }
         ],
         "returnType": "quaternion?"
-      },
-      {
-        "comment": "Constructor for uuid from string or buffer",
-        "name": "uuid",
-        "parameters": [
-          {
-            "name": "str",
-            "type": "string | buffer"
-          }
-        ],
-        "returnType": "uuid"
-      },
-      {
-        "comment": "Constructor for quaternion from x, y, z, s components",
-        "name": "quaternion",
-        "parameters": [
-          {
-            "name": "x",
-            "type": "number"
-          },
-          {
-            "name": "y",
-            "type": "number"
-          },
-          {
-            "name": "z",
-            "type": "number"
-          },
-          {
-            "name": "s",
-            "type": "number"
-          }
-        ],
-        "returnType": "quaternion"
-      },
-      {
-        "comment": "Constructor for vector from x, y, z components",
-        "name": "vector",
-        "parameters": [
-          {
-            "name": "x",
-            "type": "number"
-          },
-          {
-            "name": "y",
-            "type": "number"
-          },
-          {
-            "name": "z",
-            "optional": true,
-            "type": "number"
-          }
-        ],
-        "returnType": "vector"
       }
     ],
     "globalVariables": [
@@ -15830,348 +15867,344 @@
         "comment": "Global 'uuid' library table",
         "name": "uuid",
         "type": {
-          "kind": "table",
-          "properties": [
-            {
-              "comment": "Creates a new uuid from a string, buffer, or existing uuid. Returns nil if the string is not a valid UUID. Throws an error if the buffer is shorter than 16 bytes.",
-              "name": "create",
-              "type": {
-                "kind": "function",
-                "parameters": [
-                  {
-                    "name": "value",
-                    "type": {
-                      "kind": "union",
-                      "types": [
-                        "string",
-                        "buffer",
-                        "uuid"
-                      ]
-                    }
-                  }
-                ],
-                "returnType": "uuid?"
+          "callSignature": {
+            "parameters": [
+              {
+                "name": "value",
+                "type": {
+                  "kind": "union",
+                  "types": [
+                    "string",
+                    "buffer",
+                    "uuid"
+                  ]
+                }
               }
-            },
-            {
-              "comment": "Allows calling uuid() as a constructor",
-              "name": "__call",
-              "type": {
-                "kind": "function",
-                "parameters": [
-                  {
-                    "name": "self",
-                    "type": "any"
-                  },
-                  {
-                    "name": "value",
-                    "type": {
-                      "kind": "union",
-                      "types": [
-                        "string",
-                        "buffer",
-                        "uuid"
-                      ]
+            ],
+            "returnType": "uuid?"
+          },
+          "kind": "callable-table",
+          "tableType": {
+            "properties": [
+              {
+                "comment": "Creates a new uuid from a string, buffer, or existing uuid",
+                "name": "create",
+                "type": {
+                  "kind": "function",
+                  "parameters": [
+                    {
+                      "name": "value",
+                      "type": {
+                        "kind": "union",
+                        "types": [
+                          "string",
+                          "buffer",
+                          "uuid"
+                        ]
+                      }
                     }
-                  }
-                ],
-                "returnType": "uuid?"
+                  ],
+                  "returnType": "uuid?"
+                }
               }
-            }
-          ]
+            ]
+          }
         }
       },
       {
         "comment": "Global 'vector' library table",
         "name": "vector",
         "type": {
-          "kind": "table",
-          "properties": [
-            {
-              "comment": "Creates a new vector with the given component values",
-              "name": "create",
-              "type": {
-                "kind": "function",
-                "parameters": [
-                  {
-                    "name": "x",
-                    "type": "number"
-                  },
-                  {
-                    "name": "y",
-                    "type": "number"
-                  },
-                  {
-                    "name": "z",
-                    "optional": true,
-                    "type": "number"
-                  }
-                ],
-                "returnType": "vector"
+          "callSignature": {
+            "parameters": [
+              {
+                "name": "x",
+                "type": "number"
+              },
+              {
+                "name": "y",
+                "type": "number"
+              },
+              {
+                "name": "z",
+                "optional": true,
+                "type": "number"
               }
-            },
-            {
-              "comment": "Calculates the magnitude of a given vector",
-              "name": "magnitude",
-              "type": {
-                "kind": "function",
-                "parameters": [
-                  {
-                    "name": "v",
-                    "type": "vector"
-                  }
-                ],
-                "returnType": "number"
+            ],
+            "returnType": "vector"
+          },
+          "kind": "callable-table",
+          "tableType": {
+            "properties": [
+              {
+                "comment": "Creates a new vector with the given component values",
+                "name": "create",
+                "type": {
+                  "kind": "function",
+                  "parameters": [
+                    {
+                      "name": "x",
+                      "type": "number"
+                    },
+                    {
+                      "name": "y",
+                      "type": "number"
+                    },
+                    {
+                      "name": "z",
+                      "optional": true,
+                      "type": "number"
+                    }
+                  ],
+                  "returnType": "vector"
+                }
+              },
+              {
+                "comment": "Calculates the magnitude of a given vector",
+                "name": "magnitude",
+                "type": {
+                  "kind": "function",
+                  "parameters": [
+                    {
+                      "name": "v",
+                      "type": "vector"
+                    }
+                  ],
+                  "returnType": "number"
+                }
+              },
+              {
+                "comment": "Computes the normalized version (unit vector) of a given vector",
+                "name": "normalize",
+                "type": {
+                  "kind": "function",
+                  "parameters": [
+                    {
+                      "name": "v",
+                      "type": "vector"
+                    }
+                  ],
+                  "returnType": "vector"
+                }
+              },
+              {
+                "comment": "Computes the cross product of two vectors",
+                "name": "cross",
+                "type": {
+                  "kind": "function",
+                  "parameters": [
+                    {
+                      "name": "a",
+                      "type": "vector"
+                    },
+                    {
+                      "name": "b",
+                      "type": "vector"
+                    }
+                  ],
+                  "returnType": "vector"
+                }
+              },
+              {
+                "comment": "Computes the dot product of two vectors",
+                "name": "dot",
+                "type": {
+                  "kind": "function",
+                  "parameters": [
+                    {
+                      "name": "a",
+                      "type": "vector"
+                    },
+                    {
+                      "name": "b",
+                      "type": "vector"
+                    }
+                  ],
+                  "returnType": "number"
+                }
+              },
+              {
+                "comment": "Computes the angle between two vectors in radians",
+                "name": "angle",
+                "type": {
+                  "kind": "function",
+                  "parameters": [
+                    {
+                      "name": "a",
+                      "type": "vector"
+                    },
+                    {
+                      "name": "b",
+                      "type": "vector"
+                    },
+                    {
+                      "name": "axis",
+                      "optional": true,
+                      "type": "vector"
+                    }
+                  ],
+                  "returnType": "number"
+                }
+              },
+              {
+                "comment": "Applies math.floor to every component of the input vector",
+                "name": "floor",
+                "type": {
+                  "kind": "function",
+                  "parameters": [
+                    {
+                      "name": "v",
+                      "type": "vector"
+                    }
+                  ],
+                  "returnType": "vector"
+                }
+              },
+              {
+                "comment": "Applies math.ceil to every component of the input vector",
+                "name": "ceil",
+                "type": {
+                  "kind": "function",
+                  "parameters": [
+                    {
+                      "name": "v",
+                      "type": "vector"
+                    }
+                  ],
+                  "returnType": "vector"
+                }
+              },
+              {
+                "comment": "Applies math.abs to every component of the input vector",
+                "name": "abs",
+                "type": {
+                  "kind": "function",
+                  "parameters": [
+                    {
+                      "name": "v",
+                      "type": "vector"
+                    }
+                  ],
+                  "returnType": "vector"
+                }
+              },
+              {
+                "comment": "Applies math.sign to every component of the input vector",
+                "name": "sign",
+                "type": {
+                  "kind": "function",
+                  "parameters": [
+                    {
+                      "name": "v",
+                      "type": "vector"
+                    }
+                  ],
+                  "returnType": "vector"
+                }
+              },
+              {
+                "comment": "Applies math.clamp to every component of the input vector",
+                "name": "clamp",
+                "type": {
+                  "kind": "function",
+                  "parameters": [
+                    {
+                      "name": "v",
+                      "type": "vector"
+                    },
+                    {
+                      "name": "min",
+                      "type": "vector"
+                    },
+                    {
+                      "name": "max",
+                      "type": "vector"
+                    }
+                  ],
+                  "returnType": "vector"
+                }
+              },
+              {
+                "comment": "Applies math.max to the corresponding components of the input vectors",
+                "name": "max",
+                "type": {
+                  "kind": "function",
+                  "parameters": [
+                    {
+                      "name": "v",
+                      "type": "vector"
+                    },
+                    {
+                      "type": "vector",
+                      "variadic": true
+                    }
+                  ],
+                  "returnType": "vector"
+                }
+              },
+              {
+                "comment": "Applies math.min to the corresponding components of the input vectors",
+                "name": "min",
+                "type": {
+                  "kind": "function",
+                  "parameters": [
+                    {
+                      "name": "v",
+                      "type": "vector"
+                    },
+                    {
+                      "type": "vector",
+                      "variadic": true
+                    }
+                  ],
+                  "returnType": "vector"
+                }
+              },
+              {
+                "comment": "Linear interpolation between two vectors",
+                "name": "lerp",
+                "type": {
+                  "kind": "function",
+                  "parameters": [
+                    {
+                      "name": "a",
+                      "type": "vector"
+                    },
+                    {
+                      "name": "b",
+                      "type": "vector"
+                    },
+                    {
+                      "name": "t",
+                      "type": "number"
+                    }
+                  ],
+                  "returnType": "vector"
+                }
+              },
+              {
+                "comment": "A zero vector <0,0,0>",
+                "name": "zero",
+                "type": "vector"
+              },
+              {
+                "comment": "A one vector <1,1,1>",
+                "name": "one",
+                "type": "vector"
               }
-            },
-            {
-              "comment": "Computes the normalized version (unit vector) of a given vector",
-              "name": "normalize",
-              "type": {
-                "kind": "function",
-                "parameters": [
-                  {
-                    "name": "v",
-                    "type": "vector"
-                  }
-                ],
-                "returnType": "vector"
-              }
-            },
-            {
-              "comment": "Computes the cross product of two vectors",
-              "name": "cross",
-              "type": {
-                "kind": "function",
-                "parameters": [
-                  {
-                    "name": "a",
-                    "type": "vector"
-                  },
-                  {
-                    "name": "b",
-                    "type": "vector"
-                  }
-                ],
-                "returnType": "vector"
-              }
-            },
-            {
-              "comment": "Computes the dot product of two vectors",
-              "name": "dot",
-              "type": {
-                "kind": "function",
-                "parameters": [
-                  {
-                    "name": "a",
-                    "type": "vector"
-                  },
-                  {
-                    "name": "b",
-                    "type": "vector"
-                  }
-                ],
-                "returnType": "number"
-              }
-            },
-            {
-              "comment": "Computes the angle between two vectors in radians. The axis, if specified, is used to determine the sign of the angle.",
-              "name": "angle",
-              "type": {
-                "kind": "function",
-                "parameters": [
-                  {
-                    "name": "a",
-                    "type": "vector"
-                  },
-                  {
-                    "name": "b",
-                    "type": "vector"
-                  },
-                  {
-                    "name": "axis",
-                    "optional": true,
-                    "type": "vector"
-                  }
-                ],
-                "returnType": "number"
-              }
-            },
-            {
-              "comment": "Applies math.floor to every component of the input vector",
-              "name": "floor",
-              "type": {
-                "kind": "function",
-                "parameters": [
-                  {
-                    "name": "v",
-                    "type": "vector"
-                  }
-                ],
-                "returnType": "vector"
-              }
-            },
-            {
-              "comment": "Applies math.ceil to every component of the input vector",
-              "name": "ceil",
-              "type": {
-                "kind": "function",
-                "parameters": [
-                  {
-                    "name": "v",
-                    "type": "vector"
-                  }
-                ],
-                "returnType": "vector"
-              }
-            },
-            {
-              "comment": "Applies math.abs to every component of the input vector",
-              "name": "abs",
-              "type": {
-                "kind": "function",
-                "parameters": [
-                  {
-                    "name": "v",
-                    "type": "vector"
-                  }
-                ],
-                "returnType": "vector"
-              }
-            },
-            {
-              "comment": "Applies math.sign to every component of the input vector",
-              "name": "sign",
-              "type": {
-                "kind": "function",
-                "parameters": [
-                  {
-                    "name": "v",
-                    "type": "vector"
-                  }
-                ],
-                "returnType": "vector"
-              }
-            },
-            {
-              "comment": "Applies math.clamp to every component of the input vector",
-              "name": "clamp",
-              "type": {
-                "kind": "function",
-                "parameters": [
-                  {
-                    "name": "v",
-                    "type": "vector"
-                  },
-                  {
-                    "name": "min",
-                    "type": "vector"
-                  },
-                  {
-                    "name": "max",
-                    "type": "vector"
-                  }
-                ],
-                "returnType": "vector"
-              }
-            },
-            {
-              "comment": "Applies math.max to the corresponding components of the input vectors",
-              "name": "max",
-              "type": {
-                "kind": "function",
-                "parameters": [
-                  {
-                    "name": "v",
-                    "type": "vector"
-                  },
-                  {
-                    "type": "vector",
-                    "variadic": true
-                  }
-                ],
-                "returnType": "vector"
-              }
-            },
-            {
-              "comment": "Applies math.min to the corresponding components of the input vectors",
-              "name": "min",
-              "type": {
-                "kind": "function",
-                "parameters": [
-                  {
-                    "name": "v",
-                    "type": "vector"
-                  },
-                  {
-                    "type": "vector",
-                    "variadic": true
-                  }
-                ],
-                "returnType": "vector"
-              }
-            },
-            {
-              "comment": "Linear interpolation between two vectors",
-              "name": "lerp",
-              "type": {
-                "kind": "function",
-                "parameters": [
-                  {
-                    "name": "a",
-                    "type": "vector"
-                  },
-                  {
-                    "name": "b",
-                    "type": "vector"
-                  },
-                  {
-                    "name": "t",
-                    "type": "number"
-                  }
-                ],
-                "returnType": "vector"
-              }
-            },
-            {
-              "comment": "A zero vector <0,0,0>",
-              "name": "zero",
-              "type": "vector"
-            },
-            {
-              "comment": "A one vector <1,1,1>",
-              "name": "one",
-              "type": "vector"
-            },
-            {
-              "comment": "Constructor call: vector(x, y, z)",
-              "name": "__call",
-              "type": {
-                "kind": "function",
-                "parameters": [
-                  {
-                    "name": "self",
-                    "type": "any"
-                  },
-                  {
-                    "name": "x",
-                    "type": "number"
-                  },
-                  {
-                    "name": "y",
-                    "type": "number"
-                  },
-                  {
-                    "name": "z",
-                    "optional": true,
-                    "type": "number"
-                  }
-                ],
-                "returnType": "vector"
-              }
-            }
-          ]
+            ]
+          }
         }
+      },
+      {
+        "comment": "Second Life event management and registration",
+        "name": "LLEvents",
+        "type": "LLEvents"
+      },
+      {
+        "comment": "Second Life timer management and scheduling",
+        "name": "LLTimers",
+        "type": "LLTimers"
       },
       {
         "comment": "loadstring is removed in SLua",
@@ -17148,7 +17181,7 @@
           {
             "comment": "A constant to pass for null to json encode",
             "name": "null",
-            "type": "lightuserdata"
+            "type": "any"
           },
           {
             "comment": "Metatable for declaring table as an empty array for json encode",
@@ -17163,7 +17196,7 @@
           {
             "comment": "A constant to pass for an empty array to json encode",
             "name": "empty_array",
-            "type": "lightuserdata"
+            "type": "any"
           },
           {
             "comment": "Name of the lljson library",
@@ -18046,14 +18079,15 @@
           {
             "comment": "Iterates over table key-value pairs (deprecated)",
             "name": "foreach",
+            "typeParameters": ["T", "U"],
             "parameters": [
               {
                 "name": "t",
-                "type": "table"
+                "type": "{[T]: U}"
               },
               {
                 "name": "f",
-                "type": "(key: any, value: any) -> any"
+                "type": "(key: T, value: T) -> any"
               }
             ],
             "returnType": "any?"
@@ -18061,14 +18095,15 @@
           {
             "comment": "Iterates over array indices (deprecated)",
             "name": "foreachi",
+            "typeParameters": ["T"],
             "parameters": [
               {
                 "name": "t",
-                "type": "{any}"
+                "type": "{T}"
               },
               {
                 "name": "f",
-                "type": "(index: number, value: any) -> any"
+                "type": "(index: number, value: T) -> any"
               }
             ],
             "returnType": "any?"
@@ -18098,13 +18133,15 @@
           {
             "comment": "Inserts an element at the end of a list",
             "name": "insert",
+            "typeParameters": ["T"],
             "overloads": [
               {
                 "comment": "Inserts an element at a specific position",
+                "typeParameters": ["T"],
                 "parameters": [
                   {
                     "name": "list",
-                    "type": "{any}"
+                    "type": "{T}"
                   },
                   {
                     "name": "pos",
@@ -18112,7 +18149,7 @@
                   },
                   {
                     "name": "value",
-                    "type": "any"
+                    "type": "T"
                   }
                 ],
                 "returnType": "()"
@@ -18121,11 +18158,11 @@
             "parameters": [
               {
                 "name": "list",
-                "type": "{any}"
+                "type": "{T}"
               },
               {
                 "name": "value",
-                "type": "any"
+                "type": "T"
               }
             ],
             "returnType": "()"
@@ -18133,10 +18170,11 @@
           {
             "comment": "Removes and returns an element from a list",
             "name": "remove",
+            "typeParameters": ["T"],
             "parameters": [
               {
                 "name": "list",
-                "type": "{any}"
+                "type": "{T}"
               },
               {
                 "name": "pos",
@@ -18144,20 +18182,21 @@
                 "type": "number"
               }
             ],
-            "returnType": "any?"
+            "returnType": "T?"
           },
           {
             "comment": "Sorts list elements in place",
             "name": "sort",
+            "typeParameters": ["T"],
             "parameters": [
               {
                 "name": "list",
-                "type": "{any}"
+                "type": "{T}"
               },
               {
                 "name": "comp",
                 "optional": true,
-                "type": "(a: any, b: any) -> boolean"
+                "type": "(a: T, b: T) -> boolean"
               }
             ],
             "returnType": "()"
@@ -18165,21 +18204,23 @@
           {
             "comment": "Packs arguments into a table with length field n",
             "name": "pack",
+            "typeParameters": ["T"],
             "parameters": [
               {
-                "type": "any",
+                "type": "T",
                 "variadic": true
               }
             ],
-            "returnType": "{ n: number, [number]: any }"
+            "returnType": "{ n: number, [number]: T }"
           },
           {
             "comment": "Unpacks table elements as multiple return values",
             "name": "unpack",
+            "typeParameters": ["T"],
             "parameters": [
               {
                 "name": "list",
-                "type": "{any}"
+                "type": "{T}"
               },
               {
                 "name": "i",
@@ -18192,15 +18233,16 @@
                 "type": "number"
               }
             ],
-            "returnType": "...any"
+            "returnType": "...T"
           },
           {
             "comment": "Moves elements from one table to another",
             "name": "move",
+            "typeParameters": ["T"],
             "parameters": [
               {
                 "name": "a1",
-                "type": "{any}"
+                "type": "{T}"
               },
               {
                 "name": "f",
@@ -18217,14 +18259,15 @@
               {
                 "name": "a2",
                 "optional": true,
-                "type": "{any}"
+                "type": "{T}"
               }
             ],
-            "returnType": "{any}"
+            "returnType": "{T}"
           },
           {
             "comment": "Creates a new table with pre-allocated array slots",
             "name": "create",
+            "typeParameters": ["T"],
             "parameters": [
               {
                 "name": "count",
@@ -18233,22 +18276,23 @@
               {
                 "name": "value",
                 "optional": true,
-                "type": "any"
+                "type": "T"
               }
             ],
-            "returnType": "{any}"
+            "returnType": "{T}"
           },
           {
             "comment": "Finds the index of a value in an array",
             "name": "find",
+            "typeParameters": ["T"],
             "parameters": [
               {
                 "name": "t",
-                "type": "{any}"
+                "type": "{T}"
               },
               {
                 "name": "value",
-                "type": "any"
+                "type": "T"
               },
               {
                 "name": "init",
@@ -18264,7 +18308,7 @@
             "parameters": [
               {
                 "name": "t",
-                "type": "table"
+                "type": "{[any]: any}"
               }
             ],
             "returnType": "()"
@@ -18272,13 +18316,14 @@
           {
             "comment": "Makes a table read-only",
             "name": "freeze",
+            "typeParameters": ["T", "U"],
             "parameters": [
               {
                 "name": "t",
-                "type": "table"
+                "type": "{[T]: U}"
               }
             ],
-            "returnType": "table"
+            "returnType": "{[T]: U}"
           },
           {
             "comment": "Returns true if a table is frozen",
@@ -18286,7 +18331,7 @@
             "parameters": [
               {
                 "name": "t",
-                "type": "table"
+                "type": "{[any]: any}"
               }
             ],
             "returnType": "boolean"
@@ -18294,13 +18339,14 @@
           {
             "comment": "Creates a shallow copy of a table",
             "name": "clone",
+            "typeParameters": ["T", "U"],
             "parameters": [
               {
                 "name": "t",
-                "type": "table"
+                "type": "{[T]: U}"
               }
             ],
-            "returnType": "table"
+            "returnType": "{[T]: U}"
           }
         ],
         "name": "table"

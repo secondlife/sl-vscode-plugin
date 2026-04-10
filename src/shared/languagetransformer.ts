@@ -129,7 +129,7 @@ export class LanguageTransformer {
             if (name !== "TRUE" && name !== "FALSE") {
                 const constantDecl: ConstantDeclaration = {
                     name,
-                    type: this.translateLSLTypeToLua(lslConstant.type) || 'any',
+                    type: lslConstant.luaType || this.translateLSLTypeToLua(lslConstant.type) || 'any',
                     value: lslConstant.value,
                     comment: lslConstant.tooltip,
                 };
@@ -138,7 +138,7 @@ export class LanguageTransformer {
         }
     }
 
-    public static translateLSLTypeToLua(lslType: string, isParamList?: boolean): string | null {
+    public static translateLSLTypeToLua(lslType: string, _isParamList?: boolean): string | null {
         if (!lslType) return null;
         const typeMap: Record<string, string> = {
             void: 'nil',
@@ -169,17 +169,17 @@ export class LanguageTransformer {
             ? lslFunc.arguments.flatMap((lslArg) =>
                 Object.entries(lslArg).map(([paramName, paramDef]) => ({
                     name: paramName,
-                    type: this.translateLSLTypeToLua(paramDef.type, true) || 'any',
+                    type: paramDef.luaType || this.translateLSLTypeToLua(paramDef.type, true) || 'any',
                 })),
             )
             : [];
 
         // Determine return type, converting bool_semantics integer returns to boolean
-        let returnType: string;
+        let returnType: TypeReference;
         if (lslFunc.return === 'integer' && lslFunc.bool_semantics) {
             returnType = 'boolean';
         } else {
-            returnType = this.translateLSLTypeToLua(lslFunc.return) || 'nil';
+            returnType = lslFunc.luaReturn || this.translateLSLTypeToLua(lslFunc.return) || 'nil';
         }
 
         // Convert LSL function name to Lua name (remove "ll" prefix)
@@ -189,6 +189,7 @@ export class LanguageTransformer {
             name: luaName,
             parameters,
             returnType,
+            typeParameters: lslFunc.typeParameters,
             comment: lslFunc.tooltip,
         };
     }
@@ -226,7 +227,7 @@ export class LanguageTransformer {
             ? lslEvent.arguments.flatMap((lslArg) =>
                 Object.entries(lslArg).map(([paramName, paramDef]) => ({
                     name: paramName,
-                    type: this.translateLSLTypeToLua(paramDef.type, true) || 'any',
+                    type: paramDef.luaType || this.translateLSLTypeToLua(paramDef.type, true) || 'any',
                 })),
             )
             : [];

@@ -12,6 +12,7 @@ import * as assert from 'assert';
 import { LexingPreprocessor, PreprocessorOptions } from '../../shared/lexingpreprocessor';
 import { HostInterface, NormalizedPath, normalizePath } from '../../interfaces/hostinterface';
 import { FullConfigInterface, ConfigKey } from '../../interfaces/configinterface';
+import { getLanguageConfig } from '../../shared/lexer';
 
 /**
  * Mock configuration class for testing
@@ -172,6 +173,8 @@ function createMockHostWithFiles(files: Map<string, string>, options?: Preproces
 
 suite("Diagnostic Integration Test Suite", () => {
 
+    const lslLanguageConfig = getLanguageConfig('lsl');
+
     suite("Error Propagation Through Stack", () => {
 
         test("should collect lexer errors and propagate to preprocessor result", async () => {
@@ -184,7 +187,7 @@ default { state_entry() {} }`;
             const result = await preprocessor.process(
                 source,
                 normalizePath('/test/main.lsl'),
-                'lsl'
+                lslLanguageConfig
             );
 
             assert.strictEqual(result.success, false, "Should fail due to lexer error");
@@ -205,7 +208,7 @@ default { state_entry() {} }`;
             const result = await preprocessor.process(
                 source,
                 normalizePath('/test/main.lsl'),
-                'lsl'
+                lslLanguageConfig
             );
 
             assert.strictEqual(result.success, false, "Should fail due to parser error");
@@ -226,7 +229,7 @@ default { state_entry() {} }`;
             const result = await preprocessor.process(
                 source,
                 normalizePath('/test/main.lsl'),
-                'lsl'
+                lslLanguageConfig
             );
 
             assert.strictEqual(result.success, false, "Should fail due to macro error");
@@ -248,7 +251,7 @@ default { state_entry() {} }`;
             const result = await preprocessor.process(
                 source,
                 normalizePath('/test/main.lsl'),
-                'lsl'
+                lslLanguageConfig
             );
 
             assert.strictEqual(result.success, false, "Should fail due to include error");
@@ -277,7 +280,7 @@ default { state_entry() {} }`;
             const result = await preprocessor.process(
                 source,
                 normalizePath('/test/main.lsl'),
-                'lsl'
+                lslLanguageConfig
             );
 
             assert.strictEqual(result.success, false, "Should fail due to conditional error");
@@ -299,7 +302,7 @@ default { state_entry() {} }`;
             const result = await preprocessor.process(
                 source,
                 normalizePath('/test/main.lsl'),
-                'lsl'
+                lslLanguageConfig
             );
 
             const diagnostic = result.issues[0];
@@ -322,7 +325,7 @@ default { state_entry() {} }`;
             const result = await preprocessor.process(
                 source,
                 normalizePath('/test/main.lsl'),
-                'lsl'
+                lslLanguageConfig
             );
 
             assert.strictEqual(result.success, false, "Should fail due to parser error");
@@ -348,7 +351,7 @@ default { state_entry() {} }`;
             const result = await preprocessor.process(
                 source,
                 normalizePath('/test/main.lsl'),
-                'lsl'
+                lslLanguageConfig
             );
 
             assert.strictEqual(result.success, false, "Should fail due to error");
@@ -368,14 +371,14 @@ default { state_entry() {} }`;
             const errorResult = await preprocessor.process(
                 `#elif`,
                 normalizePath('/test/first.lsl'),
-                'lsl'
+                lslLanguageConfig
             );
 
             // Second run without error
             const successResult = await preprocessor.process(
                 `default { state_entry() {} }`,
                 normalizePath('/test/second.lsl'),
-                'lsl'
+                lslLanguageConfig
             );
 
             assert.ok(errorResult.issues.length > 0, "First run should have errors");

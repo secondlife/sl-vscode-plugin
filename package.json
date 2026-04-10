@@ -57,7 +57,12 @@
           "slVscodeEdit.enabled": {
             "type": "boolean",
             "default": true,
-            "description": "Wether the SL VS Code extension is enabled"
+            "description": "Whether the SL VS Code extension is enabled"
+          },
+          "slVscodeEdit.syntax.autoUpdate": {
+            "type": "boolean",
+            "default": true,
+            "description": "If false, do not update Luau-LSP and Selene configurations unless the Force Language Update is done"
           },
           "slVscodeEdit.ui.statusTimeoutSeconds": {
             "type": "number",
@@ -81,25 +86,25 @@
       {
         "title": "SL Scripting - Sync",
         "properties": {
+          "slVscodeEdit.sync.askIfViewerScriptMismatchesMaster": {
+            "type": "boolean",
+            "default": true,
+            "description": "Should the plugin ask what to do if viewer file and master file have differences? You probably want to disable this if you use the proprocessor or require()"
+          },
           "slVscodeEdit.sync.compareHashBeforeSync": {
             "type": "boolean",
             "default": false,
-            "description": "Whether the plugin should fisrt check if there have been any actual changes on save, or to just send it to viewer anyway"
+            "description": "Whether the plugin should first check if there have been any actual changes on save, or to just send it to viewer anyway"
           },
           "slVscodeEdit.sync.includeFileMetaInOutput": {
             "type": "boolean",
             "default": false,
-            "description": "Wether the output script should include some meta information about the file"
-          },
-          "slVscodeEdit.sync.useFileMetaForMatching": {
-            "type": "boolean",
-            "default": false,
-            "description": "Wether the file matcher should use script meta info for matching file"
+            "description": "Whether the output script should include some meta information about the file, this info is also used to match file on next edit"
           },
           "slVscodeEdit.sync.includeCreatorInFileMeta": {
             "type": "boolean",
             "default": false,
-            "description": "Wether the current sl user info should be included in the meta info"
+            "description": "Whether the current sl user info should be included in the meta info"
           }
         }
       },
@@ -138,7 +143,13 @@
             "title": "Use constants in SLua",
             "type": "boolean",
             "default": false,
-            "description": "Enable predefined LSL stlye preproc macro constants in slua"
+            "description": "Enable predefined LSL style preproc macro constants in slua"
+          },
+          "slVscodeEdit.preprocessor.lsl.switchStatements": {
+            "title": "Enable LSL switch statements",
+            "type": "boolean",
+            "default": false,
+            "description": "Enable LSL switch statements in the preprocessor"
           }
         }
       },

@@ -23,7 +23,6 @@
  */
 
 import { Token, TokenType } from './lexer';
-import { ScriptLanguage } from './languageservice';
 import { DiagnosticCollector, ErrorCodes, DiagnosticSeverity } from './diagnostics';
 import { NormalizedPath } from '../interfaces/hostinterface';
 
@@ -62,12 +61,10 @@ export interface MacroDefinition {
  */
 export class MacroProcessor {
     private macros: Map<string, MacroDefinition>;
-    private language: ScriptLanguage;
     private enabled: boolean;
 
-    constructor(language: ScriptLanguage) {
+    constructor() {
         this.macros = new Map();
-        this.language = language;
         this.enabled = true;
     }
 

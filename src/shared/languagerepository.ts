@@ -7,6 +7,7 @@ import { LanguageTransformer } from './languagetransformer';
 import { JSONRPCInterface } from '../websockclient';
 import { LSLKeywords } from "./lslkeywords";
 import { LuaTypeDefinitions } from "./luadefsinterface";
+import { sortObjectKeysRecursive } from '../utils';
 
 export interface LanguageInfo {
     id: string;
@@ -100,7 +101,7 @@ export class LanguageRepository {
         } else if (response.id === version) {
             syntax.slua = response.defs as LuaTypeDefinitions;
         }
-        return syntax;
+        return sortObjectKeysRecursive(syntax);
     }
 
     public async requestLanguageSyntaxId(socket: JSONRPCInterface): Promise<string | null> {

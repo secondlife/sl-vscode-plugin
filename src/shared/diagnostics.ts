@@ -53,6 +53,12 @@ export interface DiagnosticLocation {
     sourceFile: NormalizedPath;
 }
 
+export class DiagnosticError extends Error {
+    constructor(public diagnostic: PreprocessorDiagnostic) {
+        super(diagnostic.message);
+    }
+}
+
 //#endregion
 
 //#region Diagnostic Collector

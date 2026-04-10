@@ -3,6 +3,8 @@
  * Based on keywords_lsl.schema.json
  */
 
+import { TypeReference } from "./luadefsinterface";
+
 /**
  * LSL data types
  */
@@ -14,6 +16,8 @@ export type LSLType = "integer" | "float" | "string" | "key" | "vector" | "rotat
 export interface LSLConstant {
     /** The data type of the constant */
     type: Exclude<LSLType, "void" | "list">;
+    /** The data type of the constant in lua, if different */
+    luaType?: TypeReference;
     /** The value of the constant (may be hex, decimal, or other representations) */
     value: string;
     /** Documentation tooltip for the constant */
@@ -29,6 +33,8 @@ export type LSLParameter = {
     [paramName: string]: {
         /** The data type of the parameter */
         type: LSLType;
+        /** The data type of the parameter in lua, if different */
+        luaType?: TypeReference;
         /** Documentation tooltip for the parameter */
         tooltip?: string;
     };
@@ -54,6 +60,8 @@ export interface LSLFunction {
     arguments: LSLParameter[];
     /** Return type of the function */
     return: LSLType;
+    /** Return type of the function in Lua, if different */
+    luaReturn?: TypeReference;
     /** Energy cost to execute the function */
     energy: number;
     /** Sleep delay after function execution (in seconds) */
@@ -62,6 +70,8 @@ export interface LSLFunction {
     bool_semantics: boolean;
     /** Whether the function has index-based semantics */
     "index-semantics"?: boolean;
+    /** If the function is generic in lua */
+    typeParameters?: string[];
     /** Documentation tooltip for the function */
     tooltip?: string;
     /** Whether this function is deprecated */

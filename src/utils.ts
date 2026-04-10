@@ -517,3 +517,18 @@ export class VSCodeHost implements HostInterface {
 }
 
 //#endregion
+
+
+export function sortObjectKeysRecursive(obj: any): any {
+    if(typeof(obj) != "object" || obj == null) return obj;
+    if(Array.isArray(obj)) {
+        for(const i in obj) {
+            obj[i] = sortObjectKeysRecursive(obj[i])
+        }
+        return obj;
+    }
+    return Object.keys(obj).sort().reduce((result: any, key: string) => {
+        result[key] = sortObjectKeysRecursive(obj[key]);
+        return result;
+    },{});
+}

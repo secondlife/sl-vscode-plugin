@@ -101,6 +101,7 @@ export interface CallableTableType {
   callSignature: {
     parameters: Parameter[];
     returnType: TypeReference;
+    typeParameters?: string[];
   };
 }
 
@@ -132,6 +133,7 @@ export interface FunctionSignature {
   name: string;
   parameters: Parameter[];
   returnType: TypeReference;
+  typeParameters?: string[];
   comment?: string;
   overloads?: FunctionOverload[];
 }
@@ -142,6 +144,7 @@ export interface FunctionSignature {
 export interface FunctionOverload {
   parameters: Parameter[];
   returnType: TypeReference;
+  typeParameters?: string[];
   comment?: string;
 }
 
@@ -214,6 +217,7 @@ export interface ModuleProperty {
 export interface ConstantDeclaration {
   name: string;
   type: TypeReference;
+  luaType?: TypeReference;
   value?: string | number | boolean;
   comment?: string;
 }

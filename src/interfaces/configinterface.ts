@@ -12,6 +12,7 @@ import { NormalizedPath } from './hostinterface';
 /** Keys used by configuration (mirrors LLConfigNames). */
 export enum ConfigKey {
   Enabled = 'enabled',
+  AutoUpdateLanguageFiles = 'syntax.autoUpdate',
   ClientName = 'client.name',
   ClientVersion = 'client.version',
   ClientProtocolVersion = 'client.protocolVersion',
@@ -28,11 +29,12 @@ export enum ConfigKey {
   PreprocessorIncludePaths = 'preprocessor.includePaths',
   PreprocessorMaxIncludeDepth = 'preprocessor.maxIncludeDepth',
   PreprocessorConstantsInSLua = 'preprocessor.constantsInSLua',
+  PreprocessorLSLSwitchStatements = 'preprocessor.lsl.switchStatements',
   LastSyntaxID = 'syntax.lastID',
+  AskIfViewerScriptMismatchesMaster = 'sync.askIfViewerScriptMismatchesMaster',
   CompareHashBeforeSync = 'sync.compareHashBeforeSync',
 
   FileMetaInfoInOutput ='sync.includeFileMetaInOutput',
-  FileMetaInfoUseForMatching ='sync.useFileMetaForMatching',
   FileMetaInfoIncludeCreator ='sync.includeCreatorInFileMeta',
 }
 

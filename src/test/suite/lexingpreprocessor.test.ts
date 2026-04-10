@@ -11,11 +11,12 @@ import {
     Lexer,
     TokenType,
     LanguageLexerConfig,
+    getLanguageConfig,
+    CustomLanguageLexerConfig,
 } from "../../shared/lexer";
 import { LexingPreprocessor, PreprocessorOptions } from "../../shared/lexingpreprocessor";
 import { normalizePath, HostInterface, NormalizedPath } from "../../interfaces/hostinterface";
 import { FullConfigInterface, ConfigKey } from "../../interfaces/configinterface";
-import { ScriptLanguage } from "../../shared/languageservice";
 
 /**
  * Mock configuration class for testing
@@ -74,6 +75,11 @@ class MockConfig implements FullConfigInterface {
 }
 
 suite("Lexing Preprocessor Test Suite", () => {
+
+    const lslLanguageConfig = getLanguageConfig('lsl');
+    const lslLanguageConfigWithSwitch = getLanguageConfig('lsl');
+    lslLanguageConfigWithSwitch.directiveKeywords.push("switch");
+    const luauLanguageConfig = getLanguageConfig('luau');
 
     /**
      * Helper to create a mock HostInterface for testing
@@ -234,7 +240,7 @@ suite("Lexing Preprocessor Test Suite", () => {
 
         test("should tokenize simple LSL code", () => {
             const source = `integer x = 42;`;
-            const lexer = new Lexer(source, "lsl");
+            const lexer = new Lexer(source, lslLanguageConfig);
             const tokens = lexer.tokenize();
 
             assert.strictEqual(tokens.length, 9); // integer, space, x, space, =, space, 42, ;, EOF
@@ -248,7 +254,7 @@ suite("Lexing Preprocessor Test Suite", () => {
 
         test("should recognize LSL line comments", () => {
             const source = `// This is a comment\ninteger x;`;
-            const lexer = new Lexer(source, "lsl");
+            const lexer = new Lexer(source, lslLanguageConfig);
             const tokens = lexer.tokenize();
 
             assert.strictEqual(tokens[0].type, TokenType.LINE_COMMENT);
@@ -258,7 +264,7 @@ suite("Lexing Preprocessor Test Suite", () => {
 
         test("should recognize SLua line comments", () => {
             const source = `-- This is a comment\nlocal x = 5`;
-            const lexer = new Lexer(source, "luau");
+            const lexer = new Lexer(source, luauLanguageConfig);
             const tokens = lexer.tokenize();
 
             assert.strictEqual(tokens[0].type, TokenType.LINE_COMMENT);
@@ -268,7 +274,7 @@ suite("Lexing Preprocessor Test Suite", () => {
 
         test("should tokenize block comments", () => {
             const source = `/* Block comment */\ninteger x;`;
-            const lexer = new Lexer(source, "lsl");
+            const lexer = new Lexer(source, lslLanguageConfig);
             const tokens = lexer.tokenize();
 
             assert.strictEqual(tokens[0].type, TokenType.BLOCK_COMMENT_START);
@@ -281,7 +287,7 @@ suite("Lexing Preprocessor Test Suite", () => {
 
         test("should tokenize multi-line block comments", () => {
             const source = `/* Line 1\nLine 2\nLine 3 */`;
-            const lexer = new Lexer(source, "lsl");
+            const lexer = new Lexer(source, lslLanguageConfig);
             const tokens = lexer.tokenize();
 
             assert.strictEqual(tokens[0].type, TokenType.BLOCK_COMMENT_START);
@@ -295,7 +301,7 @@ suite("Lexing Preprocessor Test Suite", () => {
         test("should tokenize Lua long bracket comments with equals", () => {
             // Test --[=[ ... ]=]
             const source1 = `--[=[\nThis is a comment with ]] inside\n]=]`;
-            const lexer1 = new Lexer(source1, "luau");
+            const lexer1 = new Lexer(source1, luauLanguageConfig);
             const tokens1 = lexer1.tokenize();
 
             console.log(tokens1);
@@ -309,7 +315,7 @@ suite("Lexing Preprocessor Test Suite", () => {
 
             // Test --[==[ ... ]==]
             const source2 = `--[==[\nDouble equals level\n]==]`;
-            const lexer2 = new Lexer(source2, "luau");
+            const lexer2 = new Lexer(source2, luauLanguageConfig);
             const tokens2 = lexer2.tokenize();
 
             assert.strictEqual(tokens2[0].type, TokenType.BLOCK_COMMENT_START);
@@ -319,7 +325,7 @@ suite("Lexing Preprocessor Test Suite", () => {
 
             // Test that ]] doesn't close [=[ ... ]=]
             const source3 = `--[=[\nHas ]] in middle\n]=]`;
-            const lexer3 = new Lexer(source3, "luau");
+            const lexer3 = new Lexer(source3, luauLanguageConfig);
             const tokens3 = lexer3.tokenize();
 
             // Should have exactly one block comment content token with ]] inside
@@ -330,7 +336,7 @@ suite("Lexing Preprocessor Test Suite", () => {
 
         test("should tokenize string literals with escapes", () => {
             const source = `"Hello \\"World\\""`;
-            const lexer = new Lexer(source, "lsl");
+            const lexer = new Lexer(source, lslLanguageConfig);
             const tokens = lexer.tokenize();
 
             assert.strictEqual(tokens[0].type, TokenType.STRING_LITERAL);
@@ -340,7 +346,7 @@ suite("Lexing Preprocessor Test Suite", () => {
         test("should support configured string delimiters", () => {
             // Test LSL with both double and single quotes
             const lslSource = `"double" 'single'`;
-            const lslLexer = new Lexer(lslSource, "lsl");
+            const lslLexer = new Lexer(lslSource, lslLanguageConfig);
             const lslTokens = lslLexer.tokenize();
 
             const lslStrings = lslTokens.filter(t => t.type === TokenType.STRING_LITERAL);
@@ -357,7 +363,7 @@ suite("Lexing Preprocessor Test Suite", () => {
                 "[=[square equals]=]",
             ]
             const luauSource = luauSourceStrings.join(" ");
-            const luauLexer = new Lexer(luauSource, "luau");
+            const luauLexer = new Lexer(luauSource, luauLanguageConfig);
             const luauTokens = luauLexer.tokenize();
 
             assert.ok(!luauLexer.getDiagnostics().hasErrors(),"Luau Lexer has errors: " + JSON.stringify(luauLexer.getDiagnostics().getErrors(),null,2));
@@ -382,7 +388,7 @@ suite("Lexing Preprocessor Test Suite", () => {
                 "}`"
             ];
             const source = parts.join('');
-            const luauLexer = new Lexer(source, "luau");
+            const luauLexer = new Lexer(source, luauLanguageConfig);
             const luauTokens = luauLexer.tokenize();
             assert.strictEqual(luauTokens.length, 10);
             for(const i in parts) {
@@ -414,7 +420,7 @@ suite("Lexing Preprocessor Test Suite", () => {
                 "}`"
             ];
             const source = parts.join('');
-            const luauLexer = new Lexer(source, "luau");
+            const luauLexer = new Lexer(source, luauLanguageConfig);
             const luauTokens = luauLexer.tokenize();
             assert.strictEqual(luauTokens.length, parts.length + 1);
             for(const i in parts) {
@@ -422,7 +428,7 @@ suite("Lexing Preprocessor Test Suite", () => {
             }
         });
 
-        const tokenizeAndGetStrings = (strings:string[],lang:ScriptLanguage) : string[] => {
+        const tokenizeAndGetStrings = (strings:string[],lang:LanguageLexerConfig) : string[] => {
             const lexer = new Lexer(strings.join(" "),lang);
             const tokens = lexer.tokenize().filter(t => t.type == TokenType.STRING_LITERAL);
             return tokens.map(t => t.value);
@@ -431,7 +437,7 @@ suite("Lexing Preprocessor Test Suite", () => {
         test("should handle embedded quotes in strings", () => {
             // Test single quotes inside double-quoted strings
             const source1 = [`"This is a 'string'"`];
-            const strings1 = tokenizeAndGetStrings(source1, "lsl");
+            const strings1 = tokenizeAndGetStrings(source1, lslLanguageConfig);
             for(const i in source1) {
                 assert.strictEqual(strings1[i], source1[i]);
             }
@@ -439,7 +445,7 @@ suite("Lexing Preprocessor Test Suite", () => {
 
             // Test double quotes inside single-quoted strings
             const source2 = [`'embedded "double" quote'`];
-            const strings2 = tokenizeAndGetStrings(source2, "lsl");
+            const strings2 = tokenizeAndGetStrings(source2, lslLanguageConfig);
             for(const i in source2) {
                 assert.strictEqual(strings2[i], source2[i]);
             }
@@ -447,7 +453,7 @@ suite("Lexing Preprocessor Test Suite", () => {
 
             // Test mixed quotes in Luau with backticks
             const source3 = [`\`can contain "double" and 'single' quotes\``];
-            const strings3 = tokenizeAndGetStrings(source3, "luau");
+            const strings3 = tokenizeAndGetStrings(source3, luauLanguageConfig);
             for(const i in source3) {
                 assert.strictEqual(strings3[i], source3[i]);
             }
@@ -455,7 +461,7 @@ suite("Lexing Preprocessor Test Suite", () => {
 
             // Test multiple strings with different delimiters
             const source4 = [`"first 'has' single"`,`'second "has" double'`];
-            const strings4 = tokenizeAndGetStrings(source4,"lsl");
+            const strings4 = tokenizeAndGetStrings(source4,lslLanguageConfig);
             for(const i in source4) {
                 assert.strictEqual(strings4[i], source4[i]);
             }
@@ -468,7 +474,7 @@ suite("Lexing Preprocessor Test Suite", () => {
                 `[["fourth" 'has' \`three\`]]`,
                 `[=["fourth" 'has' \`three\` [[and one more]]]=]`,
             ];
-            const strings5 = tokenizeAndGetStrings(source5,"luau");
+            const strings5 = tokenizeAndGetStrings(source5, luauLanguageConfig);
             for(const i in source5) {
                 assert.strictEqual(strings5[i], source5[i]);
             }
@@ -478,7 +484,7 @@ suite("Lexing Preprocessor Test Suite", () => {
                 `[===[now we[[[[[]]]]] are [==[]][[[===[]]]] just really messing [][][[][][[[]]]] around]]] ]====] ]===]`,
                 `[===[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[===]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]===]`,
             ];
-            const strings6 = tokenizeAndGetStrings(source6,"luau");
+            const strings6 = tokenizeAndGetStrings(source6, luauLanguageConfig);
             for(const i in source6) {
                 assert.strictEqual(strings6[i], source6[i]);
             }
@@ -499,7 +505,7 @@ suite("Lexing Preprocessor Test Suite", () => {
                 `[[\n\t\t]]`,
                 `[[\t\t\n\t\t]]`,
             ];
-            const strings1 = tokenizeAndGetStrings(source1,"luau");
+            const strings1 = tokenizeAndGetStrings(source1, luauLanguageConfig);
             for(const i in source1) {
                 assert.strictEqual(strings1[i], source1[i]);
             }
@@ -507,7 +513,7 @@ suite("Lexing Preprocessor Test Suite", () => {
 
             // And windows style
             const source2 = source1.map(s => s.replaceAll("\n","\r\n"));
-            const strings2 = tokenizeAndGetStrings(source2,"luau");
+            const strings2 = tokenizeAndGetStrings(source2, luauLanguageConfig);
             for(const i in source2) {
                 assert.strictEqual(strings2[i], source2[i]);
             }
@@ -516,7 +522,7 @@ suite("Lexing Preprocessor Test Suite", () => {
 
         test("should recognize LSL preprocessor directives", () => {
             const source = `#include "test.lsl"`;
-            const lexer = new Lexer(source, "lsl");
+            const lexer = new Lexer(source, lslLanguageConfig);
             const tokens = lexer.tokenize();
 
             assert.strictEqual(tokens[0].type, TokenType.DIRECTIVE);
@@ -525,7 +531,7 @@ suite("Lexing Preprocessor Test Suite", () => {
 
         test("should recognize SLua require directive", () => {
             const source = `require("test.luau")`;
-            const lexer = new Lexer(source, "luau");
+            const lexer = new Lexer(source, luauLanguageConfig);
             const tokens = lexer.tokenize();
 
             assert.strictEqual(tokens[0].type, TokenType.DIRECTIVE);
@@ -534,7 +540,7 @@ suite("Lexing Preprocessor Test Suite", () => {
 
         test("should tokenize numbers", () => {
             const source = `42 3.14 1.5e-10`;
-            const lexer = new Lexer(source, "lsl");
+            const lexer = new Lexer(source, lslLanguageConfig);
             const tokens = lexer.tokenize();
 
             const numberTokens = tokens.filter(t => t.type === TokenType.NUMBER_LITERAL);
@@ -547,7 +553,7 @@ suite("Lexing Preprocessor Test Suite", () => {
         test("should tokenize multi-character operators", () => {
             // Test comparison operators
             const source1 = `if (x == y && a != b)`;
-            const lexer1 = new Lexer(source1, "lsl");
+            const lexer1 = new Lexer(source1, lslLanguageConfig);
             const tokens1 = lexer1.tokenize();
 
             const operators1 = tokens1.filter(t => t.type === TokenType.OPERATOR);
@@ -557,7 +563,7 @@ suite("Lexing Preprocessor Test Suite", () => {
 
             // Test assignment operators
             const source2 = `x += 5; y -= 2;`;
-            const lexer2 = new Lexer(source2, "lsl");
+            const lexer2 = new Lexer(source2, lslLanguageConfig);
             const tokens2 = lexer2.tokenize();
 
             const operators2 = tokens2.filter(t => t.type === TokenType.OPERATOR);
@@ -566,7 +572,7 @@ suite("Lexing Preprocessor Test Suite", () => {
 
             // Test bitwise operators
             const source3 = `a << 3 >> 1`;
-            const lexer3 = new Lexer(source3, "lsl");
+            const lexer3 = new Lexer(source3, lslLanguageConfig);
             const tokens3 = lexer3.tokenize();
 
             const operators3 = tokens3.filter(t => t.type === TokenType.OPERATOR);
@@ -575,7 +581,7 @@ suite("Lexing Preprocessor Test Suite", () => {
 
             // Test Lua-specific operators
             const source4 = `if x ~= y then local s = a .. b end`;
-            const lexer4 = new Lexer(source4, "luau");
+            const lexer4 = new Lexer(source4, luauLanguageConfig);
             const tokens4 = lexer4.tokenize();
 
             const operators4 = tokens4.filter(t => t.type === TokenType.OPERATOR);
@@ -584,7 +590,7 @@ suite("Lexing Preprocessor Test Suite", () => {
 
             // Test that single-character operators still work
             const source5 = `x + y - z * 2 / 3`;
-            const lexer5 = new Lexer(source5, "lsl");
+            const lexer5 = new Lexer(source5, lslLanguageConfig);
             const tokens5 = lexer5.tokenize();
 
             const operators5 = tokens5.filter(t => t.type === TokenType.OPERATOR);
@@ -597,7 +603,7 @@ suite("Lexing Preprocessor Test Suite", () => {
         test("should tokenize LSL vector and rotation literals", () => {
             // Test 3-component vector
             const source1 = `vector pos = <1.0, 2.5, -3.0>;`;
-            const lexer1 = new Lexer(source1, "lsl");
+            const lexer1 = new Lexer(source1, lslLanguageConfig);
             const tokens1 = lexer1.tokenize();
 
             const vectors1 = tokens1.filter(t => t.type === TokenType.VECTOR_LITERAL);
@@ -606,7 +612,7 @@ suite("Lexing Preprocessor Test Suite", () => {
 
             // Test 4-component rotation
             const source2 = `rotation rot = <0.0, 0.0, 0.707, 0.707>;`;
-            const lexer2 = new Lexer(source2, "lsl");
+            const lexer2 = new Lexer(source2, lslLanguageConfig);
             const tokens2 = lexer2.tokenize();
 
             const vectors2 = tokens2.filter(t => t.type === TokenType.VECTOR_LITERAL);
@@ -615,7 +621,7 @@ suite("Lexing Preprocessor Test Suite", () => {
 
             // Test vector with no spaces
             const source3 = `<1,2,3>`;
-            const lexer3 = new Lexer(source3, "lsl");
+            const lexer3 = new Lexer(source3, lslLanguageConfig);
             const tokens3 = lexer3.tokenize();
 
             const vectors3 = tokens3.filter(t => t.type === TokenType.VECTOR_LITERAL);
@@ -624,7 +630,7 @@ suite("Lexing Preprocessor Test Suite", () => {
 
             // Test that < is still an operator in non-vector context
             const source4 = `if (x < 5)`;
-            const lexer4 = new Lexer(source4, "lsl");
+            const lexer4 = new Lexer(source4, lslLanguageConfig);
             const tokens4 = lexer4.tokenize();
 
             const operators = tokens4.filter(t => t.type === TokenType.OPERATOR && t.value === "<");
@@ -632,7 +638,7 @@ suite("Lexing Preprocessor Test Suite", () => {
 
             // Test vector with whitespace variations
             const source5 = `<  1.5 ,  2.5  , 3.5  >`;
-            const lexer5 = new Lexer(source5, "lsl");
+            const lexer5 = new Lexer(source5, lslLanguageConfig);
             const tokens5 = lexer5.tokenize();
 
             const vectors5 = tokens5.filter(t => t.type === TokenType.VECTOR_LITERAL);
@@ -641,7 +647,7 @@ suite("Lexing Preprocessor Test Suite", () => {
 
             // Test that Luau doesn't recognize vectors
             const source6 = `<1, 2, 3>`;
-            const lexer6 = new Lexer(source6, "luau");
+            const lexer6 = new Lexer(source6, luauLanguageConfig);
             const tokens6 = lexer6.tokenize();
 
             const vectors6 = tokens6.filter(t => t.type === TokenType.VECTOR_LITERAL);
@@ -653,7 +659,7 @@ suite("Lexing Preprocessor Test Suite", () => {
 
             // Test vectors with identifiers (variables)
             const source7 = `vector pos = <x, y, z>;`;
-            const lexer7 = new Lexer(source7, "lsl");
+            const lexer7 = new Lexer(source7, lslLanguageConfig);
             const tokens7 = lexer7.tokenize();
 
             const vectors7 = tokens7.filter(t => t.type === TokenType.VECTOR_LITERAL);
@@ -662,7 +668,7 @@ suite("Lexing Preprocessor Test Suite", () => {
 
             // Test mixed literals and identifiers
             const source8 = `<1.0, height, 3.0>`;
-            const lexer8 = new Lexer(source8, "lsl");
+            const lexer8 = new Lexer(source8, lslLanguageConfig);
             const tokens8 = lexer8.tokenize();
 
             const vectors8 = tokens8.filter(t => t.type === TokenType.VECTOR_LITERAL);
@@ -671,7 +677,7 @@ suite("Lexing Preprocessor Test Suite", () => {
 
             // Test rotation with variables
             const source9 = `rotation rot = <0, 0, angle, 1>;`;
-            const lexer9 = new Lexer(source9, "lsl");
+            const lexer9 = new Lexer(source9, lslLanguageConfig);
             const tokens9 = lexer9.tokenize();
 
             const vectors9 = tokens9.filter(t => t.type === TokenType.VECTOR_LITERAL);
@@ -681,7 +687,7 @@ suite("Lexing Preprocessor Test Suite", () => {
 
         test("should tokenize brackets as distinct types", () => {
             const source = `{ ( [ ] ) }`;
-            const lexer = new Lexer(source, "lsl");
+            const lexer = new Lexer(source, lslLanguageConfig);
             const tokens = lexer.tokenize();
 
             const brackets = tokens.filter(t =>
@@ -710,7 +716,7 @@ suite("Lexing Preprocessor Test Suite", () => {
 
         test("should preserve line and column information", () => {
             const source = `integer x;\nfloat y;`;
-            const lexer = new Lexer(source, "lsl");
+            const lexer = new Lexer(source, lslLanguageConfig);
             const tokens = lexer.tokenize();
 
             // First line tokens
@@ -725,7 +731,7 @@ suite("Lexing Preprocessor Test Suite", () => {
 
         test("should handle empty input", () => {
             const source = ``;
-            const lexer = new Lexer(source, "lsl");
+            const lexer = new Lexer(source, lslLanguageConfig);
             const tokens = lexer.tokenize();
 
             assert.strictEqual(tokens.length, 1); // Just EOF
@@ -734,7 +740,7 @@ suite("Lexing Preprocessor Test Suite", () => {
 
         test("should handle whitespace-only input", () => {
             const source = `   \t  \n  `;
-            const lexer = new Lexer(source, "lsl");
+            const lexer = new Lexer(source, lslLanguageConfig);
             const tokens = lexer.tokenize();
 
             const nonEofTokens = tokens.filter(t => t.type !== TokenType.EOF);
@@ -745,7 +751,8 @@ suite("Lexing Preprocessor Test Suite", () => {
 
         test("should accept custom language configuration", () => {
             // Create a custom language config with Python-style comments
-            const customConfig: LanguageLexerConfig = {
+            const customConfig: CustomLanguageLexerConfig = {
+                name: "custom",
                 lineCommentPrefix: "#",
                 // blockCommentStart: "'''",
                 // blockCommentEnd: "'''",
@@ -775,7 +782,8 @@ suite("Lexing Preprocessor Test Suite", () => {
 
         test("should support custom multi-character operators in configuration", () => {
             // Create a custom language config with unique operators
-            const customConfig: LanguageLexerConfig = {
+            const customConfig: CustomLanguageLexerConfig = {
+                name: "custom",
                 lineCommentPrefix: "//",
                 // blockCommentStart: "/*",
                 // blockCommentEnd: "*/",
@@ -805,7 +813,8 @@ suite("Lexing Preprocessor Test Suite", () => {
 
         test("should support custom bracket configuration", () => {
             // Create a custom language config with standard brackets
-            const customConfig: LanguageLexerConfig = {
+            const customConfig: CustomLanguageLexerConfig = {
+                name: "custom",
                 lineCommentPrefix: "//",
                 // blockCommentStart: "/*",
                 // blockCommentEnd: "*/",
@@ -844,7 +853,7 @@ suite("Lexing Preprocessor Test Suite", () => {
 
         test("should reconstruct simple source from tokens", () => {
             const source = `integer x = 42;`;
-            const lexer = new Lexer(source, "lsl");
+            const lexer = new Lexer(source, lslLanguageConfig);
             const tokens = lexer.tokenize();
 
             // Reconstruct using Token.emit() method
@@ -858,7 +867,7 @@ suite("Lexing Preprocessor Test Suite", () => {
 
         test("should reconstruct source with whitespace", () => {
             const source = `integer  x\t=  42;\n`;
-            const lexer = new Lexer(source, "lsl");
+            const lexer = new Lexer(source, lslLanguageConfig);
             const tokens = lexer.tokenize();
 
             const reconstructed = tokens
@@ -871,7 +880,7 @@ suite("Lexing Preprocessor Test Suite", () => {
 
         test("should reconstruct source with comments", () => {
             const source = `// Line comment\ninteger x; // end comment\n/* block */`;
-            const lexer = new Lexer(source, "lsl");
+            const lexer = new Lexer(source, lslLanguageConfig);
             const tokens = lexer.tokenize();
 
             const reconstructed = tokens
@@ -884,7 +893,7 @@ suite("Lexing Preprocessor Test Suite", () => {
 
         test("should reconstruct source with strings", () => {
             const source = `string msg = "Hello 'world'";`;
-            const lexer = new Lexer(source, "lsl");
+            const lexer = new Lexer(source, lslLanguageConfig);
             const tokens = lexer.tokenize();
 
             const reconstructed = tokens
@@ -897,7 +906,7 @@ suite("Lexing Preprocessor Test Suite", () => {
 
         test("should reconstruct source with multi-character operators", () => {
             const source = `if (x == y && a != b || c >= d) { x += 5; }`;
-            const lexer = new Lexer(source, "lsl");
+            const lexer = new Lexer(source, lslLanguageConfig);
             const tokens = lexer.tokenize();
 
             const reconstructed = tokens
@@ -910,7 +919,7 @@ suite("Lexing Preprocessor Test Suite", () => {
 
         test("should reconstruct source with vector literals", () => {
             const source = `vector pos = <1.0, 2.5, 3.0>;`;
-            const lexer = new Lexer(source, "lsl");
+            const lexer = new Lexer(source, lslLanguageConfig);
             const tokens = lexer.tokenize();
 
             const reconstructed = tokens
@@ -923,7 +932,7 @@ suite("Lexing Preprocessor Test Suite", () => {
 
         test("should reconstruct source with Luau long bracket comments", () => {
             const source = `--[=[ Multi-line\ncomment ]=] x = 5`;
-            const lexer = new Lexer(source, "luau");
+            const lexer = new Lexer(source, luauLanguageConfig);
             const tokens = lexer.tokenize();
 
             const reconstructed = tokens
@@ -947,7 +956,7 @@ suite("Lexing Preprocessor Test Suite", () => {
         string msg = "Hello";
     }
 }`;
-            const lexer = new Lexer(source, "lsl");
+            const lexer = new Lexer(source, lslLanguageConfig);
             const tokens = lexer.tokenize();
 
             const reconstructed = tokens
@@ -960,7 +969,7 @@ suite("Lexing Preprocessor Test Suite", () => {
 
         test("should reconstruct source with all bracket types", () => {
             const source = `list items = [1, 2, 3]; vector v = <1,2,3>; func(a, b);`;
-            const lexer = new Lexer(source, "lsl");
+            const lexer = new Lexer(source, lslLanguageConfig);
             const tokens = lexer.tokenize();
 
             const reconstructed = tokens
@@ -973,7 +982,7 @@ suite("Lexing Preprocessor Test Suite", () => {
 
         test("should reconstruct Luau source with all string delimiters", () => {
             const source = `local s1 = "double"; local s2 = 'single'; local s3 = \`backtick\`;`;
-            const lexer = new Lexer(source, "luau");
+            const lexer = new Lexer(source, luauLanguageConfig);
             const tokens = lexer.tokenize();
 
             const reconstructed = tokens
@@ -986,7 +995,7 @@ suite("Lexing Preprocessor Test Suite", () => {
 
         test("should use Token class methods", () => {
             const source = `integer x = 42; // comment`;
-            const lexer = new Lexer(source, "lsl");
+            const lexer = new Lexer(source, lslLanguageConfig);
             const tokens = lexer.tokenize();
 
             // Test emit()
@@ -1040,7 +1049,7 @@ suite("Lexing Preprocessor Test Suite", () => {
 
         test("should use bracket checking methods", () => {
             const source = `{ ( [ ] ) }`;
-            const lexer = new Lexer(source, "lsl");
+            const lexer = new Lexer(source, lslLanguageConfig);
             const tokens = lexer.tokenize();
 
             const braceOpen = tokens.find(t => t.value === "{");
@@ -1068,7 +1077,7 @@ suite("Lexing Preprocessor Test Suite", () => {
             const sourceFile = normalizePath("test.lsl");
 
             const preprocessor = new LexingPreprocessor(mockHost, mockHost.config);
-            const result = await preprocessor.process(source, sourceFile, "lsl");
+            const result = await preprocessor.process(source, sourceFile, lslLanguageConfig);
 
             if (!result.success) {
                 console.log("Preprocessing failed with issues:", result.issues);
@@ -1082,7 +1091,7 @@ suite("Lexing Preprocessor Test Suite", () => {
             const sourceFile = normalizePath("test.lsl");
 
             const preprocessor = new LexingPreprocessor(mockHost, mockHost.config);
-            const result = await preprocessor.process(source, sourceFile, "lsl");
+            const result = await preprocessor.process(source, sourceFile, lslLanguageConfig);
 
             assert.strictEqual(result.success, true);
             assert.ok(result.content.includes("// Comment"));
@@ -1096,7 +1105,7 @@ suite("Lexing Preprocessor Test Suite", () => {
             const disabledHost = createMockHost(disabledOptions);
 
             const preprocessor = new LexingPreprocessor(disabledHost, disabledHost.config);
-            const result = await preprocessor.process(source, sourceFile, "lsl");
+            const result = await preprocessor.process(source, sourceFile, lslLanguageConfig);
 
             assert.strictEqual(result.success, true);
             assert.strictEqual(result.content, source); // Unchanged
@@ -1122,7 +1131,7 @@ default {
             const result = await preprocessor.process(
                 source,
                 normalizePath("test.lsl"),
-                "lsl"
+                lslLanguageConfig
             );
 
             assert.strictEqual(result.success, true);
@@ -1148,7 +1157,7 @@ default {
             const result = await preprocessor.process(
                 source,
                 normalizePath(sourceFile),
-                "lsl"
+                lslLanguageConfig
             );
 
             // Verify successful preprocessing
@@ -1219,7 +1228,7 @@ default {
             const result = await preprocessor.process(
                 source,
                 normalizePath(sourceFile),
-                "lsl"
+                lslLanguageConfig
             );
 
             assert.strictEqual(result.success, true, "Preprocessing should succeed");
@@ -1293,7 +1302,7 @@ default {
             const result = await preprocessor.process(
                 source,
                 normalizePath('/test/main.lsl'),
-                'lsl'
+                lslLanguageConfig
             );
 
             // Should fail due to depth limit of 2 being exceeded
@@ -1337,7 +1346,7 @@ default {
             const result = await preprocessor.process(
                 source,
                 normalizePath('/test/main.lsl'),
-                'lsl'
+                lslLanguageConfig
             );
 
             assert.strictEqual(result.success, true, "Should succeed with configured include paths");
@@ -1353,7 +1362,7 @@ default {
             const result = await preprocessor.process(
                 source,
                 normalizePath('/test/main.lsl'),
-                'lsl'
+                lslLanguageConfig
             );
 
             // Should work fine with defaults (maxIncludeDepth: 5, includePaths: ['.'])
@@ -1377,7 +1386,7 @@ default { state_entry() {} }`;
             const result = await preprocessor.process(
                 source,
                 normalizePath('/test/main.lsl'),
-                'lsl'
+                lslLanguageConfig
             );
 
             // Should succeed but return source unchanged
@@ -1400,7 +1409,7 @@ default { state_entry() {} }`;
             const result = await preprocessor.process(
                 source,
                 normalizePath('/test/main.lsl'),
-                'lsl'
+                lslLanguageConfig
             );
 
             // Should succeed and process the macros
@@ -1421,7 +1430,7 @@ default { state_entry() {} }`;
             const result = await preprocessor.process(
                 source,
                 normalizePath('/test/main.lsl'),
-                'lsl'
+                lslLanguageConfig
             );
 
             // Should succeed and process (default is enabled)
@@ -1452,7 +1461,7 @@ default { state_entry() {} }`;
             const result = await preprocessor.process(
                 source,
                 normalizePath('/test/main.lsl'),
-                'lsl'
+                lslLanguageConfig
             );
 
             // Should succeed with depth of 1 (allows one level of includes)
@@ -1489,7 +1498,7 @@ default { state_entry() {} }`;
             const result = await preprocessor.process(
                 source,
                 normalizePath('/test/main.lsl'),
-                'lsl'
+                lslLanguageConfig
             );
 
             // Should fail because the chain exceeds depth 3
@@ -1517,7 +1526,7 @@ default { state_entry() {} }`;
             const result = await preprocessor.process(
                 source,
                 normalizePath('/test/main.lsl'),
-                'lsl'
+                lslLanguageConfig
             );
 
             // Should have warnings/errors but still produce output
@@ -1540,7 +1549,7 @@ default { state_entry() {} }`;
             const result = await preprocessor.process(
                 source,
                 normalizePath('/test/main.lsl'),
-                'lsl'
+                lslLanguageConfig
             );
 
             // Should have error about unterminated conditional
@@ -1570,7 +1579,7 @@ default { state_entry() {} }`;
             const result = await preprocessor.process(
                 source,
                 normalizePath('/test/main.lsl'),
-                'lsl'
+                lslLanguageConfig
             );
 
             // Should have warnings but still succeed
@@ -1584,5 +1593,96 @@ default { state_entry() {} }`;
             // but we check that the issue was properly categorized
             assert.ok(result.content.includes('default'), "Should complete processing");
         });
+    });
+
+    test('should allow switch as identifier if switch statements not enabled for lsl preproc', async () => {
+        const source = `integer switch = 1;`;
+        const expected = `integer switch = 1;`;
+
+        const options = createDefaultOptions();
+        const mockHost = createMockHost(options);
+        const preprocessor = new LexingPreprocessor(mockHost, mockHost.config);
+
+        const result = await preprocessor.process(
+            source,
+            normalizePath('/test/main.lsl'),
+            lslLanguageConfig
+        );
+
+        // Compare with expected output
+        assert.strictEqual(result.content, expected, 'Output should match expected file');
+
+        // Verify no errors
+        assert.ok(result.success, 'Processing should succeed');
+        assert.strictEqual(result.issues.length, 0, 'Should have no issues');
+    });
+
+    test('should error on switch as identifier if switch statements enabled for lsl preproc', async () => {
+        const source = `integer switch = 1;`;
+        const expected = `integer switch = 1;`;
+
+        const options = createDefaultOptions();
+        const mockHost = createMockHost(options);
+        const preprocessor = new LexingPreprocessor(mockHost, mockHost.config);
+
+        const result = await preprocessor.process(
+            source,
+            normalizePath('/test/main.lsl'),
+            lslLanguageConfigWithSwitch
+        );
+
+        // Compare with expected output
+        assert.strictEqual(result.content, expected, 'Output should match expected file');
+
+        // Verify no errors
+        assert.ok(!result.success, 'Processing should not succeed');
+        assert.strictEqual(result.issues.length, 1, 'Should have 1 issue');
+    });
+
+    test('should process switch if switch statements are enabled for lsl preproc', async () => {
+        const source = `switch(a) {
+    case 1: {
+        print("One");
+        break;
+    }
+    default: {
+        print("Other");
+        break;
+    }
+}`;
+        const expected = `if((a) == (1)) jump c860cf;
+jump c7b43f;
+@c860cf;
+{
+    print("One");
+    jump sfcc97;
+}
+@c7b43f;
+{
+// @line 7 "unittest:///test/main.lsl"
+    print("Other");
+    jump sfcc97;
+}
+@sfcc97;`;
+
+        const options = createDefaultOptions();
+        const mockHost = createMockHost(options);
+        const preprocessor = new LexingPreprocessor(mockHost, mockHost.config);
+
+        const result = await preprocessor.process(
+            source,
+            normalizePath('/test/main.lsl'),
+            lslLanguageConfigWithSwitch
+        );
+        console.error("=======================");
+        console.error(result.content);
+        console.error("=======================");
+
+        // Compare with expected output
+        assert.strictEqual(result.content, expected, 'Output should match expected file');
+
+        // Verify no errors
+        assert.ok(result.success, 'Processing should succeed');
+        assert.strictEqual(result.issues.length, 0, 'Should have no issues');
     });
 });

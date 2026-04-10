@@ -5,12 +5,13 @@
 
 import * as assert from 'assert';
 import { Parser } from '../../shared/parser';
-import { Lexer } from '../../shared/lexer';
+import { getLanguageConfig, Lexer } from '../../shared/lexer';
 import { DiagnosticCollector, DiagnosticSeverity, ErrorCodes } from '../../shared/diagnostics';
 import { normalizePath, NormalizedPath } from '../../interfaces/hostinterface';
 
 suite('Parser Diagnostics Integration', () => {
     let sourceFile: NormalizedPath;
+    const lslLanguageConfig = getLanguageConfig('lsl');
 
     setup(() => {
         sourceFile = normalizePath('test.lsl');
@@ -21,9 +22,9 @@ suite('Parser Diagnostics Integration', () => {
             const source = `#elif 1
 code here`;
             const diagnostics = new DiagnosticCollector();
-            const lexer = new Lexer(source, 'lsl', sourceFile, diagnostics);
+            const lexer = new Lexer(source, lslLanguageConfig, sourceFile, diagnostics);
             const tokens = lexer.tokenize();
-            const parser = new Parser(tokens, sourceFile, 'lsl', undefined, undefined, undefined, true, undefined, diagnostics);
+            const parser = new Parser(tokens, sourceFile, lslLanguageConfig, undefined, undefined, undefined, true, undefined, diagnostics);
 
             await parser.parse();
 
@@ -39,9 +40,9 @@ code here`;
             const source = `#else
 code here`;
             const diagnostics = new DiagnosticCollector();
-            const lexer = new Lexer(source, 'lsl', sourceFile, diagnostics);
+            const lexer = new Lexer(source, lslLanguageConfig, sourceFile, diagnostics);
             const tokens = lexer.tokenize();
-            const parser = new Parser(tokens, sourceFile, 'lsl', undefined, undefined, undefined, true, undefined, diagnostics);
+            const parser = new Parser(tokens, sourceFile, lslLanguageConfig, undefined, undefined, undefined, true, undefined, diagnostics);
 
             await parser.parse();
 
@@ -55,9 +56,9 @@ code here`;
             const source = `#endif
 code here`;
             const diagnostics = new DiagnosticCollector();
-            const lexer = new Lexer(source, 'lsl', sourceFile, diagnostics);
+            const lexer = new Lexer(source, lslLanguageConfig, sourceFile, diagnostics);
             const tokens = lexer.tokenize();
-            const parser = new Parser(tokens, sourceFile, 'lsl', undefined, undefined, undefined, true, undefined, diagnostics);
+            const parser = new Parser(tokens, sourceFile, lslLanguageConfig, undefined, undefined, undefined, true, undefined, diagnostics);
 
             await parser.parse();
 
@@ -76,9 +77,9 @@ code2
 code3
 #endif`;
             const diagnostics = new DiagnosticCollector();
-            const lexer = new Lexer(source, 'lsl', sourceFile, diagnostics);
+            const lexer = new Lexer(source, lslLanguageConfig, sourceFile, diagnostics);
             const tokens = lexer.tokenize();
-            const parser = new Parser(tokens, sourceFile, 'lsl', undefined, undefined, undefined, true, undefined, diagnostics);
+            const parser = new Parser(tokens, sourceFile, lslLanguageConfig, undefined, undefined, undefined, true, undefined, diagnostics);
 
             await parser.parse();
 
@@ -98,9 +99,9 @@ code2
 code3
 #endif`;
             const diagnostics = new DiagnosticCollector();
-            const lexer = new Lexer(source, 'lsl', sourceFile, diagnostics);
+            const lexer = new Lexer(source, lslLanguageConfig, sourceFile, diagnostics);
             const tokens = lexer.tokenize();
-            const parser = new Parser(tokens, sourceFile, 'lsl', undefined, undefined, undefined, true, undefined, diagnostics);
+            const parser = new Parser(tokens, sourceFile, lslLanguageConfig, undefined, undefined, undefined, true, undefined, diagnostics);
 
             await parser.parse();
 
@@ -118,9 +119,9 @@ code3
 code here
 #endif`;
             const diagnostics = new DiagnosticCollector();
-            const lexer = new Lexer(source, 'lsl', sourceFile, diagnostics);
+            const lexer = new Lexer(source, lslLanguageConfig, sourceFile, diagnostics);
             const tokens = lexer.tokenize();
-            const parser = new Parser(tokens, sourceFile, 'lsl', undefined, undefined, undefined, true, undefined, diagnostics);
+            const parser = new Parser(tokens, sourceFile, lslLanguageConfig, undefined, undefined, undefined, true, undefined, diagnostics);
 
             await parser.parse();
 
@@ -137,9 +138,9 @@ code2
 code3
 #endif`;
             const diagnostics = new DiagnosticCollector();
-            const lexer = new Lexer(source, 'lsl', sourceFile, diagnostics);
+            const lexer = new Lexer(source, lslLanguageConfig, sourceFile, diagnostics);
             const tokens = lexer.tokenize();
-            const parser = new Parser(tokens, sourceFile, 'lsl', undefined, undefined, undefined, true, undefined, diagnostics);
+            const parser = new Parser(tokens, sourceFile, lslLanguageConfig, undefined, undefined, undefined, true, undefined, diagnostics);
 
             await parser.parse();
 
@@ -154,9 +155,9 @@ code3
     #endif
 #endif`;
             const diagnostics = new DiagnosticCollector();
-            const lexer = new Lexer(source, 'lsl', sourceFile, diagnostics);
+            const lexer = new Lexer(source, lslLanguageConfig, sourceFile, diagnostics);
             const tokens = lexer.tokenize();
-            const parser = new Parser(tokens, sourceFile, 'lsl', undefined, undefined, undefined, true, undefined, diagnostics);
+            const parser = new Parser(tokens, sourceFile, lslLanguageConfig, undefined, undefined, undefined, true, undefined, diagnostics);
 
             await parser.parse();
 
@@ -170,9 +171,9 @@ code3
             const testSource = normalizePath('custom.lsl');
             const source = `#endif`;
             const diagnostics = new DiagnosticCollector();
-            const lexer = new Lexer(source, 'lsl', testSource, diagnostics);
+            const lexer = new Lexer(source, lslLanguageConfig, testSource, diagnostics);
             const tokens = lexer.tokenize();
-            const parser = new Parser(tokens, testSource, 'lsl', undefined, undefined, undefined, true, undefined, diagnostics);
+            const parser = new Parser(tokens, testSource, lslLanguageConfig, undefined, undefined, undefined, true, undefined, diagnostics);
 
             await parser.parse();
 
@@ -187,9 +188,9 @@ code3
             const source = `"unterminated
 #elif 1`;
             const diagnostics = new DiagnosticCollector();
-            const lexer = new Lexer(source, 'lsl', sourceFile, diagnostics);
+            const lexer = new Lexer(source, lslLanguageConfig, sourceFile, diagnostics);
             const tokens = lexer.tokenize();
-            const parser = new Parser(tokens, sourceFile, 'lsl', undefined, undefined, undefined, true, undefined, diagnostics);
+            const parser = new Parser(tokens, sourceFile, lslLanguageConfig, undefined, undefined, undefined, true, undefined, diagnostics);
 
             await parser.parse();
 
@@ -203,9 +204,9 @@ code3
         test('should be able to check for errors', async () => {
             const source = `#endif`;
             const diagnostics = new DiagnosticCollector();
-            const lexer = new Lexer(source, 'lsl', sourceFile, diagnostics);
+            const lexer = new Lexer(source, lslLanguageConfig, sourceFile, diagnostics);
             const tokens = lexer.tokenize();
-            const parser = new Parser(tokens, sourceFile, 'lsl', undefined, undefined, undefined, true, undefined, diagnostics);
+            const parser = new Parser(tokens, sourceFile, lslLanguageConfig, undefined, undefined, undefined, true, undefined, diagnostics);
 
             await parser.parse();
 
@@ -217,9 +218,9 @@ code3
 code
 #endif`;
             const diagnostics = new DiagnosticCollector();
-            const lexer = new Lexer(source, 'lsl', sourceFile, diagnostics);
+            const lexer = new Lexer(source, lslLanguageConfig, sourceFile, diagnostics);
             const tokens = lexer.tokenize();
-            const parser = new Parser(tokens, sourceFile, 'lsl', undefined, undefined, undefined, true, undefined, diagnostics);
+            const parser = new Parser(tokens, sourceFile, lslLanguageConfig, undefined, undefined, undefined, true, undefined, diagnostics);
 
             await parser.parse();
 

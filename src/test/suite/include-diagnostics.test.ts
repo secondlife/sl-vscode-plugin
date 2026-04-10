@@ -11,6 +11,7 @@ import { NormalizedPath, HostInterface, normalizePath } from '../../interfaces/h
 import { MacroProcessor } from '../../shared/macroprocessor';
 import { ConditionalProcessor } from '../../shared/conditionalprocessor';
 import { IncludeInfo } from '../../shared/parser';
+import { getLanguageConfig } from '../../shared/lexer';
 
 const quickInclude = (file:string, line:number = 1) : IncludeInfo => {
     return {
@@ -35,10 +36,12 @@ suite('IncludeProcessor Diagnostics', () => {
     let macros: MacroProcessor;
     let conditionals: ConditionalProcessor;
 
+    const lslLanguageConfig = getLanguageConfig('lsl');
+
     setup(() => {
         diagnostics = new DiagnosticCollector();
-        macros = new MacroProcessor('lsl');
-        conditionals = new ConditionalProcessor('lsl');
+        macros = new MacroProcessor();
+        conditionals = new ConditionalProcessor(lslLanguageConfig);
     });
 
     suite('INC001: File Not Found', () => {
@@ -50,7 +53,7 @@ suite('IncludeProcessor Diagnostics', () => {
                 resolveFile: async (_filename: string, _from: NormalizedPath) => null
             };
 
-            const processor = new IncludeProcessor('lsl', host as HostInterface);
+            const processor = new IncludeProcessor(lslLanguageConfig, host as HostInterface);
             const state = IncludeProcessor.createState();
 
             // When: Trying to include a non-existent file
@@ -90,7 +93,7 @@ suite('IncludeProcessor Diagnostics', () => {
                 }
             };
 
-            const processor = new IncludeProcessor('lsl', host as HostInterface);
+            const processor = new IncludeProcessor(lslLanguageConfig, host as HostInterface);
             const state = IncludeProcessor.createState();
 
             // When: Including an existing file
@@ -120,7 +123,7 @@ suite('IncludeProcessor Diagnostics', () => {
                 resolveFile: async (_filename: string, _from: NormalizedPath) => circularPath
             };
 
-            const processor = new IncludeProcessor('lsl', host as HostInterface);
+            const processor = new IncludeProcessor(lslLanguageConfig, host as HostInterface);
             const state = IncludeProcessor.createState();
             state.includeStack.push(circularPath); // Already in stack
 
@@ -155,7 +158,7 @@ suite('IncludeProcessor Diagnostics', () => {
                 resolveFile: async (_filename: string, _from: NormalizedPath) => includePath
             };
 
-            const processor = new IncludeProcessor('lsl', host as HostInterface);
+            const processor = new IncludeProcessor(lslLanguageConfig, host as HostInterface);
             const state = IncludeProcessor.createState();
 
             // When: Including a file not in the stack
@@ -185,7 +188,7 @@ suite('IncludeProcessor Diagnostics', () => {
                     normalizePath("d:/test/deep.lsl")
             };
 
-            const processor = new IncludeProcessor('lsl', host as HostInterface);
+            const processor = new IncludeProcessor(lslLanguageConfig, host as HostInterface);
             const maxDepth = 3;
             const state = IncludeProcessor.createState(maxDepth);
             state.includeDepth = maxDepth; // At max depth
@@ -221,7 +224,7 @@ suite('IncludeProcessor Diagnostics', () => {
                 resolveFile: async (_filename: string, _from: NormalizedPath) => includePath
             };
 
-            const processor = new IncludeProcessor('lsl', host as HostInterface);
+            const processor = new IncludeProcessor(lslLanguageConfig, host as HostInterface);
             const state = IncludeProcessor.createState(5);
             state.includeDepth = 2; // Below max
 
@@ -252,7 +255,7 @@ suite('IncludeProcessor Diagnostics', () => {
                 resolveFile: async (_filename: string, _from: NormalizedPath) => errorPath
             };
 
-            const processor = new IncludeProcessor('lsl', host as HostInterface);
+            const processor = new IncludeProcessor(lslLanguageConfig, host as HostInterface);
             const state = IncludeProcessor.createState();
 
             // When: Trying to include an unreadable file
@@ -285,7 +288,7 @@ suite('IncludeProcessor Diagnostics', () => {
                 resolveFile: async (_filename: string, _from: NormalizedPath) => readablePath
             };
 
-            const processor = new IncludeProcessor('lsl', host as HostInterface);
+            const processor = new IncludeProcessor(lslLanguageConfig, host as HostInterface);
             const state = IncludeProcessor.createState();
 
             // When: Including a readable file
@@ -314,7 +317,7 @@ suite('IncludeProcessor Diagnostics', () => {
                 resolveFile: async (_filename: string, _from: NormalizedPath) => null
             };
 
-            const processor = new IncludeProcessor('lsl', host as HostInterface);
+            const processor = new IncludeProcessor(lslLanguageConfig, host as HostInterface);
             const state = IncludeProcessor.createState(2);
 
             // When: Multiple failed includes
@@ -339,7 +342,7 @@ suite('IncludeProcessor Diagnostics', () => {
                 resolveFile: async (_filename: string, _from: NormalizedPath) => null
             };
 
-            const processor = new IncludeProcessor('lsl', host as HostInterface);
+            const processor = new IncludeProcessor(lslLanguageConfig, host as HostInterface);
             assert.ok(processor);
             assert.ok(typeof processor.processInclude === 'function');
         });
@@ -379,7 +382,7 @@ suite('IncludeProcessor Diagnostics', () => {
                 }
             };
 
-            const processor = new IncludeProcessor('lsl', host as HostInterface);
+            const processor = new IncludeProcessor(lslLanguageConfig, host as HostInterface);
             const state = IncludeProcessor.createState();
 
             // When: Processing the chain
@@ -424,7 +427,7 @@ suite('IncludeProcessor Diagnostics', () => {
                 }
             };
 
-            const processor = new IncludeProcessor('lsl', host as HostInterface);
+            const processor = new IncludeProcessor(lslLanguageConfig, host as HostInterface);
             const state = IncludeProcessor.createState();
 
             // When: A includes B, then B tries to include A again
@@ -462,7 +465,7 @@ suite('IncludeProcessor Diagnostics', () => {
                 }
             };
 
-            const processor = new IncludeProcessor('lsl', host as HostInterface);
+            const processor = new IncludeProcessor(lslLanguageConfig, host as HostInterface);
             const state = IncludeProcessor.createState();
 
             // When: Following the diamond pattern
@@ -503,7 +506,7 @@ suite('IncludeProcessor Diagnostics', () => {
                 resolveFile: async (filename: string) => normalizePath(`d:/test/${filename}`)
             };
 
-            const processor = new IncludeProcessor('lsl', host as HostInterface);
+            const processor = new IncludeProcessor(lslLanguageConfig, host as HostInterface);
             const state = IncludeProcessor.createState(maxDepth);
 
             // When: Including files up to max depth
@@ -550,7 +553,7 @@ suite('IncludeProcessor Diagnostics', () => {
                 }
             };
 
-            const processor = new IncludeProcessor('lsl', host as HostInterface);
+            const processor = new IncludeProcessor(lslLanguageConfig, host as HostInterface);
             const state = IncludeProcessor.createState(3);
 
             // When: Processing multiple branches at different depths
@@ -580,7 +583,7 @@ suite('IncludeProcessor Diagnostics', () => {
                 resolveFile: async (filename: string) => normalizePath(`d:/test/${filename}`)
             };
 
-            const processor = new IncludeProcessor('lsl', host as HostInterface);
+            const processor = new IncludeProcessor(lslLanguageConfig, host as HostInterface);
             const state = IncludeProcessor.createState(2);
 
             // When: Multiple includes exceed depth
@@ -612,7 +615,7 @@ suite('IncludeProcessor Diagnostics', () => {
                 }
             };
 
-            const processor = new IncludeProcessor('lsl', host as HostInterface);
+            const processor = new IncludeProcessor(lslLanguageConfig, host as HostInterface);
             const state = IncludeProcessor.createState();
 
             // When: Processing mixed includes
@@ -650,7 +653,7 @@ suite('IncludeProcessor Diagnostics', () => {
                 }
             };
 
-            const processor = new IncludeProcessor('lsl', host as HostInterface);
+            const processor = new IncludeProcessor(lslLanguageConfig, host as HostInterface);
             const state = IncludeProcessor.createState(2);
 
             // When: Triggering different error types
@@ -689,7 +692,7 @@ suite('IncludeProcessor Diagnostics', () => {
                 resolveFile: async () => null
             };
 
-            const processor = new IncludeProcessor('lsl', host as HostInterface);
+            const processor = new IncludeProcessor(lslLanguageConfig, host as HostInterface);
             const state = IncludeProcessor.createState();
 
             // When: Multiple includes at different line numbers
@@ -726,7 +729,7 @@ suite('IncludeProcessor Diagnostics', () => {
                 }
             };
 
-            const processor = new IncludeProcessor('lsl', host as HostInterface);
+            const processor = new IncludeProcessor(lslLanguageConfig, host as HostInterface);
             const state = IncludeProcessor.createState();
 
             // When: Outer succeeds, middle succeeds, inner fails

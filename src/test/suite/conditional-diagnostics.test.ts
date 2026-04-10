@@ -6,7 +6,7 @@
 import * as assert from 'assert';
 import { ConditionalProcessor } from '../../shared/conditionalprocessor';
 import { MacroProcessor } from '../../shared/macroprocessor';
-import { Lexer, Token, TokenType } from '../../shared/lexer';
+import { getLanguageConfig, Lexer, Token, TokenType } from '../../shared/lexer';
 import { ErrorCodes, DiagnosticSeverity } from '../../shared/diagnostics';
 import { normalizePath } from '../../interfaces/hostinterface';
 
@@ -14,6 +14,7 @@ suite('ConditionalProcessor Diagnostics', () => {
     let conditionals: ConditionalProcessor;
     let macros: MacroProcessor;
     const testFile = normalizePath('test.lsl');
+    const lslLanguageConfig = getLanguageConfig('lsl');
 
     /**
      * Helper to create a simple numeric token
@@ -23,8 +24,8 @@ suite('ConditionalProcessor Diagnostics', () => {
     }
 
     setup(() => {
-        conditionals = new ConditionalProcessor('lsl');
-        macros = new MacroProcessor('lsl');
+        conditionals = new ConditionalProcessor(lslLanguageConfig);
+        macros = new MacroProcessor();
     });
 
     suite('#elif Diagnostics', () => {

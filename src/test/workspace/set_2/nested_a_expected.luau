@@ -42,7 +42,7 @@ end),
     function require(mod)
         if not cache[mod] then
             if not modules[mod] then
-                error(`unkown module '{mod}'`)
+                error(`unknown module '{mod}'`)
             end
             cache[mod] = dangerouslyexecuterequiredmodule(modules[mod])
         end

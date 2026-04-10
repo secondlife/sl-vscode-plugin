@@ -7,8 +7,7 @@
  * with proper nesting and state tracking.
  */
 
-import { Token, TokenType, getLanguageConfig, type LanguageLexerConfig } from './lexer';
-import { ScriptLanguage } from './languageservice';
+import { Token, TokenType, type LanguageLexerConfig } from './lexer';
 import type { MacroProcessor } from './macroprocessor';
 import { PreprocessorDiagnostic, DiagnosticLocation, ErrorCodes } from './diagnostics';
 import { NormalizedPath } from '../interfaces/hostinterface';
@@ -66,12 +65,10 @@ export interface ConditionalResult {
  */
 export class ConditionalProcessor {
     private stack: ConditionalBlock[] = [];
-    private language: ScriptLanguage;
-    private config: LanguageLexerConfig;
+    private language: LanguageLexerConfig;
 
-    constructor(language: ScriptLanguage) {
+    constructor(language: LanguageLexerConfig) {
         this.language = language;
-        this.config = getLanguageConfig(language);
     }
 
     //#region Public API
@@ -520,7 +517,7 @@ export class ConditionalProcessor {
     private evaluateLogicalOr(tokens: Token[], pos: number): { value: number; pos: number } {
         let result = this.evaluateLogicalAnd(tokens, pos);
 
-        const orOp = this.config.logicalOperators.or;
+        const orOp = this.language.logicalOperators.or;
 
         while (result.pos < tokens.length) {
             const token = tokens[result.pos];
@@ -548,7 +545,7 @@ export class ConditionalProcessor {
     private evaluateLogicalAnd(tokens: Token[], pos: number): { value: number; pos: number } {
         let result = this.evaluateComparison(tokens, pos);
 
-        const andOp = this.config.logicalOperators.and;
+        const andOp = this.language.logicalOperators.and;
 
         while (result.pos < tokens.length) {
             const token = tokens[result.pos];
@@ -692,7 +689,7 @@ export class ConditionalProcessor {
         }
 
         const token = tokens[pos];
-        const notOp = this.config.logicalOperators.not;
+        const notOp = this.language.logicalOperators.not;
 
         // Handle unary minus
         if (token.type === TokenType.OPERATOR && token.value === "-") {

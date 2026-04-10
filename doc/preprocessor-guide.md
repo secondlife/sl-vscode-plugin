@@ -11,10 +11,11 @@ The Second Life Script Preprocessor is a comprehensive tool that supports advanc
 5. [Include vs Require Behavior](#include-vs-require-behavior)
 6. [Macro Definitions (Defines)](#macro-definitions-defines)
 7. [Conditional Processing](#conditional-processing)
-8. [Complete Examples](#complete-examples)
-9. [Best Practices](#best-practices)
-10. [Limitations](#limitations)
-11. [Integration with VS Code Extension](#integration-with-vs-code-extension)
+8. [LSL Preprocessor features](#lsl-preprocessor-features)
+9. [Complete Examples](#complete-examples)
+10. [Best Practices](#best-practices)
+11. [Limitations](#limitations)
+12. [Integration with VS Code Extension](#integration-with-vs-code-extension)
 
 ## Overview
 
@@ -779,6 +780,35 @@ Includes code if all previous conditions were false:
 4. **Boolean Constants**: `#if TRUE`, `#if false` (case-insensitive)
 5. **Comparison Operations**: `==`, `!=`, `>`, `>=`, `<`, `<=`
 6. **defined() Function**: `#if defined(MACRO_NAME)`
+
+## LSL Preprocessor features
+
+These are features supported for LSL only, and are mostly to provide parity with common existing tooling.
+
+### Switch statements
+
+If you enable the config `slVscodeEdit.preprocessor.lsl.switchStatements` in the preprocessor section.
+
+The preprocessor can handle switch statements by converting them to if conditionals with jumps.
+
+#### Examples
+```lsl
+default
+{
+    touch_start(integer num_detected)
+    {
+        integer coin = llFloor(llFrand(2.0));
+        switch(coin) {
+            case 1: {
+                llOwnerSay("Heads!");
+            }
+            default: {
+                llOwnerSay("Tails!");
+            }
+        }
+    }
+}
+```
 
 ## Complete Examples
 

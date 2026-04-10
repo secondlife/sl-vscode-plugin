@@ -287,10 +287,10 @@
             { "name": "self" },
             {
               "name": "other",
-              "type": "vector | quaternion"
+              "type": "number | vector | quaternion"
             }
           ],
-          "returnType": "number | vector",
+          "returnType": "vector",
           "comment": "LSL-style multiplication: vector * vector -> number (Dot Product), vector * quaternion -> vector (Rotation)"
         },
         {
@@ -299,7 +299,7 @@
             { "name": "self" },
             {
               "name": "other",
-              "type": "number | quaternion"
+              "type": "number | vector | quaternion"
             }
           ],
           "returnType": "vector",
