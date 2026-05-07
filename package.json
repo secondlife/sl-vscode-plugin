@@ -23,6 +23,18 @@
     "url": "https://github.com/secondlife/sl-vscode-plugin.git"
   },
   "contributes": {
+    "resourceLabelFormatters": [
+      {
+        "scheme": "sl",
+        "authority": "objects",
+        "formatting": {
+          "label": "${path}",
+          "separator": "/",
+          "tildify": false,
+          "workspaceSuffix": "Second Life"
+        }
+      }
+    ],
     "commands": [
       {
         "command": "second-life-scripting.enable",

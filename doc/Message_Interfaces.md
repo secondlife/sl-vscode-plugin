@@ -5,6 +5,7 @@ This document describes all the message interfaces defined for WebSocket communi
 ## Table of Contents
 
 - [Usage Flow](#usage-flow)
+- [VS Code Launch URI](#vs-code-launch-uri)
 - [JSON-RPC Method Summary](#json-rpc-method-summary)
 - [Session Management Interfaces](#session-management-interfaces)
   - [SessionHandshake](#sessionhandshake)
@@ -31,6 +32,17 @@ This document describes all the message interfaces defined for WebSocket communi
 - [Handler and Configuration Interfaces](#handler-and-configuration-interfaces)
   - [WebSocketHandlers](#websockethandlers)
   - [ClientInfo](#clientinfo)
+- [Object Content Interfaces](#object-content-interfaces)
+  - [Core Data Types](#core-data-types)
+  - [ObjectPublish](#objectpublish)
+  - [ObjectUnpublish](#objectunpublish)
+  - [ObjectUpdate](#objectupdate)
+  - [ObjectContentGet](#objectcontentget)
+  - [ObjectContentSave](#objectcontentsave)
+  - [ObjectItemCreate](#objectitemcreate)
+  - [ObjectItemDelete](#objectitemdelete)
+  - [ObjectScriptSetRunning](#objectscriptsetrunning)
+  - [ObjectRequest](#objectrequest)
 
 ## Usage Flow
 
@@ -53,16 +65,83 @@ This document describes all the message interfaces defined for WebSocket communi
    - When subscription needs to be terminated, viewer sends `script.unsubscribe` notification with `ScriptUnsubscribe` data
    - Extension handles unsubscription by cleaning up local script tracking
 
-4. **Runtime Events:**
+4. **Object Content Publishing:**
+
+   - Viewer sends `object.publish` notification when an in-world object's contents are made available for editing
+   - Viewer sends `object.unpublish` notification when an object is removed or the owner stops publishing
+   - Viewer sends `object.update` notification when object inventory changes (full replacement or delta)
+   - Extension calls `object.content.get` to fetch an item's content on demand
+   - Extension calls `object.content.save` to write modified content back to the viewer
+   - Extension calls `object.item.create` / `object.item.delete` to manage inventory items
+   - Extension calls `object.script.set_running` to start or stop a script
+
+5. **Runtime Events:**
 
    - Viewer sends `language.syntax.change` notification with `SyntaxChange` when language changes
    - Viewer sends `script.compiled` notification with `CompilationResult` after script compilation
    - Viewer sends `runtime.debug` notification with `RuntimeDebug` for debug messages during script execution
    - Viewer sends `runtime.error` notification with `RuntimeError` when runtime errors occur
 
-5. **Connection Termination:**
+6. **Connection Termination:**
    - Either side can send `session.disconnect` notification with `SessionDisconnect` data
    - Connection is closed gracefully
+
+## VS Code Launch URI
+
+The viewer can launch VS Code and trigger an automatic WebSocket connection by opening a `vscode://` URI via the operating system's default URI handler. The extension registers a URI handler for this scheme; VS Code will launch itself if not already running and deliver the URI to the extension.
+
+### URI Format
+
+```
+vscode://lindenlab.sl-vscode-plugin/connect[?port=<port>][&object=<uuid>][&script=<uuid>]
+```
+
+### Parameters
+
+| Parameter | Required | Description |
+| --------- | -------- | ----------- |
+| `port`    | No       | Port number the viewer's WebSocket server is listening on. Overrides the user's configured port for this session. Defaults to the configured `slVscodeEdit.network.websocketPort` (default `9020`) if absent. Must be in range 1024–65535. |
+| `object`  | No       | UUID of a root prim. After the handshake completes the extension calls `object.request` to ask the viewer to publish this object. The viewer then sends an `object.publish` notification and the object appears as a workspace folder in the Explorer. |
+| `script`  | No       | UUID of a script. After the handshake completes the extension locates the corresponding temp file via `script.list` and opens it, triggering the normal `script.subscribe` + live-sync flow. |
+
+`object` and `script` are mutually exclusive in typical use but both may be supplied; the extension will process both.
+
+### Examples
+
+```
+# Open VS Code and connect on default port
+vscode://lindenlab.sl-vscode-plugin/connect
+
+# Connect on a custom port
+vscode://lindenlab.sl-vscode-plugin/connect?port=9021
+
+# Connect and immediately publish a specific object
+vscode://lindenlab.sl-vscode-plugin/connect?port=9020&object=550e8400-e29b-41d4-a716-446655440000
+
+# Connect and open a specific script for editing
+vscode://lindenlab.sl-vscode-plugin/connect?port=9020&script=6ba7b810-9dad-11d1-80b4-00c04fd430c8
+```
+
+### Post-connection sequence
+
+When the URI contains an `object` or `script` parameter the extension acts only **after** the handshake is fully complete (`session.ok` received):
+
+```
+URI received by extension
+        │
+        ▼
+WebSocket connects → session.handshake → session.ok
+        │
+        ├─ object=<uuid> → object.request({ object_id }) call
+        │                       │
+        │                       ▼  (async, when viewer is ready)
+        │                  object.publish notification
+        │
+        └─ script=<uuid> → script.list call → open temp file
+                                                    │
+                                                    ▼
+                                          script.subscribe + live-sync
+```
 
 ## JSON-RPC Method Summary
 
@@ -89,6 +168,21 @@ This document describes all the message interfaces defined for WebSocket communi
 | `script.compiled`               | Viewer → Extension | Notification | `CompilationResult`        |
 | `runtime.debug`                 | Viewer → Extension | Notification | `RuntimeDebug`             |
 | `runtime.error`                 | Viewer → Extension | Notification | `RuntimeError`             |
+| `object.publish`                | Viewer → Extension | Notification | `ObjectPublishMessage`     |
+| `object.unpublish`              | Viewer → Extension | Notification | `ObjectUnpublishMessage`   |
+| `object.update`                 | Viewer → Extension | Notification | `ObjectUpdateMessage`      |
+| `object.content.get`            | Extension → Viewer | Call         | `ObjectContentGetParams`   |
+| `object.content.get` (response) | Viewer → Extension | Response     | `ObjectContentGetResponse` |
+| `object.content.save`           | Extension → Viewer | Call         | `ObjectContentSaveParams`  |
+| `object.content.save` (response)| Viewer → Extension | Response     | `ObjectContentSaveResponse`|
+| `object.item.create`            | Extension → Viewer | Call         | `ObjectItemCreateParams`   |
+| `object.item.create` (response) | Viewer → Extension | Response     | `ObjectItemCreateResponse` |
+| `object.item.delete`            | Extension → Viewer | Call         | `ObjectItemDeleteParams`   |
+| `object.item.delete` (response) | Viewer → Extension | Response     | `ObjectItemDeleteResponse` |
+| `object.script.set_running`     | Extension → Viewer | Call         | `ObjectScriptSetRunningParams` |
+| `object.script.set_running` (response) | Viewer → Extension | Response | `ObjectScriptSetRunningResponse` |
+| `object.request`                | Extension → Viewer | Call         | `ObjectRequestParams`          |
+| `object.request` (response)     | Viewer → Extension | Response     | `ObjectRequestResponse`        |
 
 ## Session Management Interfaces
 
@@ -577,3 +671,307 @@ interface ClientInfo {
 - `scriptName`: Name of the script being edited
 - `scriptId`: Unique identifier for the script
 - `extension`: File extension or script type
+
+---
+
+## Object Content Interfaces
+
+These interfaces support publishing in-world object inventories (scripts and notecards) to the external editor as a browseable virtual filesystem. The extension exposes published objects under the `sl://objects/` URI scheme.
+
+### Core Data Types
+
+```typescript
+type InventoryItemType = "script" | "notecard";
+
+type ScriptVM = "lso" | "mono" | "luau";
+
+/** Permission mask fields. Only owner and next_owner are transmitted. */
+interface ItemPermissions {
+  owner: number;       // e.g. PERM_MODIFY=0x4000, PERM_COPY=0x8000, PERM_TRANSFER=0x2000
+  next_owner: number;
+}
+
+/**
+ * Inventory item within an object or linked prim.
+ * asset_id is intentionally never transmitted.
+ */
+interface ObjectInventoryItem {
+  item_id: string;         // Inventory item UUID
+  name: string;            // Display name (no file extension)
+  description?: string;
+  type: InventoryItemType;
+  subtype?: number;        // Scripts only: language from II_FLAGS_SUBTYPE_MASK (0=LSL, 1=Luau)
+  vm?: ScriptVM;           // Scripts only: which VM the script targets
+  running?: boolean;       // Scripts only: whether the script is running
+  permissions?: ItemPermissions;
+  creator_id?: string;
+}
+
+/** A linked (child) prim within a linkset */
+interface LinkedObject {
+  link_id: string;          // UUID of the linked prim
+  link_number: number;      // Link number (root=1, children≥2)
+  link_name: string;
+  link_description?: string;
+  inventory: ObjectInventoryItem[];
+}
+
+interface ObjectPermissions {
+  owner: number;
+  next_owner: number;
+}
+
+/** Root of a linkset, as published to the extension */
+interface PublishedObject {
+  object_id: string;          // UUID of the root prim
+  object_name: string;
+  object_description?: string;
+  region?: string;
+  owner_id?: string;
+  permissions?: ObjectPermissions;
+  inventory: ObjectInventoryItem[];      // Root prim's scripts and notecards
+  linked_objects?: LinkedObject[];       // Child prims
+}
+```
+
+**Script display extensions** (synthetic, derived from `subtype`):
+
+| `subtype` | Extension |
+| --------- | --------- |
+| `0` (LSL) | `.lsl`    |
+| `1` (Luau)| `.luau`   |
+| notecard  | `.txt`    |
+
+---
+
+### ObjectPublish
+
+**JSON-RPC Method:** `object.publish` (notification from viewer)
+
+Sent when the viewer publishes an in-world object's inventory for external editing. Triggers creation of a virtual filesystem workspace folder in the extension.
+
+```typescript
+interface ObjectPublishMessage {
+  object: PublishedObject;
+}
+```
+
+**Fields:**
+
+- `object`: The full published object tree, including root prim inventory and all linked prim inventories.
+
+---
+
+### ObjectUnpublish
+
+**JSON-RPC Method:** `object.unpublish` (notification from viewer)
+
+Sent when the viewer removes a previously published object — for example when the owner deselects it, moves away, or the object is deleted.
+
+```typescript
+interface ObjectUnpublishMessage {
+  object_id: string;
+  reason?: string;
+}
+```
+
+**Fields:**
+
+- `object_id`: UUID of the root prim that is being unpublished
+- `reason` (optional): Human-readable explanation (e.g. `"object deleted"`, `"out of range"`)
+
+---
+
+### ObjectUpdate
+
+**JSON-RPC Method:** `object.update` (notification from viewer)
+
+Sent when the inventory of a published object changes. Supports two modes:
+- **Full replacement**: `inventory` and/or `linked_objects` fields replace the entire prior state.
+- **Delta update**: `changes` field describes only what changed. Takes precedence over full replacement fields when present.
+
+```typescript
+interface InventoryChanges {
+  added?: ObjectInventoryItem[];
+  removed?: string[];                                         // item_ids removed
+  modified?: ObjectInventoryItem[];                           // metadata-only changes
+  content_changed?: string[];                                 // item_ids whose content changed (invalidates cache)
+  running_changed?: { item_id: string; running: boolean }[];  // running state toggled
+}
+
+interface LinkedObjectChanges {
+  added?: LinkedObject[];
+  removed?: string[];         // link_ids removed
+  modified?: {
+    link_id: string;
+    link_name?: string;
+    inventory?: InventoryChanges;
+  }[];
+}
+
+interface ObjectUpdateMessage {
+  object_id: string;
+  object_name?: string;
+  // Full replacement (used when changes is absent)
+  inventory?: ObjectInventoryItem[];
+  linked_objects?: LinkedObject[];
+  // Delta (takes precedence when present)
+  changes?: {
+    inventory?: InventoryChanges;
+    linked_objects?: LinkedObjectChanges;
+  };
+}
+```
+
+---
+
+### ObjectContentGet
+
+**JSON-RPC Method:** `object.content.get` (call from extension to viewer)
+
+Requests the text content of a script or notecard. The extension calls this lazily when the user opens a file in the virtual filesystem.
+
+```typescript
+interface ObjectContentGetParams {
+  prim_id: string;  // UUID of any prim (root or child) — no object_id + link_id needed
+  item_id: string;
+}
+
+interface ObjectContentGetResponse {
+  prim_id: string;
+  item_id: string;
+  content: string;
+  encoding?: "utf-8" | "base64";
+}
+```
+
+**Fields:**
+
+- `prim_id`: UUID of the prim that owns the item. Child prims are addressable directly by UUID without knowing the root object_id.
+- `item_id`: Inventory item UUID.
+- `content`: The raw text content of the item.
+- `encoding` (optional): Encoding used for `content`. Defaults to `"utf-8"` if absent.
+
+---
+
+### ObjectContentSave
+
+**JSON-RPC Method:** `object.content.save` (call from extension to viewer)
+
+Writes modified content back to the viewer. For scripts, the viewer will attempt to compile the updated source.
+
+```typescript
+interface ObjectContentSaveParams {
+  prim_id: string;
+  item_id: string;
+  content: string;
+}
+
+interface ObjectContentSaveResponse {
+  success: boolean;
+  message?: string;
+}
+```
+
+**Fields:**
+
+- `success`: Whether the save (and compilation, if applicable) succeeded.
+- `message` (optional): Error description on failure.
+
+---
+
+### ObjectItemCreate
+
+**JSON-RPC Method:** `object.item.create` (call from extension to viewer)
+
+Creates a new script or notecard in a prim's inventory.
+
+```typescript
+interface ObjectItemCreateParams {
+  prim_id: string;
+  name: string;              // Pure SL inventory name — no file extension
+  type: InventoryItemType;   // "script" | "notecard"
+  vm?: ScriptVM;             // Scripts only: target VM. Defaults to viewer default if absent.
+  content?: string;          // Initial content. Empty item created if absent.
+}
+
+interface ObjectItemCreateResponse {
+  success: boolean;
+  item_id?: string;          // UUID of the created item (on success)
+  item?: ObjectInventoryItem; // Full item metadata including assigned subtype (on success)
+  message?: string;          // Error description (on failure)
+}
+```
+
+---
+
+### ObjectItemDelete
+
+**JSON-RPC Method:** `object.item.delete` (call from extension to viewer)
+
+Deletes a script or notecard from a prim's inventory. Requires `PERM_MODIFY` on the item.
+
+```typescript
+interface ObjectItemDeleteParams {
+  prim_id: string;
+  item_id: string;
+}
+
+interface ObjectItemDeleteResponse {
+  success: boolean;
+  message?: string;
+}
+```
+
+---
+
+### ObjectScriptSetRunning
+
+**JSON-RPC Method:** `object.script.set_running` (call from extension to viewer)
+
+Starts or stops a script within a prim.
+
+```typescript
+interface ObjectScriptSetRunningParams {
+  prim_id: string;
+  item_id: string;
+  running: boolean;  // true = start, false = stop
+}
+
+interface ObjectScriptSetRunningResponse {
+  success: boolean;
+  message?: string;
+}
+```
+
+---
+
+### ObjectRequest
+
+**JSON-RPC Method:** `object.request` (call from extension to viewer)
+
+Requests the viewer to publish a specific in-world object. The viewer responds synchronously to confirm the request was accepted, then asynchronously sends an `object.publish` notification with the full object tree.
+
+This is typically called immediately after the handshake completes when the extension was launched by the viewer with an `object=<uuid>` URI parameter.
+
+```typescript
+interface ObjectRequestParams {
+  object_id: string;  // UUID of the root prim to request publishing for
+}
+
+interface ObjectRequestResponse {
+  success: boolean;
+  message?: string;  // reason on failure (e.g. "object not found", "permission denied")
+}
+```
+
+**Fields:**
+
+- `object_id`: UUID of the root prim of the linkset to publish.
+- `success`: Whether the viewer accepted the request. A `true` response does not mean `object.publish` has been sent yet — it means the viewer will send it.
+- `message` (optional): Human-readable failure reason. Only present when `success` is `false`.
+
+**Sequence:**
+1. Extension calls `object.request`
+2. Viewer responds with `{ success: true }` (or error)
+3. Viewer sends `object.publish` notification (asynchronously, when ready)

@@ -37,6 +37,17 @@ export function logInfo(message: string): void {
 }
 
 /**
+ * Log a debug message to the output channel (only when debug logging is enabled)
+ */
+export function logDebug(message: string): void {
+    // TODO: Check a debug setting to conditionally log
+    // For now, always log debug messages
+    const channel = getOutputChannel();
+    const timestamp = new Date().toISOString();
+    channel.appendLine(`[${timestamp}] DEBUG: ${message}`);
+}
+
+/**
  * Log a warning message to the output channel
  */
 export function logWarning(message: string): void {

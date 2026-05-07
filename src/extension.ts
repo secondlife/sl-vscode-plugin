@@ -5,12 +5,16 @@
 import * as vscode from "vscode";
 import { SynchService } from "./synchservice";
 import { LanguageService } from "./shared/languageservice";
+import { ObjectContentService } from "./vscode/objectcontentservice";
+import { ObjectContentProvider, SL_SCHEME, SL_AUTHORITY, rootUri } from "./vscode/objectcontentprovider";
+import { ObjectContentDecorator } from "./vscode/ObjectContentDecorator";
 import { ConfigService, configPrefix } from "./configservice";
 import {
     VSCodeHost,
     getOutputChannel,
     showOutputChannel,
     logInfo,
+    logDebug,
     showStatusMessage,
     hasWorkspace,
     showErrorMessage
@@ -27,6 +31,95 @@ export function activate(context: vscode.ExtensionContext): void {
     const languageService = LanguageService.getInstance(host);
     // Initialize the file sync functionality
     const synchService = SynchService.getInstance(context);
+
+    // Initialize object content service and register the sl:// FileSystemProvider
+    const objectContentService = ObjectContentService.getInstance();
+    const objectContentProvider = new ObjectContentProvider(
+        objectContentService,
+        () => synchService.getWebSocket(),
+    );
+    context.subscriptions.push(
+        vscode.workspace.registerFileSystemProvider(SL_SCHEME, objectContentProvider, {
+            isCaseSensitive: true,
+        }),
+        objectContentProvider,
+        objectContentService,
+    );
+
+    // Register file decoration provider for sl:// URIs (shows disconnected state)
+    const objectContentDecorator = new ObjectContentDecorator(
+        () => synchService.isConnected(),
+        (listener) => synchService.onDidChangeConnectionState(listener),
+    );
+    context.subscriptions.push(
+        vscode.window.registerFileDecorationProvider(objectContentDecorator),
+        objectContentDecorator,
+    );
+
+    // Manage workspace folders for published objects so Explorer shows friendly names
+    context.subscriptions.push(
+        objectContentService.onDidChangeObjects(({ type, object_id }) => {
+            const folders = vscode.workspace.workspaceFolders ?? [];
+            const slIdx = folders.findIndex(
+                (f) => f.uri.scheme === SL_SCHEME && f.uri.authority === SL_AUTHORITY && f.uri.path === `/${object_id}`
+            );
+            if (type === "added") {
+                const entry = objectContentService.getObject(object_id);
+                if (entry && slIdx === -1) {
+                    vscode.workspace.updateWorkspaceFolders(folders.length, 0, {
+                        uri: rootUri(object_id),
+                        name: entry.object.object_name,
+                    });
+                }
+            } else if (type === "removed") {
+                if (slIdx !== -1) {
+                    vscode.workspace.updateWorkspaceFolders(slIdx, 1);
+                }
+            }
+        })
+    );
+
+    // Register URI handler so the viewer can launch VS Code and trigger a connection.
+    // URI format: vscode://lindenlab.sl-vscode-plugin/connect?port=9020[&object=<uuid>][&script=<uuid>]
+    context.subscriptions.push(
+        vscode.window.registerUriHandler({
+            handleUri(uri: vscode.Uri): void {
+
+                logDebug(`Received URI: ${uri.toString()}`);
+
+                if (uri.path !== "/connect") { return; }
+
+                // Decode the query string first - some viewers incorrectly encode the delimiters
+                const decodedQuery = decodeURIComponent(uri.query);
+                logDebug(`Decoded query: ${decodedQuery}`);
+
+                const query = Object.fromEntries(
+                    decodedQuery.split("&").filter(Boolean).map(p => {
+                        const eq = p.indexOf("=");
+                        return eq === -1
+                            ? [p, ""]
+                            : [p.slice(0, eq), p.slice(eq + 1)];
+                    })
+                );
+
+                logDebug(`Parsed query: ${JSON.stringify(query)}`);
+
+                const rawPort = query["port"] as string | undefined;
+                const port = rawPort !== undefined ? parseInt(rawPort, 10) : undefined;
+                if (port !== undefined && (isNaN(port) || port < 1024 || port > 65535)) {
+                    showErrorMessage(`Second Life: Invalid port in launch URI: ${rawPort}`);
+                    return;
+                }
+
+                const object_id = query["object"] as string | undefined;
+                const script_id = query["script"] as string | undefined;
+
+                logInfo(`Connecting with port=${port}, object_id=${object_id ?? "(none)"}, script_id=${script_id ?? "(none)"}`);
+
+                synchService.connectToViewer({ port, object_id, script_id });
+            }
+        })
+    );
 
     // Register output channel for disposal
     context.subscriptions.push(getOutputChannel());

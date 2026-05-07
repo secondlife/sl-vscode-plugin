@@ -7,6 +7,23 @@ import { JSONRPCClient } from "./websockclient";
 import { ConfigService } from "./configservice";
 import { ConfigKey } from "./interfaces/configinterface";
 import { showStatusMessage } from "./utils";
+import {
+    ObjectPublishMessage,
+    ObjectUnpublishMessage,
+    ObjectUpdateMessage,
+    ObjectContentGetParams,
+    ObjectContentGetResponse,
+    ObjectContentSaveParams,
+    ObjectContentSaveResponse,
+    ObjectItemCreateParams,
+    ObjectItemCreateResponse,
+    ObjectItemDeleteParams,
+    ObjectItemDeleteResponse,
+    ObjectScriptSetRunningParams,
+    ObjectScriptSetRunningResponse,
+    ObjectRequestParams,
+    ObjectRequestResponse,
+} from "./vscode/objectcontentinterfaces";
 
 //#region Message Formats
 
@@ -67,6 +84,12 @@ export interface SyntaxCacheList {
     success: boolean;
 }
 
+export interface ScriptList {
+    temp_dir: string;
+    script_ids: string[];
+    success: boolean;
+}
+
 export interface SyntaxCacheGetRequest {
     filename: string;
     as_json?: boolean;
@@ -124,6 +147,9 @@ export interface WebSocketHandlers {
     onRuntimeDebug?: (message: RuntimeDebug) => void;
     onRuntimeError?: (message: RuntimeError) => void;
     onConnectionClosed?: () => void;
+    onObjectPublish?: (message: ObjectPublishMessage) => void;
+    onObjectUnpublish?: (message: ObjectUnpublishMessage) => void;
+    onObjectUpdate?: (message: ObjectUpdateMessage) => void;
 }
 
 /**
@@ -186,6 +212,9 @@ export class ViewerEditWSClient extends JSONRPCClient {
         this.on("script.compiled", this.handlers.onCompilationResult);
         this.on("runtime.debug", this.handlers.onRuntimeDebug);
         this.on("runtime.error", this.handlers.onRuntimeError);
+        this.on("object.publish", this.handlers.onObjectPublish);
+        this.on("object.unpublish", this.handlers.onObjectUnpublish);
+        this.on("object.update", this.handlers.onObjectUpdate);
 
         // Setup connection close handler
         this.setupConnectionCloseHandler();
@@ -224,6 +253,38 @@ export class ViewerEditWSClient extends JSONRPCClient {
         } catch (err: any) {
             console.warn(`Error sending disconnect message: ${err.message}`);
         }
+    }
+
+    // ============================================
+    // Object Content Calls (Extension → Viewer)
+    // ============================================
+
+    public getObjectContent(params: ObjectContentGetParams): Promise<ObjectContentGetResponse> {
+        return this.call("object.content.get", params);
+    }
+
+    public saveObjectContent(params: ObjectContentSaveParams): Promise<ObjectContentSaveResponse> {
+        return this.call("object.content.save", params);
+    }
+
+    public createObjectItem(params: ObjectItemCreateParams): Promise<ObjectItemCreateResponse> {
+        return this.call("object.item.create", params);
+    }
+
+    public deleteObjectItem(params: ObjectItemDeleteParams): Promise<ObjectItemDeleteResponse> {
+        return this.call("object.item.delete", params);
+    }
+
+    public setScriptRunning(params: ObjectScriptSetRunningParams): Promise<ObjectScriptSetRunningResponse> {
+        return this.call("object.script.set_running", params);
+    }
+
+    public requestObject(params: ObjectRequestParams): Promise<ObjectRequestResponse> {
+        return this.call("object.request", params);
+    }
+
+    public getScriptList(): Promise<ScriptList> {
+        return this.call("script.list", {});
     }
 
     private setupConnectionCloseHandler(): void {
