@@ -21,6 +21,11 @@ import {
     RuntimeError,
 } from "./viewereditwsclient";
 import {
+    ObjectPublishMessage,
+    ObjectUnpublishMessage,
+    ObjectUpdateMessage,
+} from "./vscode/objectcontentinterfaces";
+import {
     hasWorkspace,
     showInfoMessage,
     showStatusMessage,
@@ -35,6 +40,7 @@ import { ScriptSync } from "./scriptsync";
 import { getLanguageConfig } from "./shared/lexer";
 import { HostInterface } from "./interfaces/hostinterface";
 import { SyncedFileDecorator } from "./vscode/SyncedFileDecorator";
+import { ObjectContentService } from "./vscode/objectcontentservice";
 
 type ParsedTempFile = { scriptName: string; scriptId: string; extension: string, language: ScriptLanguage };
 
@@ -50,6 +56,8 @@ export class SynchService implements vscode.Disposable {
     private activeSync: ScriptSync | undefined;
     private host: HostInterface;
     private initialGenerationDone: boolean = false;
+    private pendingLaunchObjectId?: string;
+    private pendingLaunchScriptId?: string;
 
     public viewerName?: string;
     public viewerVersion?: string;
@@ -62,12 +70,17 @@ export class SynchService implements vscode.Disposable {
 
     private syncedFileDecorator : SyncedFileDecorator;
 
+    private _onDidChangeConnectionState = new vscode.EventEmitter<boolean>();
+    readonly onDidChangeConnectionState = this._onDidChangeConnectionState.event;
+
     private disposables: vscode.Disposable[] = [];
 
     private constructor(context: vscode.ExtensionContext) {
         this.context = context;
         this.host = new VSCodeHost();
         this.syncedFileDecorator = new SyncedFileDecorator(this);
+        // Note: _onDidChangeConnectionState is NOT added to disposables
+        // because it must survive activate/deactivate cycles
     }
 
     public static getInstance(context?: vscode.ExtensionContext): SynchService {
@@ -337,7 +350,7 @@ export class SynchService implements vscode.Disposable {
 
     //====================================================================
     //#region WebSocket connection management and handlers
-    private async setupConnection(): Promise<boolean> {
+    private async setupConnection(portOverride?: number): Promise<boolean> {
         const handlers = {
             onHandshake: (message: SessionHandshake): any => this.onHandshake(message),
             onHandshakeOk: (): any => this.onHandshakeOk(),
@@ -348,7 +361,9 @@ export class SynchService implements vscode.Disposable {
             onCompilationResult: (message: CompilationResult): any => this.onCompilationResult(message),
             onRuntimeDebug: (message: RuntimeDebug): any => this.onRuntimeDebug(message),
             onRuntimeError: (message: RuntimeError): any => this.onRuntimeError(message),
-
+            onObjectPublish: (msg: ObjectPublishMessage): any => ObjectContentService.getInstance().handlePublish(msg),
+            onObjectUnpublish: (msg: ObjectUnpublishMessage): any => ObjectContentService.getInstance().handleUnpublish(msg),
+            onObjectUpdate: (msg: ObjectUpdateMessage): any => ObjectContentService.getInstance().handleUpdate(msg),
         };
 
         if (this.websocket && this.websocket.isConnected()) {
@@ -359,9 +374,11 @@ export class SynchService implements vscode.Disposable {
             this.getHandshakePromise();
         showStatusMessage("Connecting to Second Life viewer...", handshake);
 
+        const port = portOverride
+            ?? this.host.config.getConfig<number>(ConfigKey.NetworkWebsocketPort, 9020);
         this.websocket = new ViewerEditWSClient(
             this.context,
-            `ws://localhost:${this.host.config.getConfig<number>(ConfigKey.NetworkWebsocketPort, 9020)}`
+            `ws://localhost:${port}`
         );
         this.websocket.setup(handlers);
         let connected = await this.websocket.connect();
@@ -424,6 +441,7 @@ export class SynchService implements vscode.Disposable {
                 error_reporting: true,
                 debugging: false,
                 breakpoints: false,
+                object_publish: true,
             },
         };
         return response;
@@ -456,6 +474,10 @@ export class SynchService implements vscode.Disposable {
         if (this.handshakeResolve) {
             this.handshakeResolve(true, "Connected");
         }
+
+        this._onDidChangeConnectionState.fire(true);
+
+        await this.handleLaunchParams();
     }
 
     private onDisconnect(params: SessionDisconnect): void {
@@ -472,8 +494,11 @@ export class SynchService implements vscode.Disposable {
             );
         }
 
+        this._onDidChangeConnectionState.fire(false);
+
         // Don't dispose immediately - let the connection close handler do the cleanup
         // The websocket will be closed by the server, triggering our close handler
+        ObjectContentService.getInstance().clear();
     }
 
     private onScriptUnsubscribe(message: ScriptUnsubscribe): void {
@@ -872,6 +897,10 @@ export class SynchService implements vscode.Disposable {
     public getWebSocket(): ViewerEditWSClient | undefined {
         return this.websocket;
     }
+
+    public isConnected(): boolean {
+        return this.websocket?.isConnected() ?? false;
+    }
     //#endregion
 
     //====================================================================
@@ -953,6 +982,58 @@ export class SynchService implements vscode.Disposable {
         }
     }
     //#endregion
+
+    public async connectToViewer(params: { port?: number; object_id?: string; script_id?: string }): Promise<void> {
+        this.pendingLaunchObjectId = params.object_id;
+        this.pendingLaunchScriptId = params.script_id;
+
+        if (this.websocket?.isConnected()) {
+            // Already connected — act on params immediately
+            await this.handleLaunchParams();
+            return;
+        }
+
+        await this.setupConnection(params.port);
+        // handleLaunchParams is called from onHandshakeOk
+    }
+
+    private async handleLaunchParams(): Promise<void> {
+        const objectId = this.pendingLaunchObjectId;
+        const scriptId = this.pendingLaunchScriptId;
+        this.pendingLaunchObjectId = undefined;
+        this.pendingLaunchScriptId = undefined;
+
+        if (objectId && this.websocket?.isConnected()) {
+            const result = await this.websocket.requestObject({ object_id: objectId });
+            if (!result.success) {
+                showWarningMessage(`Failed to request object: ${result.message ?? "unknown error"}`);
+            }
+        }
+
+        if (scriptId && this.websocket?.isConnected()) {
+            await this.openScriptById(scriptId);
+        }
+    }
+
+    private async openScriptById(scriptId: string): Promise<void> {
+        if (!this.websocket) { return; }
+        const list = await this.websocket.getScriptList();
+        if (!list.success) { return; }
+
+        try {
+            const files = await fs.promises.readdir(list.temp_dir);
+            const match = files.find(f => f.includes(scriptId));
+            if (match) {
+                const tempPath = path.join(list.temp_dir, match);
+                await vscode.window.showTextDocument(vscode.Uri.file(tempPath));
+                // onOpenTextDocument fires and handles the normal subscribe + sync flow
+            } else {
+                showWarningMessage(`Script ${scriptId} not found in viewer temp directory`);
+            }
+        } catch {
+            showWarningMessage(`Could not open script ${scriptId} from temp directory`);
+        }
+    }
 
     public activate(): void {
         this.deactivate();
