@@ -30,6 +30,7 @@ import {
     showInfoMessage,
     showStatusMessage,
     showWarningMessage,
+    logDebug,
     logInfo,
     VSCodeHost,
     closeTextDocument,
@@ -361,9 +362,18 @@ export class SynchService implements vscode.Disposable {
             onCompilationResult: (message: CompilationResult): any => this.onCompilationResult(message),
             onRuntimeDebug: (message: RuntimeDebug): any => this.onRuntimeDebug(message),
             onRuntimeError: (message: RuntimeError): any => this.onRuntimeError(message),
-            onObjectPublish: (msg: ObjectPublishMessage): any => ObjectContentService.getInstance().handlePublish(msg),
-            onObjectUnpublish: (msg: ObjectUnpublishMessage): any => ObjectContentService.getInstance().handleUnpublish(msg),
-            onObjectUpdate: (msg: ObjectUpdateMessage): any => ObjectContentService.getInstance().handleUpdate(msg),
+            onObjectPublish: (msg: ObjectPublishMessage): any => {
+                logDebug(`[object.publish] object_id=${msg.object.object_id}`);
+                ObjectContentService.getInstance().handlePublish(msg);
+            },
+            onObjectUnpublish: (msg: ObjectUnpublishMessage): any => {
+                logDebug(`[object.unpublish] object_id=${msg.object_id}`);
+                ObjectContentService.getInstance().handleUnpublish(msg);
+            },
+            onObjectUpdate: (msg: ObjectUpdateMessage): any => {
+                logDebug(`[object.update] object_id=${msg.object_id}`);
+                ObjectContentService.getInstance().handleUpdate(msg);
+            },
         };
 
         if (this.websocket && this.websocket.isConnected()) {
@@ -1005,8 +1015,14 @@ export class SynchService implements vscode.Disposable {
 
         if (objectId && this.websocket?.isConnected()) {
             const result = await this.websocket.requestObject({ object_id: objectId });
-            if (!result.success) {
+            if (result.object) {
+                logDebug(`[object.request] response contained object_id=${result.object.object_id}`);
+                ObjectContentService.getInstance().handlePublish({ object: result.object });
+            } else if (result.success === false) {
                 showWarningMessage(`Failed to request object: ${result.message ?? "unknown error"}`);
+            } else {
+                // Keep this visible while we support mixed viewer versions.
+                logDebug("[object.request] response contained no object payload; waiting for object.publish notification");
             }
         }
 

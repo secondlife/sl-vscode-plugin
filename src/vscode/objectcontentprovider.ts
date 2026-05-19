@@ -1,0 +1,587 @@
+/**
+ * @file objectcontentprovider.ts
+ * VS Code FileSystemProvider for the sl:// virtual filesystem.
+ * Presents published Second Life in-world objects as browseable directories.
+ * Copyright (C) 2025, Linden Research, Inc.
+ */
+import * as vscode from "vscode";
+import { ObjectContentService } from "./objectcontentservice";
+import { ViewerEditWSClient } from "../viewereditwsclient";
+import {
+    InventoryItemType,
+    ObjectContentSaveVM,
+    ObjectInventoryItem,
+    ScriptVM,
+} from "./objectcontentinterfaces";
+
+// ============================================
+// Constants
+// ============================================
+
+export const SL_SCHEME = "sl";
+export const SL_AUTHORITY = "objects";
+
+/** PERM_MODIFY bit from viewer LLPermissions */
+const PERM_MODIFY = 0x4000;
+
+// JSON-RPC error codes used by the viewer
+const JSONRPC_INVALID_PARAMS = -32602;
+const JSONRPC_FORBIDDEN = -32003;
+const JSONRPC_TIMEOUT = -32001;
+const JSONRPC_INTERNAL_ERROR = -32603;
+
+/**
+ * Extract JSON-RPC error code from error message.
+ * The websocket client formats errors as "JSON-RPC Error {code}: {message}"
+ */
+function extractJsonRpcErrorCode(error: Error): number | undefined {
+    const match = error.message.match(/^JSON-RPC Error (-?\d+):/);
+    return match ? parseInt(match[1], 10) : undefined;
+}
+
+/**
+ * Map JSON-RPC error to appropriate FileSystemError.
+ */
+function mapRpcErrorToFileSystemError(error: unknown, uri: vscode.Uri): Error {
+    if (!(error instanceof Error)) {
+        return vscode.FileSystemError.Unavailable(uri);
+    }
+
+    const code = extractJsonRpcErrorCode(error);
+    switch (code) {
+        case JSONRPC_INVALID_PARAMS:
+            // Prim not found, item not found, or invalid item type
+            return vscode.FileSystemError.FileNotFound(uri);
+        case JSONRPC_FORBIDDEN:
+            // Object not published or insufficient permissions
+            return vscode.FileSystemError.NoPermissions(uri);
+        case JSONRPC_TIMEOUT:
+            // Simulator didn't respond in time
+            return vscode.FileSystemError.Unavailable(`Request timed out: ${uri}`);
+        case JSONRPC_INTERNAL_ERROR:
+            // Asset cache issue or other internal error
+            return vscode.FileSystemError.Unavailable(error.message);
+        default:
+            // Pass through the original error message
+            return vscode.FileSystemError.Unavailable(error.message);
+    }
+}
+
+// ============================================
+// URI Helpers
+// ============================================
+
+interface ParsedObjectUri {
+    /** Root prim UUID (always present) */
+    root_id: string;
+    /** Child prim UUID if path has 2+ segments, otherwise undefined */
+    link_id?: string;
+    /** Item UUID if this is a file URI, otherwise undefined */
+    item_id?: string;
+    /** Unresolved leaf filename for create flows */
+    pending_name?: string;
+    /** Whether this URI refers to a directory */
+    isDirectory: boolean;
+}
+
+interface ParseUriOptions {
+    allowMissingLeaf?: boolean;
+}
+
+/** Check if a string looks like a UUID */
+function isUUID(s: string): boolean {
+    return /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(s);
+}
+
+/**
+ * Find an item in an inventory list by its display name.
+ * Returns the item_id if found, undefined otherwise.
+ */
+function findItemByDisplayName(
+    inventory: ObjectInventoryItem[] | undefined,
+    filename: string
+): string | undefined {
+    if (!inventory) return undefined;
+    const item = inventory.find((i) => displayName(i) === filename);
+    return item?.item_id;
+}
+
+/**
+ * Parse an sl://objects/... URI into its components.
+ *
+ * URI shapes:
+ *   sl://objects/{root_id}                  → root directory
+ *   sl://objects/{root_id}/{seg}            → file in root (item_id or display name)
+ *                                             OR child prim directory (link_id = seg)
+ *   sl://objects/{root_id}/{link_id}/{seg}  → file in child prim (item_id or display name)
+ *
+ * For file URIs, the segment can be either:
+ * - A UUID (item_id directly) — used by API calls
+ * - A display name (e.g., "Hello World.lsl") — used by Explorer
+ *
+ * Directories are distinguished from files by checking the object tree.
+ */
+function parseUri(
+    uri: vscode.Uri,
+    service: ObjectContentService,
+    options?: ParseUriOptions
+): ParsedObjectUri {
+    // Strip leading slash and split
+    const parts = uri.path.replace(/^\//, "").split("/").filter((p) => p.length > 0);
+
+    if (parts.length === 0) {
+        throw vscode.FileSystemError.FileNotFound(uri);
+    }
+
+    const root_id = parts[0];
+    const entry = service.getObject(root_id);
+
+    if (parts.length === 1) {
+        return { root_id, isDirectory: true };
+    }
+
+    const seg1 = parts[1];
+
+    if (parts.length === 2) {
+        // Is seg1 a linked prim (directory) or an item (file)?
+        const isLinkedPrim =
+            entry?.object.linked_objects?.some((lo) => lo.link_id === seg1) ?? false;
+
+        if (isLinkedPrim) {
+            return { root_id, link_id: seg1, isDirectory: true };
+        }
+
+        // seg1 is either a UUID or a display name
+        let item_id: string | undefined;
+        if (isUUID(seg1)) {
+            item_id = seg1;
+        } else {
+            item_id = findItemByDisplayName(entry?.object.inventory, seg1);
+        }
+        if (!item_id) {
+            if (options?.allowMissingLeaf) {
+                return { root_id, pending_name: seg1, isDirectory: false };
+            }
+            throw vscode.FileSystemError.FileNotFound(uri);
+        }
+        return { root_id, item_id, isDirectory: false };
+    }
+
+    if (parts.length === 3) {
+        const link_id = parts[1];
+        const seg2 = parts[2];
+
+        // seg2 is either a UUID or a display name
+        let item_id: string | undefined;
+        if (isUUID(seg2)) {
+            item_id = seg2;
+        } else {
+            const linkedObj = entry?.object.linked_objects?.find((lo) => lo.link_id === link_id);
+            item_id = findItemByDisplayName(linkedObj?.inventory, seg2);
+        }
+        if (!item_id) {
+            if (options?.allowMissingLeaf) {
+                return { root_id, link_id, pending_name: seg2, isDirectory: false };
+            }
+            throw vscode.FileSystemError.FileNotFound(uri);
+        }
+        return { root_id, link_id, item_id, isDirectory: false };
+    }
+
+    throw vscode.FileSystemError.FileNotFound(uri);
+}
+
+/** Build a URI for a root prim directory */
+export function rootUri(root_id: string): vscode.Uri {
+    return vscode.Uri.from({ scheme: SL_SCHEME, authority: SL_AUTHORITY, path: `/${root_id}` });
+}
+
+/** Build a URI for a linked prim directory */
+export function linkedPrimUri(root_id: string, link_id: string): vscode.Uri {
+    return vscode.Uri.from({ scheme: SL_SCHEME, authority: SL_AUTHORITY, path: `/${root_id}/${link_id}` });
+}
+
+/** Build a URI for a file (item in root or linked prim) */
+export function itemUri(root_id: string, prim_id: string, item_id: string): vscode.Uri {
+    if (prim_id === root_id) {
+        return vscode.Uri.from({ scheme: SL_SCHEME, authority: SL_AUTHORITY, path: `/${root_id}/${item_id}` });
+    }
+    return vscode.Uri.from({ scheme: SL_SCHEME, authority: SL_AUTHORITY, path: `/${root_id}/${prim_id}/${item_id}` });
+}
+
+// ============================================
+// Display Name Helpers
+// ============================================
+
+/** Map item subtype to the appropriate file extension for display */
+function extensionForItem(item: ObjectInventoryItem): string {
+    if (item.type === "notecard") return ".txt";
+    return item.subtype === 1 ? ".luau" : ".lsl";
+}
+
+/** Returns the display filename (name + synthetic extension) */
+function displayName(item: ObjectInventoryItem): string {
+    return item.name + extensionForItem(item);
+}
+
+/**
+ * Derive type and vm from a synthetic display extension.
+ * Used when creating new items from a filename the user typed.
+ */
+function typeAndVmFromExtension(ext: string): { type: InventoryItemType; vm: ScriptVM } | undefined {
+    switch (ext.toLowerCase()) {
+        case ".luau": return { type: "script", vm: "luau" };
+        case ".lsl":  return { type: "script", vm: "lsl2" };
+        default:      return undefined;
+    }
+}
+
+/**
+ * Derive object.content.save vm from current script metadata.
+ * Save API accepts: mono, lsl2, luau.
+ */
+function saveVmForItem(item: ObjectInventoryItem): ObjectContentSaveVM | undefined {
+    if (item.type !== "script") {
+        return undefined;
+    }
+
+    // Prefer explicit VM from metadata.
+    if (item.vm === "luau") {
+        return "luau";
+    }
+
+    if (item.vm === "lsl2") {
+        return "lsl2";
+    }
+
+    if (item.vm === "mono") {
+        return "mono";
+    }
+
+    // Compatibility fallback when VM metadata is absent.
+    if (item.subtype === 1) {
+        return "luau";
+    }
+
+    return "mono";
+}
+
+/** Strip the synthetic display extension to recover the raw SL inventory name */
+function stripExtension(filename: string): { name: string; ext: string } {
+    const dot = filename.lastIndexOf(".");
+    if (dot === -1) return { name: filename, ext: "" };
+    return { name: filename.slice(0, dot), ext: filename.slice(dot) };
+}
+
+// ============================================
+// FileSystemProvider
+// ============================================
+
+export class ObjectContentProvider implements vscode.FileSystemProvider, vscode.Disposable {
+    private _onDidChangeFile = new vscode.EventEmitter<vscode.FileChangeEvent[]>();
+    readonly onDidChangeFile = this._onDidChangeFile.event;
+
+    private disposables: vscode.Disposable[] = [];
+
+    constructor(
+        private readonly service: ObjectContentService,
+        private readonly getClient: () => ViewerEditWSClient | undefined,
+    ) {
+        // Forward content invalidations to VS Code as Changed events
+        this.disposables.push(
+            service.onDidChangeContent(({ object_id, prim_id, item_id }) => {
+                const uri = itemUri(object_id, prim_id, item_id);
+                // Defer to ensure VS Code processes even when not focused
+                setTimeout(() => {
+                    this._onDidChangeFile.fire([{ type: vscode.FileChangeType.Changed, uri }]);
+                }, 0);
+            }),
+
+            // Forward tree changes (added/removed objects) as directory changes
+            service.onDidChangeObjects(({ type, object_id }) => {
+                const uri = rootUri(object_id);
+                // Defer to ensure VS Code processes even when not focused
+                setTimeout(() => {
+                    if (type === "added") {
+                        this._onDidChangeFile.fire([{ type: vscode.FileChangeType.Created, uri }]);
+                    } else if (type === "removed") {
+                        this._onDidChangeFile.fire([{ type: vscode.FileChangeType.Deleted, uri }]);
+                    } else {
+                        this._onDidChangeFile.fire([{ type: vscode.FileChangeType.Changed, uri }]);
+                    }
+                }, 0);
+            }),
+
+            this._onDidChangeFile,
+        );
+    }
+
+    dispose(): void {
+        for (const d of this.disposables) d.dispose();
+        this.disposables = [];
+    }
+
+    // ============================================
+    // FileSystemProvider — required methods
+    // ============================================
+
+    watch(_uri: vscode.Uri): vscode.Disposable {
+        // Change notifications are pushed from the service; no polling needed.
+        return new vscode.Disposable(() => { });
+    }
+
+    stat(uri: vscode.Uri): vscode.FileStat {
+        const parsed = parseUri(uri, this.service);
+
+        if (parsed.isDirectory) {
+            return {
+                type: vscode.FileType.Directory,
+                ctime: 0,
+                mtime: 0,
+                size: 0,
+            };
+        }
+
+        const { root_id, link_id, item_id } = parsed;
+        const prim_id = link_id ?? root_id;
+        const item = this.service.getItem(root_id, prim_id, item_id!);
+        if (!item) {
+            throw vscode.FileSystemError.FileNotFound(uri);
+        }
+
+        const cached = this.service.getCachedContent(root_id, item_id!);
+        const canModify = (item.permissions?.owner ?? PERM_MODIFY) & PERM_MODIFY;
+
+        return {
+            type: vscode.FileType.File,
+            ctime: this.service.getObject(root_id)?.publishedAt ?? 0,
+            mtime: cached?.mtime ?? 0,
+            size: cached?.content.byteLength ?? 0,
+            permissions: canModify ? undefined : vscode.FilePermission.Readonly,
+        };
+    }
+
+    readDirectory(uri: vscode.Uri): [string, vscode.FileType][] {
+        const parsed = parseUri(uri, this.service);
+        if (!parsed.isDirectory) {
+            throw vscode.FileSystemError.FileNotADirectory(uri);
+        }
+
+        const { root_id, link_id } = parsed;
+        const entry = this.service.getObject(root_id);
+        if (!entry) {
+            throw vscode.FileSystemError.FileNotFound(uri);
+        }
+
+        const results: [string, vscode.FileType][] = [];
+
+        if (link_id) {
+            // Listing a child prim directory
+            const lo = this.service.getLinkedObject(root_id, link_id);
+            if (!lo) {
+                throw vscode.FileSystemError.FileNotFound(uri);
+            }
+            for (const item of lo.inventory) {
+                results.push([displayName(item), vscode.FileType.File]);
+            }
+        } else {
+            // Listing the root prim directory
+            for (const item of entry.object.inventory) {
+                results.push([displayName(item), vscode.FileType.File]);
+            }
+            for (const lo of entry.object.linked_objects ?? []) {
+                // Use link_id (UUID) as the directory name so URIs remain stable.
+                // link_name is used as display label via workspace folder naming.
+                results.push([lo.link_id, vscode.FileType.Directory]);
+            }
+        }
+
+        return results;
+    }
+
+    async readFile(uri: vscode.Uri): Promise<Uint8Array> {
+        const parsed = parseUri(uri, this.service);
+        if (parsed.isDirectory) {
+            throw vscode.FileSystemError.FileIsADirectory(uri);
+        }
+
+        const { root_id, link_id, item_id } = parsed;
+        const prim_id = link_id ?? root_id;
+
+        // Return cached content if available
+        const cached = this.service.getCachedContent(root_id, item_id!);
+        if (cached) {
+            return cached.content;
+        }
+
+        // Fetch from viewer
+        const client = this.getClient();
+        if (!client) throw vscode.FileSystemError.Unavailable("Not connected to viewer");
+
+        try {
+            const response = await client.getObjectContent({ prim_id, item_id: item_id! });
+            const text = response.content ?? "";
+            const bytes = Buffer.from(text, "utf-8");
+            this.service.cacheContent(root_id, item_id!, bytes);
+            return bytes;
+        } catch (error) {
+            throw mapRpcErrorToFileSystemError(error, uri);
+        }
+    }
+
+    async writeFile(
+        uri: vscode.Uri,
+        content: Uint8Array,
+        options: { create: boolean; overwrite: boolean },
+    ): Promise<void> {
+        const parsed = parseUri(uri, this.service, { allowMissingLeaf: options.create });
+        if (parsed.isDirectory) {
+            throw vscode.FileSystemError.FileIsADirectory(uri);
+        }
+
+        const { root_id, link_id } = parsed;
+        const prim_id = link_id ?? root_id;
+
+        // Permission check (only meaningful for existing items)
+        const entry = this.service.getObject(root_id);
+        if (!entry) {
+            throw vscode.FileSystemError.FileNotFound(uri);
+        }
+
+        if (parsed.item_id) {
+            // item_id known — existing item
+            const item = this.service.getItem(root_id, prim_id, parsed.item_id);
+            if (item) {
+                const canModify = (item.permissions?.owner ?? PERM_MODIFY) & PERM_MODIFY;
+                if (!canModify) {
+                    throw vscode.FileSystemError.NoPermissions(uri);
+                }
+
+                const text = Buffer.from(content).toString("utf-8");
+                const client = this.getClient();
+                if (!client) throw vscode.FileSystemError.Unavailable("Not connected to viewer");
+
+                try {
+                    const vm = saveVmForItem(item);
+                    const result = await client.saveObjectContent({
+                        prim_id,
+                        item_id: parsed.item_id,
+                        content: text,
+                        vm,
+                    });
+
+                    if (!result.success) {
+                        throw vscode.FileSystemError.Unavailable(
+                            result.message ?? "Save failed"
+                        );
+                    }
+
+                    if (result.compiled === false) {
+                        const diagnostics = (result.errors ?? []).slice(0, 5).join("\n");
+                        const details = diagnostics.length > 0
+                            ? `\n${diagnostics}`
+                            : "";
+                        void vscode.window.showWarningMessage(
+                            `Second Life: Saved, but compilation failed.${details}`
+                        );
+                    }
+
+                    this.service.cacheContent(root_id, parsed.item_id, content);
+                    this.service.markContentSaved(root_id, parsed.item_id);
+                    return;
+                } catch (error) {
+                    if (error instanceof vscode.FileSystemError) {
+                        throw error;
+                    }
+                    throw mapRpcErrorToFileSystemError(error, uri);
+                }
+            }
+        }
+
+        // No existing item — create new
+        if (!options.create) {
+            throw vscode.FileSystemError.FileNotFound(uri);
+        }
+
+        const filename = parsed.pending_name
+            ?? uri.path.replace(/^\//, "").split("/").slice(-1)[0];
+        const { name, ext } = stripExtension(filename);
+        const createParams = typeAndVmFromExtension(ext);
+        if (!createParams) {
+            throw vscode.FileSystemError.NoPermissions(
+                "Only script creation is currently supported (.lsl, .luau)."
+            );
+        }
+
+        const { type, vm } = createParams;
+        const client = this.getClient();
+        if (!client) throw vscode.FileSystemError.Unavailable("Not connected to viewer");
+
+        try {
+            const result = await client.createObjectItem({
+                prim_id,
+                name,
+                type,
+                vm,
+            });
+
+            if (!result.item_id) {
+                throw vscode.FileSystemError.Unavailable("Create failed: missing item_id");
+            }
+
+            const response = await client.getObjectContent({ prim_id, item_id: result.item_id });
+            const text = response.content ?? "";
+            // Cache under the real item_id returned by the viewer
+            this.service.cacheContent(root_id, result.item_id, Buffer.from(text, "utf-8"));
+        } catch (error) {
+            if (error instanceof vscode.FileSystemError) {
+                throw error;
+            }
+            throw mapRpcErrorToFileSystemError(error, uri);
+        }
+    }
+
+    async delete(uri: vscode.Uri, _options: { recursive: boolean }): Promise<void> {
+        const parsed = parseUri(uri, this.service);
+        if (parsed.isDirectory) {
+            throw vscode.FileSystemError.NoPermissions(uri);
+        }
+
+        const { root_id, link_id, item_id } = parsed;
+        const prim_id = link_id ?? root_id;
+
+        const item = this.service.getItem(root_id, prim_id, item_id!);
+        if (!item) {
+            throw vscode.FileSystemError.FileNotFound(uri);
+        }
+
+        const canModify = (item.permissions?.owner ?? PERM_MODIFY) & PERM_MODIFY;
+        if (!canModify) {
+            throw vscode.FileSystemError.NoPermissions(uri);
+        }
+
+        const client = this.getClient();
+        if (!client) throw vscode.FileSystemError.Unavailable("Not connected to viewer");
+
+        try {
+            const result = await client.deleteObjectItem({ prim_id, item_id: item_id! });
+            if (!result.success) {
+                throw vscode.FileSystemError.Unavailable("Delete failed");
+            }
+        } catch (error) {
+            if (error instanceof vscode.FileSystemError) {
+                throw error;
+            }
+            throw mapRpcErrorToFileSystemError(error, uri);
+        }
+    }
+
+    // Creating directories (linked prims) and renaming are not supported
+    createDirectory(_uri: vscode.Uri): void {
+        throw vscode.FileSystemError.NoPermissions(_uri);
+    }
+
+    rename(_oldUri: vscode.Uri, _newUri: vscode.Uri): void {
+        throw vscode.FileSystemError.NoPermissions(_oldUri);
+    }
+}
