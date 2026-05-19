@@ -4,45 +4,45 @@ This document describes all the message interfaces defined for WebSocket communi
 
 ## Table of Contents
 
-- [Usage Flow](#usage-flow)
-- [VS Code Launch URI](#vs-code-launch-uri)
-- [JSON-RPC Method Summary](#json-rpc-method-summary)
-- [Session Management Interfaces](#session-management-interfaces)
-  - [SessionHandshake](#sessionhandshake)
-  - [SessionHandshakeResponse](#sessionhandshakeresponse)
-  - [Session OK](#session-ok)
-  - [SessionDisconnect](#sessiondisconnect)
-- [Language and Syntax Interfaces](#language-and-syntax-interfaces)
-  - [SyntaxChange](#syntaxchange)
-  - [Language Syntax ID Request](#language-syntax-id-request)
-  - [Language Syntax Request](#language-syntax-request)
-  - [Language Syntax Cache List](#language-syntax-cache-list)
-  - [Language Syntax Cache Get](#language-syntax-cache-get)
-- [Script Subscription Interfaces](#script-subscription-interfaces)
-  - [ScriptSubscribe](#scriptsubscribe)
-  - [ScriptSubscribeResponse](#scriptsubscriberesponse)
-  - [ScriptUnsubscribe](#scriptunsubscribe)
-  - [ScriptList](#scriptlist)
-- [Compilation Interfaces](#compilation-interfaces)
-  - [CompilationError](#compilationerror)
-  - [CompilationResult](#compilationresult)
-- [Runtime Event Interfaces](#runtime-event-interfaces)
-  - [RuntimeDebug](#runtimedebug)
-  - [RuntimeError](#runtimeerror)
-- [Handler and Configuration Interfaces](#handler-and-configuration-interfaces)
-  - [WebSocketHandlers](#websockethandlers)
-  - [ClientInfo](#clientinfo)
-- [Object Content Interfaces](#object-content-interfaces)
-  - [Core Data Types](#core-data-types)
-  - [ObjectPublish](#objectpublish)
-  - [ObjectUnpublish](#objectunpublish)
-  - [ObjectUpdate](#objectupdate)
-  - [ObjectContentGet](#objectcontentget)
-  - [ObjectContentSave](#objectcontentsave)
-  - [ObjectItemCreate](#objectitemcreate)
-  - [ObjectItemDelete](#objectitemdelete)
-  - [ObjectScriptSetRunning](#objectscriptsetrunning)
-  - [ObjectRequest](#objectrequest)
+- [Usage Flow](../../../VSCode/sl-vscode-edit/doc/Message_Interfaces.md#usage-flow)
+- [VS Code Launch URI](../../../VSCode/sl-vscode-edit/doc/Message_Interfaces.md#vs-code-launch-uri)
+- [JSON-RPC Method Summary](../../../VSCode/sl-vscode-edit/doc/Message_Interfaces.md#json-rpc-method-summary)
+- [Session Management Interfaces](../../../VSCode/sl-vscode-edit/doc/Message_Interfaces.md#session-management-interfaces)
+  - [SessionHandshake](../../../VSCode/sl-vscode-edit/doc/Message_Interfaces.md#sessionhandshake)
+  - [SessionHandshakeResponse](../../../VSCode/sl-vscode-edit/doc/Message_Interfaces.md#sessionhandshakeresponse)
+  - [Session OK](../../../VSCode/sl-vscode-edit/doc/Message_Interfaces.md#session-ok)
+  - [SessionDisconnect](../../../VSCode/sl-vscode-edit/doc/Message_Interfaces.md#sessiondisconnect)
+- [Language and Syntax Interfaces](../../../VSCode/sl-vscode-edit/doc/Message_Interfaces.md#language-and-syntax-interfaces)
+  - [SyntaxChange](../../../VSCode/sl-vscode-edit/doc/Message_Interfaces.md#syntaxchange)
+  - [Language Syntax ID Request](../../../VSCode/sl-vscode-edit/doc/Message_Interfaces.md#language-syntax-id-request)
+  - [Language Syntax Request](../../../VSCode/sl-vscode-edit/doc/Message_Interfaces.md#language-syntax-request)
+  - [Language Syntax Cache List](../../../VSCode/sl-vscode-edit/doc/Message_Interfaces.md#language-syntax-cache-list)
+  - [Language Syntax Cache Get](../../../VSCode/sl-vscode-edit/doc/Message_Interfaces.md#language-syntax-cache-get)
+- [Script Subscription Interfaces](../../../VSCode/sl-vscode-edit/doc/Message_Interfaces.md#script-subscription-interfaces)
+  - [ScriptSubscribe](../../../VSCode/sl-vscode-edit/doc/Message_Interfaces.md#scriptsubscribe)
+  - [ScriptSubscribeResponse](../../../VSCode/sl-vscode-edit/doc/Message_Interfaces.md#scriptsubscriberesponse)
+  - [ScriptUnsubscribe](../../../VSCode/sl-vscode-edit/doc/Message_Interfaces.md#scriptunsubscribe)
+  - [ScriptList](../../../VSCode/sl-vscode-edit/doc/Message_Interfaces.md#scriptlist)
+- [Compilation Interfaces](../../../VSCode/sl-vscode-edit/doc/Message_Interfaces.md#compilation-interfaces)
+  - [CompilationError](../../../VSCode/sl-vscode-edit/doc/Message_Interfaces.md#compilationerror)
+  - [CompilationResult](../../../VSCode/sl-vscode-edit/doc/Message_Interfaces.md#compilationresult)
+- [Runtime Event Interfaces](../../../VSCode/sl-vscode-edit/doc/Message_Interfaces.md#runtime-event-interfaces)
+  - [RuntimeDebug](../../../VSCode/sl-vscode-edit/doc/Message_Interfaces.md#runtimedebug)
+  - [RuntimeError](../../../VSCode/sl-vscode-edit/doc/Message_Interfaces.md#runtimeerror)
+- [Handler and Configuration Interfaces](../../../VSCode/sl-vscode-edit/doc/Message_Interfaces.md#handler-and-configuration-interfaces)
+  - [WebSocketHandlers](../../../VSCode/sl-vscode-edit/doc/Message_Interfaces.md#websockethandlers)
+  - [ClientInfo](../../../VSCode/sl-vscode-edit/doc/Message_Interfaces.md#clientinfo)
+- [Object Content Interfaces](../../../VSCode/sl-vscode-edit/doc/Message_Interfaces.md#object-content-interfaces)
+  - [Core Data Types](../../../VSCode/sl-vscode-edit/doc/Message_Interfaces.md#core-data-types)
+  - [ObjectPublish](../../../VSCode/sl-vscode-edit/doc/Message_Interfaces.md#objectpublish)
+  - [ObjectUnpublish](../../../VSCode/sl-vscode-edit/doc/Message_Interfaces.md#objectunpublish)
+  - [ObjectUpdate](../../../VSCode/sl-vscode-edit/doc/Message_Interfaces.md#objectupdate)
+  - [ObjectContentGet](../../../VSCode/sl-vscode-edit/doc/Message_Interfaces.md#objectcontentget)
+  - [ObjectContentSave](../../../VSCode/sl-vscode-edit/doc/Message_Interfaces.md#objectcontentsave)
+  - [ObjectItemCreate](../../../VSCode/sl-vscode-edit/doc/Message_Interfaces.md#objectitemcreate)
+  - [ObjectItemDelete](../../../VSCode/sl-vscode-edit/doc/Message_Interfaces.md#objectitemdelete)
+  - [ObjectScriptSetRunning](../../../VSCode/sl-vscode-edit/doc/Message_Interfaces.md#objectscriptsetrunning)
+  - [ObjectRequest](../../../VSCode/sl-vscode-edit/doc/Message_Interfaces.md#objectrequest)
 
 ## Usage Flow
 
@@ -378,14 +378,14 @@ interface SyntaxCacheList {
 | -------------------------------- | ---------------------------------------------------- |
 | `builtins.txt`                   | LSL built-in keyword list in plain text format |
 | `lsl_definitions.yaml`           | LSL language definitions in YAML format |
-| `lsl_keywords.xml`               | LSL keyword definitions in LLSD XML format |
+| `lsl_keywords.xml`               | LSL keyword definitions in LLSD XML format. Used by the viewer's script editor |
 | `lsl_keywords_pretty.xml`        | LSL keyword definitions in formatted LLSD XML format |
-| `slua_default.d.luau`            | Luau type definition file for editor tooling |
-| `slua_default.docs.json`         | Luau documentation data in JSON format |
+| `secondlife.d.luau`              | Luau type definition file. Used by luau-lsp |
+| `secondlife.docs.json`           | Luau documentation data in JSON format. Used by luau-lsp |
 | `slua_definitions.yaml`          | Luau language definitions in YAML format |
-| `slua_keywords.xml`              | Luau keyword definitions in LLSD XML format |
-| `slua_keywords_pretty.xml`       | Luau keyword definitions in formatted LLSD XML format |
-| `slua_selene.yml`                | Luau Selene linter configuration in YAML format |
+| `lua_keywords.xml`               | Luau keyword definitions in LLSD XML format. Used by the viewer's script editor |
+| `lua_keywords_pretty.xml`        | Luau keyword definitions in formatted LLSD XML format |
+| `secondlife_selene.yml`          | Luau Selene linter configuration in YAML format |
 
 Not all files may be present in every cache — the actual list returned by `language.syntax.cache` reflects only what is available on the viewer's local filesystem at the time of the request.
 
@@ -683,7 +683,7 @@ These interfaces support publishing in-world object inventories (scripts and not
 ```typescript
 type InventoryItemType = "script" | "notecard";
 
-type ScriptVM = "lso" | "mono" | "luau";
+type ScriptVM = "lsl2" | "mono" | "luau";
 
 /** Permission mask fields. Only owner and next_owner are transmitted. */
 interface ItemPermissions {
@@ -838,10 +838,10 @@ interface ObjectContentGetParams {
 }
 
 interface ObjectContentGetResponse {
+  success: boolean;
   prim_id: string;
   item_id: string;
-  content: string;
-  encoding?: "utf-8" | "base64";
+  content: string;  // Raw text content (UTF-8). Notecard envelope is unwrapped automatically.
 }
 ```
 
@@ -849,8 +849,8 @@ interface ObjectContentGetResponse {
 
 - `prim_id`: UUID of the prim that owns the item. Child prims are addressable directly by UUID without knowing the root object_id.
 - `item_id`: Inventory item UUID.
-- `content`: The raw text content of the item.
-- `encoding` (optional): Encoding used for `content`. Defaults to `"utf-8"` if absent.
+- `success`: `true` on success.
+- `content`: The raw text content of the item. For notecards, the `Linden text version 2` envelope is stripped — only the body text is returned.
 
 ---
 
@@ -865,17 +865,28 @@ interface ObjectContentSaveParams {
   prim_id: string;
   item_id: string;
   content: string;
+  vm?: "mono" | "lsl2" | "luau";
 }
 
 interface ObjectContentSaveResponse {
   success: boolean;
+  prim_id?: string;
+  item_id?: string;
+  compiled?: boolean;
+  errors?: string[];
   message?: string;
 }
 ```
 
 **Fields:**
 
-- `success`: Whether the save (and compilation, if applicable) succeeded.
+- `prim_id`: UUID of the prim that owns the saved item.
+- `item_id`: UUID of the saved inventory item.
+- `content`: Raw script/notecard source text to store.
+- `vm` (optional): Scripts only compile target. Accepted values are `"mono"`, `"lsl2"`, `"luau"`. When `"luau"` is specified for an LSL script (as opposed to a native Luau script), the viewer automatically selects the correct LSL-on-Luau compile path. If omitted, inferred from item metadata or content analysis.
+- `success`: Whether the upload/save operation succeeded.
+- `compiled` (optional): Scripts only. `true` when compilation succeeded, `false` when source saved but compile failed.
+- `errors` (optional): Scripts only. Compiler diagnostics when `compiled` is `false`.
 - `message` (optional): Error description on failure.
 
 ---
@@ -884,24 +895,32 @@ interface ObjectContentSaveResponse {
 
 **JSON-RPC Method:** `object.item.create` (call from extension to viewer)
 
-Creates a new script or notecard in a prim's inventory.
+Creates a new script in a prim's inventory. The call is asynchronous — the viewer sends
+`RezScript` to the simulator and waits for the inventory-changed callback before returning
+the created item's details. The simulator may rename the item if a duplicate name exists.
+
+Notecard creation is not yet supported and will return an error.
 
 ```typescript
 interface ObjectItemCreateParams {
-  prim_id: string;
+  prim_id: string;           // UUID of the prim to create the item in
   name: string;              // Pure SL inventory name — no file extension
-  type: InventoryItemType;   // "script" | "notecard"
-  vm?: ScriptVM;             // Scripts only: target VM. Defaults to viewer default if absent.
-  content?: string;          // Initial content. Empty item created if absent.
+  type: InventoryItemType;   // "script" ("notecard" reserved for future)
+  vm: ScriptVM;              // Required for scripts: "luau" | "lsl"
 }
 
-interface ObjectItemCreateResponse {
-  success: boolean;
-  item_id?: string;          // UUID of the created item (on success)
-  item?: ObjectInventoryItem; // Full item metadata including assigned subtype (on success)
-  message?: string;          // Error description (on failure)
+// On success, returns an ObjectInventoryItem with prim_id:
+interface ObjectItemCreateResponse extends ObjectInventoryItem {
+  prim_id: string;           // Echoed prim UUID
 }
 ```
+
+**Notes:**
+- The response matches the `ObjectInventoryItem` structure (same fields as items in
+  `object.publish` and `object.update` notifications).
+- The `name` in the response may differ from the request if the simulator renamed it.
+- An `object.update` notification will also fire for the prim (since inventory changed).
+- Timeout: 30 seconds. Returns a JSON-RPC internal error if the simulator does not respond.
 
 ---
 
@@ -919,7 +938,8 @@ interface ObjectItemDeleteParams {
 
 interface ObjectItemDeleteResponse {
   success: boolean;
-  message?: string;
+  prim_id: string;   // Echoed back from request
+  item_id: string;   // Echoed back from request
 }
 ```
 
