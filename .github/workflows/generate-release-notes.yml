@@ -17,7 +17,7 @@ on:
         value: ${{ jobs.generate.outputs.release_notes }}
 
 permissions:
-  contents: read
+  contents: write
 
 jobs:
   generate:

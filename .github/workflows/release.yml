@@ -31,7 +31,7 @@ jobs:
     name: Generate release notes
     uses: ./.github/workflows/generate-release-notes.yml
     permissions:
-      contents: read
+      contents: write
     with:
       tag_name: ${{ inputs.tag_name }}
       target_commitish: ${{ inputs.target_commitish }}
