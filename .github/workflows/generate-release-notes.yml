@@ -29,11 +29,14 @@ jobs:
     - name: Generate release notes body
       id: generate
       uses: actions/github-script@v7
+      env:
+        TAG_NAME: ${{ inputs.tag_name }}
+        TARGET_COMMITISH: ${{ inputs.target_commitish }}
       with:
         script: |
           const { owner, repo } = context.repo;
-          const tag_name = core.getInput('tag_name');
-          const target_commitish = core.getInput('target_commitish');
+          const tag_name = process.env.TAG_NAME;
+          const target_commitish = process.env.TARGET_COMMITISH;
 
           const response = await github.rest.repos.generateReleaseNotes({
             owner,

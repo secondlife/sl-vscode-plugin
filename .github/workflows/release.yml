@@ -171,31 +171,32 @@ jobs:
         ' CHANGELOG.md > CHANGELOG.new.md
 
         mv CHANGELOG.new.md CHANGELOG.md
+        cat CHANGELOG.md >&2
 
-    - name: Commit and push changelog update
-      shell: bash
-      run: |
-        TARGET_BRANCH="${{ inputs.target_commitish }}"
-        TARGET_BRANCH="${TARGET_BRANCH#refs/heads/}"
+    # - name: Commit and push changelog update
+    #   shell: bash
+    #   run: |
+    #     TARGET_BRANCH="${{ inputs.target_commitish }}"
+    #     TARGET_BRANCH="${TARGET_BRANCH#refs/heads/}"
 
-        if ! git ls-remote --exit-code --heads origin "$TARGET_BRANCH" > /dev/null; then
-          echo "target_commitish must be a branch name (or refs/heads/<branch>) to update CHANGELOG.md" >&2
-          echo "Received: ${{ inputs.target_commitish }}" >&2
-          exit 1
-        fi
+    #     if ! git ls-remote --exit-code --heads origin "$TARGET_BRANCH" > /dev/null; then
+    #       echo "target_commitish must be a branch name (or refs/heads/<branch>) to update CHANGELOG.md" >&2
+    #       echo "Received: ${{ inputs.target_commitish }}" >&2
+    #       exit 1
+    #     fi
 
-        git config user.name "github-actions[bot]"
-        git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+    #     git config user.name "github-actions[bot]"
+    #     git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
 
-        git add CHANGELOG.md
+    #     git add CHANGELOG.md
 
-        if git diff --cached --quiet; then
-          echo "No changelog changes to commit"
-          exit 0
-        fi
+    #     if git diff --cached --quiet; then
+    #       echo "No changelog changes to commit"
+    #       exit 0
+    #     fi
 
-        git commit -m "docs: update changelog for ${{ needs.build.outputs.tag_name }}"
-        git push origin HEAD:$TARGET_BRANCH
+    #     git commit -m "docs: update changelog for ${{ needs.build.outputs.tag_name }}"
+    #     git push origin HEAD:$TARGET_BRANCH
 
     - name: Download VSIX artifact
       uses: actions/download-artifact@v4
