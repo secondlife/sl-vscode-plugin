@@ -66,25 +66,23 @@ jobs:
     - name: Compile extension
       run: npm run vscode:prepublish
 
-    - name: Determine version suffix
+    - name: Determine build metadata
       id: version
       run: |
         if [ "${{ github.ref }}" = "refs/heads/main" ]; then
-          echo "suffix=" >> $GITHUB_OUTPUT
           echo "release_type=release" >> $GITHUB_OUTPUT
         elif [ "${{ github.ref }}" = "refs/heads/debug" ]; then
-          echo "suffix=-debug" >> $GITHUB_OUTPUT
-          echo "release_type=debug" >> $GITHUB_OUTPUT
+          echo "release_type=beta" >> $GITHUB_OUTPUT
         fi
         echo "sha_short=$(echo ${{ github.sha }} | cut -c1-8)" >> $GITHUB_OUTPUT
 
     - name: Update package.json version for non-main builds
-      if: github.ref != 'refs/heads/main'
+      if: github.ref != 'refs/heads/main' && !startsWith(github.ref, 'refs/tags/v')
       run: |
-        # Get current version and append build info
-        CURRENT_VERSION=$(node -p "require('./package.json').version")
-        NEW_VERSION="${CURRENT_VERSION}${{ steps.version.outputs.suffix }}-${GITHUB_RUN_NUMBER}+${{ steps.version.outputs.sha_short }}"
-        npm version "$NEW_VERSION" --no-git-tag-version
+        # Build strict numeric version: major.minor.patch.run
+        BASE_VERSION=$(node -p "(() => { const m = (require('./package.json').version.match(/\\d+/g) || []); return [m[0] || '0', m[1] || '0', m[2] || '0'].join('.'); })()")
+        NEW_VERSION="${BASE_VERSION}.${GITHUB_RUN_NUMBER}"
+        node -e "const fs=require('fs');const p=require('./package.json');p.version=process.env.NEW_VERSION;fs.writeFileSync('package.json', JSON.stringify(p, null, 2) + '\\n');"
         echo "Updated version to: $NEW_VERSION"
 
     - name: Package extension
