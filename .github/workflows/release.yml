@@ -44,6 +44,12 @@ jobs:
             exit 1
           fi
 
+          echo "tag_name=${{ inputs.tag_name }}" >&2
+          echo "target_commitish=${{ inputs.target_commitish }}" >&2
+          echo "prerelease=${{ inputs.prerelease }}" >&2
+          echo "draft=${{ inputs.draft }}" >&2
+
+
   release_notes:
     needs: validate_inputs
     name: Generate release notes
