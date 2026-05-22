@@ -27,11 +27,42 @@ permissions:
   contents: write
 
 jobs:
-  validate_inputs:
-    name: Validate release inputs
+  authorize_actor:
+    name: Authorize triggering user
     runs-on: ubuntu-latest
     steps:
-      - name: Validate tag_name
+    - name: Ensure actor has access
+      uses: actions/github-script@v7
+      with:
+        script: |
+          const { owner, repo } = context.repo;
+          const username = context.actor;
+
+          const response = await github.rest.repos.getCollaboratorPermissionLevel({
+            owner,
+            repo,
+            username,
+          });
+
+          const allowed = ['admin', 'maintain'];
+
+          if (!allowed.includes(response.data.permission)) {
+            core.setFailed(
+              `${username} must have maintain or admin access to run this workflow. Current permission: ${response.data.permission}`
+            );
+            return;
+          }
+
+          core.info(`${username} is authorized with permission: ${response.data.permission}`);
+
+  validate:
+    name: Validate release inputs
+    needs: authorize_actor
+    runs-on: ubuntu-latest
+    outputs:
+      version: ${{ steps.set_variables.outputs.version }}
+    steps:
+      - name: Validate
         shell: bash
         run: |
           if [ -z "${{ inputs.tag_name }}" ]; then
@@ -39,8 +70,9 @@ jobs:
             exit 1
           fi
 
-          if [[ ! "${{ inputs.tag_name }}" =~ ^v[0-9]+\.[0-9]+\.[0-9]+([.-].*)?$ ]]; then
-            echo "tag_name must look like v1.0.3" >&2
+          # Enforce SemVer 2.0.0 with a required leading "v" (e.g. v1.2.3, v1.2.3-rc.1, v1.2.3+build.7)
+          if [[ ! "${{ inputs.tag_name }}" =~ ^v(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)(-((0|[1-9][0-9]*|[0-9]*[A-Za-z-][0-9A-Za-z-]*)(\.(0|[1-9][0-9]*|[0-9]*[A-Za-z-][0-9A-Za-z-]*))*))?(\+([0-9A-Za-z-]+(\.[0-9A-Za-z-]+)*))?$ ]]; then
+            echo "tag_name must be valid SemVer with a leading v (for example v1.0.3 or v1.0.3-rc.1+build.7)" >&2
             exit 1
           fi
 
@@ -49,27 +81,47 @@ jobs:
           echo "prerelease=${{ inputs.prerelease }}" >&2
           echo "draft=${{ inputs.draft }}" >&2
 
+      - name: Set Variables
+        id: set_variables
+        shell: bash
+        run: |
+          TAG_NAME="${{ inputs.tag_name }}"
+          SEMANTIC_VERSION="${TAG_NAME#v}"
+          echo "version=$SEMANTIC_VERSION" >> "$GITHUB_OUTPUT"
+          echo "version=$SEMANTIC_VERSION" >&2
 
   release_notes:
-    needs: validate_inputs
+    needs: validate
     name: Generate release notes
-    uses: ./.github/workflows/generate-release-notes.yml
+    runs-on: ubuntu-latest
+    outputs:
+      release_notes: ${{ steps.generate.outputs.release_notes }}
     permissions:
       contents: write
-    with:
-      tag_name: ${{ inputs.tag_name }}
-      target_commitish: ${{ inputs.target_commitish }}
-
-  build:
-    needs: release_notes
-    runs-on: ubuntu-latest
-
-    outputs:
-      tag_name: ${{ steps.release_meta.outputs.tag_name }}
-      release_name: ${{ steps.release_meta.outputs.release_name }}
 
     steps:
-    - name: Checkout code
+    - name: Generate release notes body
+      id: generate
+      uses: actions/github-script@v7
+      env:
+        TAG_NAME: ${{ inputs.tag_name }}
+        TARGET_COMMITISH: ${{ inputs.target_commitish }}
+      with:
+        script: |
+          const { owner, repo } = context.repo;
+          const tag_name = process.env.TAG_NAME;
+          const target_commitish = process.env.TARGET_COMMITISH;
+
+          const response = await github.rest.repos.generateReleaseNotes({
+            owner,
+            repo,
+            tag_name,
+            target_commitish,
+          });
+
+          core.setOutput('release_notes', response.data.body || '');
+
+    - name: Checkout target branch
       uses: actions/checkout@v5
       with:
         ref: ${{ inputs.target_commitish }}
@@ -80,69 +132,23 @@ jobs:
         node-version: '24.x'
         cache: 'npm'
 
-    - name: Install dependencies
-      run: npm install
-
-    # - name: Validate tag matches package version
-    #   id: release_meta
-    #   shell: bash
-    #   run: |
-    #     PACKAGE_VERSION=$(node -p "require('./package.json').version")
-    #     EXPECTED_TAG="v${PACKAGE_VERSION}"
-    #     if [ "${{ inputs.tag_name }}" != "$EXPECTED_TAG" ]; then
-    #       echo "Expected release tag $EXPECTED_TAG for package version $PACKAGE_VERSION, got ${{ inputs.tag_name }}" >&2
-    #       exit 1
-    #     fi
-
-    #     echo "tag_name=${{ inputs.tag_name }}" >> "$GITHUB_OUTPUT"
-    #     echo "release_name=SL-VScode Plugin ${PACKAGE_VERSION} Release" >> "$GITHUB_OUTPUT"
-
-    - name: Compile extension
-      run: npm run vscode:prepublish
-
-    - name: Install vsce
-      run: npm install -g @vscode/vsce
-
-    - name: Package extension
-      run: vsce package
-
-    - name: Get package filename
-      id: package
+    - name: Update version
       shell: bash
       run: |
-        PACKAGE_FILE=$(ls *.vsix | head -1)
-        echo "filename=$PACKAGE_FILE" >> "$GITHUB_OUTPUT"
-
-    - name: Upload VSIX artifact
-      uses: actions/upload-artifact@v4
-      with:
-        name: vscode-extension-release-${{ github.run_id }}
-        path: ${{ steps.package.outputs.filename }}
-        retention-days: 30
-
-  release:
-    name: Publish release
-    needs: [build, release_notes]
-    runs-on: ubuntu-latest
-
-    steps:
-    - name: Checkout target branch
-      uses: actions/checkout@v5
-      with:
-        ref: ${{ inputs.target_commitish }}
+        VERSION="${{ needs.validate.outputs.version }}"
+        npm version "$VERSION" --no-git-tag-version --allow-same-version
 
     - name: Write release notes file
       shell: bash
       env:
-        RELEASE_NOTES: ${{ needs.release_notes.outputs.release_notes }}
+        RELEASE_NOTES: ${{ steps.generate.outputs.release_notes }}
       run: |
         printf '%s\n' "$RELEASE_NOTES" > release_notes.md
 
     - name: Update CHANGELOG.md
       shell: bash
       run: |
-        VERSION="${{ needs.build.outputs.tag_name }}"
-        VERSION="${VERSION#v}"
+        VERSION="${{ needs.validate.outputs.version }}"
         RELEASE_DATE=$(date -u +%Y-%m-%d)
 
         {
@@ -173,6 +179,54 @@ jobs:
         mv CHANGELOG.new.md CHANGELOG.md
         cat CHANGELOG.md >&2
 
+    - name: Update README badges from package.json
+      shell: bash
+      run: |
+        node - <<'NODE'
+        const fs = require('fs');
+
+        const pkg = JSON.parse(fs.readFileSync('package.json', 'utf8'));
+        let vscodeVersion = pkg.engines && pkg.engines.vscode ? String(pkg.engines.vscode) : '';
+
+        if (vscodeVersion.startsWith('^')) {
+          vscodeVersion = `${vscodeVersion.slice(1)}+`;
+        }
+
+        const versionBadge = `[![Version](https://img.shields.io/badge/version-${pkg.version}-blue.svg)](https://github.com/secondlife/sl-vscode-plugin)`;
+        const licenseBadge = `[![License](https://img.shields.io/badge/license-${pkg.license}-green.svg)](LICENSE)`;
+        const vscodeBadge = `[![VS Code](https://img.shields.io/badge/VS%20Code-${encodeURIComponent(vscodeVersion)}-red.svg)](https://code.visualstudio.com/)`;
+
+        let readme = fs.readFileSync('README.md', 'utf8');
+
+        readme = readme.replace(/^\[!\[Version\]\(https:\/\/img\.shields\.io\/badge\/version-[^)]+\)\]\(https:\/\/github\.com\/secondlife\/sl-vscode-plugin\)$/m, versionBadge);
+        readme = readme.replace(/^\[!\[License\]\(https:\/\/img\.shields\.io\/badge\/license-[^)]+\)\]\(LICENSE\)$/m, licenseBadge);
+        readme = readme.replace(/^\[!\[VS Code\]\(https:\/\/img\.shields\.io\/badge\/VS%20Code-[^)]+\)\]\(https:\/\/code\.visualstudio\.com\/\)$/m, vscodeBadge);
+
+        fs.writeFileSync('README.md', readme);
+        NODE
+
+    - name: Package modified files for downstream jobs
+      shell: bash
+      run: |
+        git ls-files -m > modified-files.txt
+        git ls-files --others --exclude-standard >> modified-files.txt
+
+        if [ ! -s modified-files.txt ]; then
+          echo "No modified files detected" > no-modified-files.txt
+          tar -czf release-notes-files.tgz no-modified-files.txt
+        else
+          tar -czf release-notes-files.tgz -T modified-files.txt
+        fi
+
+    - name: Upload modified files artifact
+      uses: actions/upload-artifact@v4
+      with:
+        name: release-notes-modified-files-${{ github.run_id }}
+        path: |
+          release-notes-files.tgz
+          modified-files.txt
+        retention-days: 1
+
     # - name: Commit and push changelog update
     #   shell: bash
     #   run: |
@@ -195,9 +249,68 @@ jobs:
     #       exit 0
     #     fi
 
-    #     git commit -m "docs: update changelog for ${{ needs.build.outputs.tag_name }}"
+    #     git commit -m "docs: update changelog for ${{ inputs.tag_name }}"
     #     git push origin HEAD:$TARGET_BRANCH
 
+  build:
+    needs: release_notes
+    runs-on: ubuntu-latest
+
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v5
+      with:
+        ref: ${{ inputs.target_commitish }}
+
+    - name: Setup Node.js
+      uses: actions/setup-node@v6
+      with:
+        node-version: '24.x'
+        cache: 'npm'
+
+    - name: Download modified files artifact
+      uses: actions/download-artifact@v4
+      with:
+        name: release-notes-modified-files-${{ github.run_id }}
+        path: .
+
+    - name: Apply modified files from release_notes job
+      shell: bash
+      run: |
+        tar -xzf release-notes-files.tgz
+
+    - name: Install dependencies
+      run: npm install
+
+    - name: Compile extension
+      run: npm run vscode:prepublish
+
+    - name: Install vsce
+      run: npm install -g @vscode/vsce
+
+    - name: Package extension
+      run: vsce package
+
+    - name: Get package filename
+      id: package
+      shell: bash
+      run: |
+        PACKAGE_FILE=$(ls *.vsix | head -1)
+        echo "filename=$PACKAGE_FILE" >> "$GITHUB_OUTPUT"
+
+    - name: Upload VSIX artifact
+      uses: actions/upload-artifact@v4
+      with:
+        name: vscode-extension-release-${{ github.run_id }}
+        path: ${{ steps.package.outputs.filename }}
+        retention-days: 30
+
+  release:
+    name: Publish release
+    needs: [build, release_notes]
+    runs-on: ubuntu-latest
+
+    steps:
     - name: Download VSIX artifact
       uses: actions/download-artifact@v4
       with:
@@ -209,6 +322,17 @@ jobs:
       run: |
         PACKAGE_FILE=$(ls *.vsix | head -1)
         echo "filename=$PACKAGE_FILE" >> "$GITHUB_OUTPUT"
+
+    - name: Create release page
+      id: release
+      uses: secondlife-3p/action-gh-release@v1
+      with:
+        # name the release page for the branch
+        name: "SL-VScode Plugin ${{ steps.version.outputs.version }} Release"
+        prerelease: true
+        body_path: release_notes.md
+        target_commitish: ${{ github.sha }}
+        files: ${{ steps.package.outputs.filename }}
 
     # - name: Create GitHub release
     #   uses: secondlife-3p/action-gh-release@v1
