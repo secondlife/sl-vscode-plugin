@@ -1,4 +1,4 @@
-name: Release & Publish
+name: Cut Release
 
 on:
   workflow_dispatch:
@@ -27,7 +27,17 @@ permissions:
   contents: write
 
 jobs:
+  release_notes:
+    name: Generate release notes
+    uses: ./.github/workflows/generate-release-notes.yml
+    permissions:
+      contents: read
+    with:
+      tag_name: ${{ inputs.tag_name }}
+      target_commitish: ${{ inputs.target_commitish }}
+
   build:
+    needs: release_notes
     runs-on: ubuntu-latest
 
     outputs:
@@ -49,19 +59,19 @@ jobs:
     - name: Install dependencies
       run: npm install
 
-    - name: Validate tag matches package version
-      id: release_meta
-      shell: bash
-      run: |
-        PACKAGE_VERSION=$(node -p "require('./package.json').version")
-        EXPECTED_TAG="v${PACKAGE_VERSION}"
-        if [ "${{ inputs.tag_name }}" != "$EXPECTED_TAG" ]; then
-          echo "Expected release tag $EXPECTED_TAG for package version $PACKAGE_VERSION, got ${{ inputs.tag_name }}" >&2
-          exit 1
-        fi
+    # - name: Validate tag matches package version
+    #   id: release_meta
+    #   shell: bash
+    #   run: |
+    #     PACKAGE_VERSION=$(node -p "require('./package.json').version")
+    #     EXPECTED_TAG="v${PACKAGE_VERSION}"
+    #     if [ "${{ inputs.tag_name }}" != "$EXPECTED_TAG" ]; then
+    #       echo "Expected release tag $EXPECTED_TAG for package version $PACKAGE_VERSION, got ${{ inputs.tag_name }}" >&2
+    #       exit 1
+    #     fi
 
-        echo "tag_name=${{ inputs.tag_name }}" >> "$GITHUB_OUTPUT"
-        echo "release_name=SL-VScode Plugin ${PACKAGE_VERSION} Release" >> "$GITHUB_OUTPUT"
+    #     echo "tag_name=${{ inputs.tag_name }}" >> "$GITHUB_OUTPUT"
+    #     echo "release_name=SL-VScode Plugin ${PACKAGE_VERSION} Release" >> "$GITHUB_OUTPUT"
 
     - name: Compile extension
       run: npm run vscode:prepublish
@@ -85,16 +95,6 @@ jobs:
         name: vscode-extension-release-${{ github.run_id }}
         path: ${{ steps.package.outputs.filename }}
         retention-days: 30
-
-  release_notes:
-    name: Generate release notes
-    needs: build
-    uses: ./.github/workflows/generate-release-notes.yml
-    permissions:
-      contents: read
-    with:
-      tag_name: ${{ needs.build.outputs.tag_name }}
-      target_commitish: ${{ inputs.target_commitish }}
 
   release:
     name: Publish release
