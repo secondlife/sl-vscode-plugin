@@ -1,0 +1,197 @@
+name: Release & Publish
+
+on:
+  workflow_dispatch:
+    inputs:
+      tag_name:
+        description: Release tag to create, for example v1.0.3
+        required: true
+        type: string
+      target_commitish:
+        description: Branch or commit SHA the tag should point to
+        required: true
+        default: rider-test # main
+        type: string
+      prerelease:
+        description: Mark the GitHub release as a prerelease
+        required: true
+        default: true
+        type: boolean
+      draft:
+        description: Create the GitHub release as a draft
+        required: true
+        default: false
+        type: boolean
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+
+    outputs:
+      tag_name: ${{ steps.release_meta.outputs.tag_name }}
+      release_name: ${{ steps.release_meta.outputs.release_name }}
+
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v5
+      with:
+        ref: ${{ inputs.target_commitish }}
+
+    - name: Setup Node.js
+      uses: actions/setup-node@v6
+      with:
+        node-version: '24.x'
+        cache: 'npm'
+
+    - name: Install dependencies
+      run: npm install
+
+    - name: Validate tag matches package version
+      id: release_meta
+      shell: bash
+      run: |
+        PACKAGE_VERSION=$(node -p "require('./package.json').version")
+        EXPECTED_TAG="v${PACKAGE_VERSION}"
+        if [ "${{ inputs.tag_name }}" != "$EXPECTED_TAG" ]; then
+          echo "Expected release tag $EXPECTED_TAG for package version $PACKAGE_VERSION, got ${{ inputs.tag_name }}" >&2
+          exit 1
+        fi
+
+        echo "tag_name=${{ inputs.tag_name }}" >> "$GITHUB_OUTPUT"
+        echo "release_name=SL-VScode Plugin ${PACKAGE_VERSION} Release" >> "$GITHUB_OUTPUT"
+
+    - name: Compile extension
+      run: npm run vscode:prepublish
+
+    - name: Install vsce
+      run: npm install -g @vscode/vsce
+
+    - name: Package extension
+      run: vsce package
+
+    - name: Get package filename
+      id: package
+      shell: bash
+      run: |
+        PACKAGE_FILE=$(ls *.vsix | head -1)
+        echo "filename=$PACKAGE_FILE" >> "$GITHUB_OUTPUT"
+
+    - name: Upload VSIX artifact
+      uses: actions/upload-artifact@v4
+      with:
+        name: vscode-extension-release-${{ github.run_id }}
+        path: ${{ steps.package.outputs.filename }}
+        retention-days: 30
+
+  release_notes:
+    name: Generate release notes
+    needs: build
+    uses: ./.github/workflows/generate-release-notes.yml
+    permissions:
+      contents: read
+    with:
+      tag_name: ${{ needs.build.outputs.tag_name }}
+      target_commitish: ${{ inputs.target_commitish }}
+
+  release:
+    name: Publish release
+    needs: [build, release_notes]
+    runs-on: ubuntu-latest
+
+    steps:
+    - name: Checkout target branch
+      uses: actions/checkout@v5
+      with:
+        ref: ${{ inputs.target_commitish }}
+
+    - name: Write release notes file
+      shell: bash
+      env:
+        RELEASE_NOTES: ${{ needs.release_notes.outputs.release_notes }}
+      run: |
+        printf '%s\n' "$RELEASE_NOTES" > release_notes.md
+
+    - name: Update CHANGELOG.md
+      shell: bash
+      run: |
+        VERSION="${{ needs.build.outputs.tag_name }}"
+        VERSION="${VERSION#v}"
+        RELEASE_DATE=$(date -u +%Y-%m-%d)
+
+        {
+          echo "## [${VERSION}] - ${RELEASE_DATE}"
+          echo
+          cat release_notes.md
+          echo
+        } > changelog_entry.md
+
+        awk '
+          BEGIN { inserted = 0 }
+          /^## \[/ && inserted == 0 {
+            while ((getline line < "changelog_entry.md") > 0) print line
+            close("changelog_entry.md")
+            print ""
+            inserted = 1
+          }
+          { print }
+          END {
+            if (inserted == 0) {
+              print ""
+              while ((getline line < "changelog_entry.md") > 0) print line
+              close("changelog_entry.md")
+            }
+          }
+        ' CHANGELOG.md > CHANGELOG.new.md
+
+        mv CHANGELOG.new.md CHANGELOG.md
+
+    - name: Commit and push changelog update
+      shell: bash
+      run: |
+        TARGET_BRANCH="${{ inputs.target_commitish }}"
+        TARGET_BRANCH="${TARGET_BRANCH#refs/heads/}"
+
+        if ! git ls-remote --exit-code --heads origin "$TARGET_BRANCH" > /dev/null; then
+          echo "target_commitish must be a branch name (or refs/heads/<branch>) to update CHANGELOG.md" >&2
+          echo "Received: ${{ inputs.target_commitish }}" >&2
+          exit 1
+        fi
+
+        git config user.name "github-actions[bot]"
+        git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+
+        git add CHANGELOG.md
+
+        if git diff --cached --quiet; then
+          echo "No changelog changes to commit"
+          exit 0
+        fi
+
+        git commit -m "docs: update changelog for ${{ needs.build.outputs.tag_name }}"
+        git push origin HEAD:$TARGET_BRANCH
+
+    - name: Download VSIX artifact
+      uses: actions/download-artifact@v4
+      with:
+        name: vscode-extension-release-${{ github.run_id }}
+
+    - name: Get package filename
+      id: package
+      shell: bash
+      run: |
+        PACKAGE_FILE=$(ls *.vsix | head -1)
+        echo "filename=$PACKAGE_FILE" >> "$GITHUB_OUTPUT"
+
+    # - name: Create GitHub release
+    #   uses: secondlife-3p/action-gh-release@v1
+    #   with:
+    #     tag_name: ${{ needs.build.outputs.tag_name }}
+    #     target_commitish: ${{ inputs.target_commitish }}
+    #     name: ${{ needs.build.outputs.release_name }}
+    #     prerelease: ${{ inputs.prerelease }}
+    #     draft: ${{ inputs.draft }}
+    #     body_path: release_notes.md
+    #     files: ${{ steps.package.outputs.filename }}

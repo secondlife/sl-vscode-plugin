@@ -1,0 +1,45 @@
+name: Generate Release Notes
+
+on:
+  workflow_call:
+    inputs:
+      tag_name:
+        description: Tag name to generate release notes for
+        required: true
+        type: string
+      target_commitish:
+        description: Branch or commit SHA used as target for note generation
+        required: true
+        type: string
+    outputs:
+      release_notes:
+        description: Generated release notes body
+        value: ${{ jobs.generate.outputs.release_notes }}
+
+permissions:
+  contents: read
+
+jobs:
+  generate:
+    runs-on: ubuntu-latest
+    outputs:
+      release_notes: ${{ steps.generate.outputs.release_notes }}
+
+    steps:
+    - name: Generate release notes body
+      id: generate
+      uses: actions/github-script@v7
+      with:
+        script: |
+          const { owner, repo } = context.repo;
+          const tag_name = core.getInput('tag_name');
+          const target_commitish = core.getInput('target_commitish');
+
+          const response = await github.rest.repos.generateReleaseNotes({
+            owner,
+            repo,
+            tag_name,
+            target_commitish,
+          });
+
+          core.setOutput('release_notes', response.data.body || '');

@@ -3,7 +3,6 @@ name: CI
 on:
   push:
     branches: [ "*" ]
-    tags: [ "v*" ]
   pull_request:
     branches: [ main, develop ]
   workflow_dispatch:
@@ -102,9 +101,20 @@ jobs:
         path: ${{ steps.package.outputs.filename }}
         retention-days: 30
 
+  release_notes:
+    name: Generate release notes
+    needs: build
+    if: startsWith(github.ref, 'refs/tags/v')
+    uses: ./.github/workflows/generate-release-notes.yml
+    permissions:
+      contents: read
+    with:
+      tag_name: ${{ github.ref_name }}
+      target_commitish: ${{ github.sha }}
+
   release:
     name: Update release info
-    needs: build
+    needs: [build, release_notes]
     runs-on: ubuntu-latest
     timeout-minutes: 10
     if: startsWith(github.ref, 'refs/tags/v')
@@ -131,6 +141,12 @@ jobs:
         PACKAGE_FILE=$(ls *.vsix | head -1)
         echo "filename=$PACKAGE_FILE" >> $GITHUB_OUTPUT
 
+    - name: Write release notes file
+      env:
+        RELEASE_NOTES: ${{ needs.release_notes.outputs.release_notes }}
+      run: |
+        printf '%s\n' "$RELEASE_NOTES" > release_notes.md
+
     - name: Create release
       id: release
       uses: secondlife-3p/action-gh-release@v1
@@ -138,7 +154,6 @@ jobs:
         # name the release page for the branch
         name: "SL-VScode Plugin ${{ steps.version.outputs.version }} Release"
         prerelease: true
-        generate_release_notes: true
+        body_path: release_notes.md
         target_commitish: ${{ github.sha }}
-        append_body: true
         files: ${{ steps.package.outputs.filename }}
