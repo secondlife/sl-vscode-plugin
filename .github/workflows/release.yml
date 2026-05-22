@@ -27,7 +27,25 @@ permissions:
   contents: write
 
 jobs:
+  validate_inputs:
+    name: Validate release inputs
+    runs-on: ubuntu-latest
+    steps:
+      - name: Validate tag_name
+        shell: bash
+        run: |
+          if [ -z "${{ inputs.tag_name }}" ]; then
+            echo "tag_name is required and cannot be empty" >&2
+            exit 1
+          fi
+
+          if [[ ! "${{ inputs.tag_name }}" =~ ^v[0-9]+\.[0-9]+\.[0-9]+([.-].*)?$ ]]; then
+            echo "tag_name must look like v1.0.3" >&2
+            exit 1
+          fi
+
   release_notes:
+    needs: validate_inputs
     name: Generate release notes
     uses: ./.github/workflows/generate-release-notes.yml
     permissions:
