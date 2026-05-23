@@ -208,14 +208,21 @@ jobs:
     - name: Package modified files for downstream jobs
       shell: bash
       run: |
+        rm -rf release-notes-files
+        mkdir -p release-notes-files
+
         git ls-files -m > modified-files.txt
         git ls-files --others --exclude-standard >> modified-files.txt
 
         if [ ! -s modified-files.txt ]; then
-          echo "No modified files detected" > no-modified-files.txt
-          tar -czf release-notes-files.tgz no-modified-files.txt
+          echo "No modified files detected" > release-notes-files/no-modified-files.txt
         else
-          tar -czf release-notes-files.tgz -T modified-files.txt
+          while IFS= read -r file; do
+            if [ -n "$file" ] && [ -e "$file" ]; then
+              mkdir -p "release-notes-files/$(dirname "$file")"
+              cp "$file" "release-notes-files/$file"
+            fi
+          done < modified-files.txt
         fi
 
     - name: Upload modified files artifact
@@ -223,7 +230,7 @@ jobs:
       with:
         name: release-notes-modified-files-${{ github.run_id }}
         path: |
-          release-notes-files.tgz
+          release-notes-files
           modified-files.txt
         retention-days: 1
 
@@ -277,7 +284,36 @@ jobs:
     - name: Apply modified files from release_notes job
       shell: bash
       run: |
-        tar -xzf release-notes-files.tgz
+        if [ -d release-notes-files ]; then
+          cp -R release-notes-files/. .
+        fi
+
+    - name: Commit modified files and push tag
+      shell: bash
+      run: |
+        TARGET_BRANCH="${{ inputs.target_commitish }}"
+        TARGET_BRANCH="${TARGET_BRANCH#refs/heads/}"
+
+        if ! git ls-remote --exit-code --heads origin "$TARGET_BRANCH" > /dev/null; then
+          echo "target_commitish must be a branch name (or refs/heads/<branch>) to commit and tag changes" >&2
+          echo "Received: ${{ inputs.target_commitish }}" >&2
+          exit 1
+        fi
+
+        git config user.name "github-actions[bot]"
+        git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+
+        git add -u
+
+        if git diff --cached --quiet; then
+          echo "No repository changes to commit"
+        # else
+        #   git commit -m "docs: prepare release ${{ inputs.tag_name }}"
+        #   git push origin HEAD:$TARGET_BRANCH
+        fi
+
+        git tag -fa "${{ inputs.tag_name }}" -m "Release ${{ inputs.tag_name }}"
+        git push --force origin "refs/tags/${{ inputs.tag_name }}"
 
     - name: Install dependencies
       run: npm install
@@ -307,14 +343,25 @@ jobs:
 
   release:
     name: Publish release
-    needs: [build, release_notes]
+    needs: [build, release_notes, validate]
     runs-on: ubuntu-latest
 
     steps:
-    - name: Download VSIX artifact
+    - name: Download release artifacts
       uses: actions/download-artifact@v4
       with:
-        name: vscode-extension-release-${{ github.run_id }}
+        pattern: |
+          vscode-extension-release-${{ github.run_id }}
+          release-notes-modified-files-${{ github.run_id }}
+        merge-multiple: true
+        path: .
+
+    - name: Apply modified files from release_notes job
+      shell: bash
+      run: |
+        if [ -d release-notes-files ]; then
+          cp -R release-notes-files/. .
+        fi
 
     - name: Get package filename
       id: package
@@ -328,19 +375,10 @@ jobs:
       uses: secondlife-3p/action-gh-release@v1
       with:
         # name the release page for the branch
-        name: "SL-VScode Plugin ${{ steps.version.outputs.version }} Release"
-        prerelease: true
+        tag_name: ${{ inputs.tag_name }}
+        target_commitish: ${{ inputs.target_commitish }}
+        name: "SL-VScode Plugin ${{ needs.validate.outputs.version }} Release"
+        prerelease: ${{ inputs.prerelease }}
+        draft: ${{ inputs.draft }}
         body_path: release_notes.md
-        target_commitish: ${{ github.sha }}
         files: ${{ steps.package.outputs.filename }}
-
-    # - name: Create GitHub release
-    #   uses: secondlife-3p/action-gh-release@v1
-    #   with:
-    #     tag_name: ${{ needs.build.outputs.tag_name }}
-    #     target_commitish: ${{ inputs.target_commitish }}
-    #     name: ${{ needs.build.outputs.release_name }}
-    #     prerelease: ${{ inputs.prerelease }}
-    #     draft: ${{ inputs.draft }}
-    #     body_path: release_notes.md
-    #     files: ${{ steps.package.outputs.filename }}
