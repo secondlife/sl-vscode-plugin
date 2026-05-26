@@ -347,13 +347,15 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
-    - name: Download release artifacts
+    - name: Download VSIX artifact
       uses: actions/download-artifact@v4
       with:
-        pattern: |
-          vscode-extension-release-${{ github.run_id }}
-          release-notes-modified-files-${{ github.run_id }}
-        merge-multiple: true
+        name: vscode-extension-release-${{ github.run_id }}
+
+    - name: Download modified files artifact
+      uses: actions/download-artifact@v4
+      with:
+        name: release-notes-modified-files-${{ github.run_id }}
         path: .
 
     - name: Apply modified files from release_notes job
