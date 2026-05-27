@@ -10,7 +10,7 @@ on:
       target_commitish:
         description: Branch or commit SHA the tag should point to
         required: true
-        default: rider-test # main
+        default: develop
         type: string
       prerelease:
         description: Mark the GitHub release as a prerelease
