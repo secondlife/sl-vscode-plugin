@@ -3,6 +3,7 @@ name: CI
 on:
   push:
     branches: [ "*" ]
+    tags-ignore: [ "**" ]
   pull_request:
     branches: [ main, develop ]
   workflow_dispatch:
@@ -78,10 +79,10 @@ jobs:
     - name: Update package.json version for non-main builds
       if: github.ref != 'refs/heads/main' && !startsWith(github.ref, 'refs/tags/v')
       run: |
-        # Build strict numeric version: major.minor.patch.run
+        # Build semver prerelease version: major.minor.patch-build.<run>
         BASE_VERSION=$(node -p "(() => { const m = (require('./package.json').version.match(/\\d+/g) || []); return [m[0] || '0', m[1] || '0', m[2] || '0'].join('.'); })()")
-        NEW_VERSION="${BASE_VERSION}.${GITHUB_RUN_NUMBER}"
-        node -e "const fs=require('fs');const p=require('./package.json');p.version=process.env.NEW_VERSION;fs.writeFileSync('package.json', JSON.stringify(p, null, 2) + '\\n');"
+        NEW_VERSION="${BASE_VERSION}-build.${GITHUB_RUN_NUMBER}"
+        npm version "$NEW_VERSION" --no-git-tag-version --allow-same-version
         echo "Updated version to: $NEW_VERSION"
 
     - name: Package extension
