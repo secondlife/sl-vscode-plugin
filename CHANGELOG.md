@@ -5,6 +5,26 @@ All notable changes to the Second Life External Scripting Extension will be docu
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.0.4] - 2026-05-27
+
+## What's Changed
+* Reduce config switches for meta output by @WolfGangS in https://github.com/secondlife/sl-vscode-plugin/pull/50
+* Linux-specific instructions by @tapple in https://github.com/secondlife/sl-vscode-plugin/pull/52
+* Add the option to treat the viewer file as master by @tapple in https://github.com/secondlife/sl-vscode-plugin/pull/55
+* Spelling corrections by @FelixWolf in https://github.com/secondlife/sl-vscode-plugin/pull/53
+* Fix default config, and support for custom port by @WolfGangS in https://github.com/secondlife/sl-vscode-plugin/pull/51
+* Luau type fixes for luau-lsp by @tapple in https://github.com/secondlife/sl-vscode-plugin/pull/57
+* Always try to match a master file by `@file` meta by @tapple in https://github.com/secondlife/sl-vscode-plugin/pull/61
+* Disable-auto-language-update by @tapple in https://github.com/secondlife/sl-vscode-plugin/pull/62
+* Switch support for lsl preproc by @WolfGangS in https://github.com/secondlife/sl-vscode-plugin/pull/59
+
+## New Contributors
+* @tapple made their first contribution in https://github.com/secondlife/sl-vscode-plugin/pull/52
+* @FelixWolf made their first contribution in https://github.com/secondlife/sl-vscode-plugin/pull/53
+
+**Full Changelog**: https://github.com/secondlife/sl-vscode-plugin/compare/v1.0.3...v1.0.4
+
+
 ## [1.0.0] - 2025-11-18
 
 ### Added

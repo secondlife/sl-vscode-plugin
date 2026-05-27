@@ -2,9 +2,9 @@
 
 **Enhance your Second Life scripting workflow with advanced preprocessing and external editing capabilities!**
 
-[![Version](https://img.shields.io/badge/version-1.0.0-blue.svg)](https://github.com/secondlife/sl-vscode-plugin)
+[![Version](https://img.shields.io/badge/version-1.0.4-blue.svg)](https://github.com/secondlife/sl-vscode-plugin)
 [![License](https://img.shields.io/badge/license-MIT-green.svg)](LICENSE)
-[![VS Code](https://img.shields.io/badge/VS%20Code-1.85.0+-red.svg)](https://code.visualstudio.com/)
+[![VS Code](https://img.shields.io/badge/VS%20Code-1.85.0%2B-red.svg)](https://code.visualstudio.com/)
 
 The Second Life External Scripting Extension transforms VS Code into a development environment for Second Life scripts, supporting both **LSL (Linden Scripting Language)** and **SLua (Second Life Lua)** with preprocessing capabilities and viewer integration.
 
