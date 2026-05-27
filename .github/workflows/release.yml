@@ -242,7 +242,7 @@ jobs:
         git ls-files --others --exclude-standard >> modified-files.txt
 
         if [ ! -s modified-files.txt ]; then
-          echo "No modified files detected" > release-notes-files/no-modified-files.txt
+          echo "No modified files detected" >&2
         else
           while IFS= read -r file; do
             if [ -n "$file" ] && [ -e "$file" ]; then
@@ -342,8 +342,8 @@ jobs:
 
         git push origin "$RELEASE_BRANCH"
 
-        git tag -fa "${{ inputs.tag_name }}" -m "Release ${{ inputs.tag_name }}"
-        git push --force origin "refs/tags/${{ inputs.tag_name }}"
+        git tag -a "${{ inputs.tag_name }}" -m "Release ${{ inputs.tag_name }}"
+        git push origin "refs/tags/${{ inputs.tag_name }}"
 
     - name: Create release PRs
       uses: actions/github-script@v7
