@@ -22,6 +22,11 @@ on:
         required: true
         default: false
         type: boolean
+      publish_marketplace:
+        description: Publish the extension to the VS Code Marketplace
+        required: true
+        default: false
+        type: boolean
 
 permissions:
   contents: write
@@ -71,9 +76,30 @@ jobs:
             exit 1
           fi
 
-          # Enforce SemVer 2.0.0 with a required leading "v" (e.g. v1.2.3, v1.2.3-rc.1, v1.2.3+build.7)
-          if [[ ! "${{ inputs.tag_name }}" =~ ^v(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)(-((0|[1-9][0-9]*|[0-9]*[A-Za-z-][0-9A-Za-z-]*)(\.(0|[1-9][0-9]*|[0-9]*[A-Za-z-][0-9A-Za-z-]*))*))?(\+([0-9A-Za-z-]+(\.[0-9A-Za-z-]+)*))?$ ]]; then
-            echo "tag_name must be valid SemVer with a leading v (for example v1.0.3 or v1.0.3-rc.1+build.7)" >&2
+          # Enforce plain vX.Y.Z — no pre-release suffixes or build metadata.
+          # The VS Code Marketplace does not support SemVer pre-release identifiers in
+          # extension versions. Use an odd minor number (e.g. v1.3.0) with the
+          # prerelease input flag instead of a suffix like v1.2.3-rc.1.
+          if [[ ! "${{ inputs.tag_name }}" =~ ^v(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)$ ]]; then
+            echo "tag_name must be plain vX.Y.Z (for example v1.0.3)." >&2
+            echo "The VS Code Marketplace does not support pre-release suffixes in version numbers." >&2
+            echo "Use an odd minor version (e.g. v1.3.0) with the prerelease flag for pre-release builds." >&2
+            exit 1
+          fi
+
+          # Enforce odd/even minor version convention:
+          #   even minor (0, 2, 4, ...) → stable release  (prerelease must be false)
+          #   odd  minor (1, 3, 5, ...) → pre-release     (prerelease must be true)
+          MINOR=$(echo "${{ inputs.tag_name }}" | cut -d. -f2)
+          IS_PRERELEASE="${{ inputs.prerelease }}"
+          if (( MINOR % 2 == 0 )) && [[ "$IS_PRERELEASE" == "true" ]]; then
+            echo "Even minor version (${{ inputs.tag_name }}) must not be marked as prerelease." >&2
+            echo "Even minor = stable release. Use an odd minor version for pre-release builds." >&2
+            exit 1
+          fi
+          if (( MINOR % 2 == 1 )) && [[ "$IS_PRERELEASE" == "false" ]]; then
+            echo "Odd minor version (${{ inputs.tag_name }}) must be marked as prerelease." >&2
+            echo "Odd minor = pre-release. Use an even minor version for stable releases." >&2
             exit 1
           fi
 
@@ -321,13 +347,16 @@ jobs:
 
     - name: Create release PRs
       uses: actions/github-script@v7
+      env:
+        RELEASE_NOTES: ${{ needs.release_notes.outputs.release_notes }}
       with:
         script: |
           const { owner, repo } = context.repo;
           const releaseBranch = `release/${{ inputs.tag_name }}`;
           const tagName = '${{ inputs.tag_name }}';
           const prTitle = `chore: prepare release ${tagName}`;
-          const prBody = `Automated release PR for ${tagName}.\n\nUpdates CHANGELOG.md, package.json version, and README badges.`;
+          const releaseNotes = process.env.RELEASE_NOTES || '';
+          const prBody = `Automated release PR for ${tagName}.\n\nUpdates CHANGELOG.md, package.json version, and README badges.\n\n## Release Notes\n\n${releaseNotes}`;
 
           for (const base of ['develop', 'main']) {
             try {
@@ -415,3 +444,39 @@ jobs:
         draft: ${{ inputs.draft }}
         body_path: release_notes.md
         files: ${{ steps.package.outputs.filename }}
+
+  publish:
+    name: Publish to VS Code Marketplace
+    needs: [release, build, validate]
+    runs-on: ubuntu-latest
+    # Skip if publish not requested or if this is a draft release
+    if: ${{ inputs.publish_marketplace && !inputs.draft }}
+
+    steps:
+    - name: Download VSIX artifact
+      uses: actions/download-artifact@v4
+      with:
+        name: vscode-extension-release-${{ github.run_id }}
+        path: vsix/
+
+    - name: Get package filename
+      id: package
+      shell: bash
+      run: |
+        PACKAGE_FILE=$(ls vsix/*.vsix | head -1)
+        echo "filename=$PACKAGE_FILE" >> "$GITHUB_OUTPUT"
+
+    - name: Publish to Marketplace
+      shell: bash
+      env:
+        VSCE_PAT: ${{ secrets.VSCE_PAT }}
+      run: |
+        npm install -g @vscode/vsce
+
+        if [[ "${{ inputs.prerelease }}" == "true" ]]; then
+          echo "Publishing pre-release to Marketplace..." >&2
+          vsce publish --pre-release --packagePath "${{ steps.package.outputs.filename }}" --pat "$VSCE_PAT"
+        else
+          echo "Publishing stable release to Marketplace..." >&2
+          vsce publish --packagePath "${{ steps.package.outputs.filename }}" --pat "$VSCE_PAT"
+        fi

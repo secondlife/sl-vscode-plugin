@@ -6,23 +6,19 @@ on:
     tags-ignore: [ "**" ]
   pull_request:
     branches: [ main, develop ]
-  workflow_dispatch:
 
 jobs:
   test:
     runs-on: ubuntu-latest
-    strategy:
-      matrix:
-        node-version: [24.x]
 
     steps:
     - name: Checkout code
       uses: actions/checkout@v5
 
-    - name: Setup Node.js ${{ matrix.node-version }}
+    - name: Setup Node.js
       uses: actions/setup-node@v6
       with:
-        node-version: ${{ matrix.node-version }}
+        node-version: '24.x'
         cache: 'npm'
 
     - name: Install dependencies
@@ -41,7 +37,6 @@ jobs:
 
     - name: Run full test suite
       run: xvfb-run -a npm test
-      continue-on-error: false
 
   build:
     needs: test
@@ -66,24 +61,9 @@ jobs:
     - name: Compile extension
       run: npm run vscode:prepublish
 
-    - name: Determine build metadata
+    - name: Get build SHA
       id: version
-      run: |
-        if [ "${{ github.ref }}" = "refs/heads/main" ]; then
-          echo "release_type=release" >> $GITHUB_OUTPUT
-        elif [ "${{ github.ref }}" = "refs/heads/debug" ]; then
-          echo "release_type=beta" >> $GITHUB_OUTPUT
-        fi
-        echo "sha_short=$(echo ${{ github.sha }} | cut -c1-8)" >> $GITHUB_OUTPUT
-
-    - name: Update package.json version for non-main builds
-      if: github.ref != 'refs/heads/main' && !startsWith(github.ref, 'refs/tags/v')
-      run: |
-        # Build semver prerelease version: major.minor.patch-build.<run>
-        BASE_VERSION=$(node -p "(() => { const m = (require('./package.json').version.match(/\\d+/g) || []); return [m[0] || '0', m[1] || '0', m[2] || '0'].join('.'); })()")
-        NEW_VERSION="${BASE_VERSION}-build.${GITHUB_RUN_NUMBER}"
-        npm version "$NEW_VERSION" --no-git-tag-version --allow-same-version
-        echo "Updated version to: $NEW_VERSION"
+      run: echo "sha_short=$(echo ${{ github.sha }} | cut -c1-8)" >> $GITHUB_OUTPUT
 
     - name: Package extension
       run: vsce package
@@ -93,68 +73,10 @@ jobs:
       run: |
         PACKAGE_FILE=$(ls *.vsix | head -1)
         echo "filename=$PACKAGE_FILE" >> $GITHUB_OUTPUT
-        echo "name=$(basename "$PACKAGE_FILE" .vsix)" >> $GITHUB_OUTPUT
 
     - name: Upload VSIX artifact
       uses: actions/upload-artifact@v4
       with:
-        name: vscode-extension-${{ steps.version.outputs.release_type }}-${{ steps.version.outputs.sha_short }}
+        name: vscode-extension-${{ steps.version.outputs.sha_short }}
         path: ${{ steps.package.outputs.filename }}
         retention-days: 30
-
-  release_notes:
-    name: Generate release notes
-    needs: build
-    if: startsWith(github.ref, 'refs/tags/v')
-    uses: ./.github/workflows/generate-release-notes.yml
-    permissions:
-      contents: read
-    with:
-      tag_name: ${{ github.ref_name }}
-      target_commitish: ${{ github.sha }}
-
-  release:
-    name: Update release info
-    needs: [build, release_notes]
-    runs-on: ubuntu-latest
-    timeout-minutes: 10
-    if: startsWith(github.ref, 'refs/tags/v')
-    permissions:
-      contents: write
-
-    steps:
-    - name: Get version from tag
-      id: version
-      run: |
-        VERSION=${GITHUB_REF#refs/tags/v}
-        echo "version=$VERSION" >> $GITHUB_OUTPUT
-        echo "tag=${GITHUB_REF#refs/tags/}" >> $GITHUB_OUTPUT
-
-    - name: Download VSIX artifact
-      uses: actions/download-artifact@v4
-      with:
-        pattern: vscode-extension-*
-        merge-multiple: true
-
-    - name: Get package filename
-      id: package
-      run: |
-        PACKAGE_FILE=$(ls *.vsix | head -1)
-        echo "filename=$PACKAGE_FILE" >> $GITHUB_OUTPUT
-
-    - name: Write release notes file
-      env:
-        RELEASE_NOTES: ${{ needs.release_notes.outputs.release_notes }}
-      run: |
-        printf '%s\n' "$RELEASE_NOTES" > release_notes.md
-
-    - name: Create release
-      id: release
-      uses: secondlife-3p/action-gh-release@v1
-      with:
-        # name the release page for the branch
-        name: "SL-VScode Plugin ${{ steps.version.outputs.version }} Release"
-        prerelease: true
-        body_path: release_notes.md
-        target_commitish: ${{ github.sha }}
-        files: ${{ steps.package.outputs.filename }}
