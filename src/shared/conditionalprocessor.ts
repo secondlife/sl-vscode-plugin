@@ -10,7 +10,7 @@
 import { Token, TokenType, type LanguageLexerConfig } from './lexer';
 import type { MacroProcessor } from './macroprocessor';
 import { PreprocessorDiagnostic, DiagnosticLocation, ErrorCodes } from './diagnostics';
-import { NormalizedPath } from '../interfaces/hostinterface';
+import { StringUri } from '../interfaces/hostinterface';
 
 //#region Conditional State
 
@@ -139,7 +139,7 @@ export class ConditionalProcessor {
         macroName: string,
         macros: MacroProcessor,
         line: number,
-        _sourceFile?: NormalizedPath,
+        _sourceFile?: StringUri,
         _column: number = 1
     ): ConditionalResult {
         const condition = macros.isDefined(macroName);
@@ -158,7 +158,7 @@ export class ConditionalProcessor {
         macroName: string,
         macros: MacroProcessor,
         line: number,
-        _sourceFile?: NormalizedPath,
+        _sourceFile?: StringUri,
         _column: number = 1
     ): ConditionalResult {
         const condition = !macros.isDefined(macroName);
@@ -177,7 +177,7 @@ export class ConditionalProcessor {
         tokens: Token[],
         macros: MacroProcessor,
         line: number,
-        _sourceFile?: NormalizedPath,
+        _sourceFile?: StringUri,
         _column: number = 1
     ): ConditionalResult {
         const condition = this.evaluateCondition(tokens, macros);
@@ -196,7 +196,7 @@ export class ConditionalProcessor {
         tokens: Token[],
         macros: MacroProcessor,
         line: number,
-        sourceFile?: NormalizedPath,
+        sourceFile?: StringUri,
         column: number = 1
     ): ConditionalResult {
         if (this.stack.length === 0) {
@@ -265,7 +265,7 @@ export class ConditionalProcessor {
      */
     public processElse(
         line: number,
-        sourceFile?: NormalizedPath,
+        sourceFile?: StringUri,
         column: number = 1
     ): ConditionalResult {
         if (this.stack.length === 0) {
@@ -321,7 +321,7 @@ export class ConditionalProcessor {
      */
     public processEndif(
         line: number,
-        sourceFile?: NormalizedPath,
+        sourceFile?: StringUri,
         column: number = 1
     ): ConditionalResult {
         if (this.stack.length === 0) {

@@ -25,7 +25,8 @@ import {
 } from "./utils";
 import { ScriptLanguage } from "./shared/languageservice";
 import { CompilationResult, RuntimeDebug, RuntimeError } from "./viewereditwsclient";
-import { normalizePath } from "./interfaces/hostinterface";
+import { StringUri, uriEquals } from "./interfaces/hostinterface";
+import { vscodeUriToStringUri } from "./utils";
 import { SynchService } from "./synchservice";
 import { IncludeInfo } from "./shared/parser";
 import { sha256 } from "js-sha256";
@@ -189,7 +190,11 @@ export class ScriptSync implements vscode.Disposable {
     }
 
     public getMasterFilePath(): string {
-        return path.normalize(this.masterDocument.fileName);
+        return this.masterDocument.uri.fsPath;
+    }
+
+    public getMasterUri(): vscode.Uri {
+        return this.masterDocument.uri;
     }
 
     public getLanguage(): string {
@@ -204,21 +209,21 @@ export class ScriptSync implements vscode.Disposable {
     //#region Diagnostics
     public clearDiagnostics(): void {
         this.diagnosticSources.forEach((source) => {
-            this.diagnosticCollection.delete(vscode.Uri.file(source));
+            this.diagnosticCollection.delete(vscode.Uri.parse(source));
         });
         this.diagnosticSources.clear();
     }
 
     public addDiagnostics(diagnosticsMap: { [source: string]: vscode.Diagnostic[] }): void {
         Object.entries(diagnosticsMap).forEach(([filePath, diagnostics]) => {
-            const fileUri = vscode.Uri.file(filePath);
+            const fileUri = vscode.Uri.parse(filePath);
 
             const oldList = this.diagnosticCollection.get(fileUri) || [];
             const newList = [...oldList, ...diagnostics];
 
-            this.diagnosticSources.add(filePath)
+            this.diagnosticSources.add(filePath);
             this.diagnosticCollection.set(fileUri, newList);
-            console.log(`Displayed ${diagnostics.length} errors for ${path.basename(filePath)}`);
+            console.log(`Displayed ${diagnostics.length} errors for ${path.basename(fileUri.fsPath)}`);
         });
 
     }
@@ -244,7 +249,7 @@ export class ScriptSync implements vscode.Disposable {
 
         errors.forEach((error) => {
             let line = error.row;
-            let file = normalizePath(this.masterDocument.uri.fsPath);
+            let file: StringUri = vscodeUriToStringUri(this.masterDocument.uri);
             let document: vscode.TextDocument | undefined = this.masterDocument;
 
             if (this.lineMappings) {
@@ -253,7 +258,7 @@ export class ScriptSync implements vscode.Disposable {
                     line = mapping.line;
                     file = mapping.source;
                     document = vscode.workspace.textDocuments.find(doc =>
-                        normalizePath(doc.uri.fsPath) === mapping.source
+                        uriEquals(vscodeUriToStringUri(doc.uri), mapping.source)
                     );
                 }
             }
@@ -340,7 +345,7 @@ export class ScriptSync implements vscode.Disposable {
         const errorMessage = `Runtime error on object ${message.object_name} (${message.object_id}): ${message.error}`;
 
         let line = message.line;
-        let file = normalizePath(this.masterDocument.uri.fsPath);
+        let file: StringUri = vscodeUriToStringUri(this.masterDocument.uri);
         let document: vscode.TextDocument | undefined = this.masterDocument;
 
         if (this.lineMappings) {
@@ -349,7 +354,7 @@ export class ScriptSync implements vscode.Disposable {
                 line = mapping.line;
                 file = mapping.source;
                 document = vscode.workspace.textDocuments.find(doc =>
-                    normalizePath(doc.uri.fsPath) === mapping.source
+                    uriEquals(vscodeUriToStringUri(doc.uri), mapping.source)
                 );
             }
         }
@@ -373,7 +378,7 @@ export class ScriptSync implements vscode.Disposable {
         );
         diagnostic.source = `Second Life Runtime`;
 
-        const fileUri = vscode.Uri.file(file);
+        const fileUri = vscode.Uri.parse(file as string);
         this.diagnosticSources.add(file);
         this.diagnosticCollection.set(fileUri, [diagnostic]);
 
@@ -407,7 +412,7 @@ export class ScriptSync implements vscode.Disposable {
             const languageConfig = this.getLanguageConfig();
             preprocessorResult = await this.preprocessor.process(
                 originalContent,
-                normalizePath(masterFilePath),
+                vscodeUriToStringUri(this.masterDocument.uri),
                 languageConfig,
             );
 

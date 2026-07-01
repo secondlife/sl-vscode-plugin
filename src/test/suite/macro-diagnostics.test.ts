@@ -10,13 +10,13 @@ import * as assert from 'assert';
 import { MacroProcessor, MacroExpansionContext } from '../../shared/macroprocessor';
 import { getLanguageConfig, Lexer } from '../../shared/lexer';
 import { DiagnosticCollector, DiagnosticSeverity, ErrorCodes } from '../../shared/diagnostics';
-import { normalizePath } from '../../interfaces/hostinterface';
+import { filePathToStringUri } from '../../interfaces/hostinterface';
 
 suite('MacroProcessor Diagnostics', () => {
     let processor: MacroProcessor;
     let diagnostics: DiagnosticCollector;
     const lslLanguageConfig = getLanguageConfig('lsl');
-    const testFile = normalizePath('test.lsl');
+    const testFile = filePathToStringUri('d:/test/test.lsl');
 
     setup(() => {
         processor = new MacroProcessor();

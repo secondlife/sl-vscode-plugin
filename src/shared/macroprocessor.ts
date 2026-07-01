@@ -24,7 +24,7 @@
 
 import { Token, TokenType } from './lexer';
 import { DiagnosticCollector, ErrorCodes, DiagnosticSeverity } from './diagnostics';
-import { NormalizedPath } from '../interfaces/hostinterface';
+import { StringUri } from '../interfaces/hostinterface';
 
 //#region Macro Definition
 
@@ -151,7 +151,7 @@ export class MacroProcessor {
     public processDefined(
         tokens: Token[],
         diagnostics?: DiagnosticCollector,
-        sourceFile?: NormalizedPath,
+        sourceFile?: StringUri,
         line?: number
     ): Token[] {
         const result: Token[] = [];
@@ -279,7 +279,7 @@ export class MacroProcessor {
         context?: MacroExpansionContext,
         expanding?: Set<string>,
         diagnostics?: DiagnosticCollector,
-        sourceFile?: NormalizedPath,
+        sourceFile?: StringUri,
         line?: number,
         column?: number
     ): Token[] | null {
@@ -380,7 +380,7 @@ export class MacroProcessor {
         context?: MacroExpansionContext,
         expanding?: Set<string>,
         diagnostics?: DiagnosticCollector,
-        sourceFile?: NormalizedPath,
+        sourceFile?: StringUri,
         line?: number,
         column?: number
     ): Token[] | null {
@@ -450,7 +450,7 @@ export class MacroProcessor {
         context?: MacroExpansionContext,
         expanding?: Set<string>,
         diagnostics?: DiagnosticCollector,
-        sourceFile?: NormalizedPath
+        sourceFile?: StringUri
     ): Token[] {
         const result: Token[] = [];
         const expandingSet = expanding || new Set<string>();

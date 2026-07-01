@@ -8,12 +8,12 @@ import { ConditionalProcessor } from '../../shared/conditionalprocessor';
 import { MacroProcessor } from '../../shared/macroprocessor';
 import { getLanguageConfig, Lexer, Token, TokenType } from '../../shared/lexer';
 import { ErrorCodes, DiagnosticSeverity } from '../../shared/diagnostics';
-import { normalizePath } from '../../interfaces/hostinterface';
+import { filePathToStringUri } from '../../interfaces/hostinterface';
 
 suite('ConditionalProcessor Diagnostics', () => {
     let conditionals: ConditionalProcessor;
     let macros: MacroProcessor;
-    const testFile = normalizePath('test.lsl');
+    const testFile = filePathToStringUri('d:/test/test.lsl');
     const lslLanguageConfig = getLanguageConfig('lsl');
 
     /**

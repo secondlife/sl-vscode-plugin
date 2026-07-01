@@ -9,7 +9,7 @@
 import * as fs from 'fs';
 import * as path from 'path';
 import { glob } from 'glob';
-import { HostInterface, NormalizedPath, normalizePath } from '../interfaces/hostinterface';
+import { HostInterface, StringUri, filePathToStringUri, stringUriToFilePath } from '../interfaces/hostinterface';
 import { FullConfigInterface } from '../interfaces/configinterface';
 import * as yaml from 'js-yaml';
 import * as toml from '@iarna/toml';
@@ -37,7 +37,7 @@ function hasWildcard(p: string): boolean { return /[*?]/.test(p); }
 
 export class NodeHost implements HostInterface {
     public readonly config: FullConfigInterface;
-    private readonly roots: NormalizedPath[];
+    private readonly roots: string[];
     private readonly fs: typeof fs;
     private readonly log: Logger;
 
@@ -46,7 +46,7 @@ export class NodeHost implements HostInterface {
             throw new Error('NodeHost requires at least one root directory');
         }
         this.config = opts.config;
-        this.roots = opts.roots.map(r => normalizePath(path.resolve(r)));
+        this.roots = opts.roots.map(r => path.normalize(path.resolve(r)));
         this.fs = opts.fsModule || fs;
         const noOp = (): void => {};
         this.log = {
@@ -57,23 +57,29 @@ export class NodeHost implements HostInterface {
         };
     }
 
-    existsInSameWorkspace(_knownPath: string, _desiredPath: string): Promise<boolean> {
+    existsInSameWorkspace(_knownUri: StringUri, _desiredPath: string): Promise<boolean> {
         throw new Error('Method not implemented.');
     }
 
     // ---------------------------------------------------------------------
-    async exists(p: NormalizedPath, _unsafe?: boolean): Promise<boolean> {
+    async exists(uri: StringUri, _unsafe?: boolean): Promise<boolean> {
+        const p = stringUriToFilePath(uri);
+        if (!p) return false;
         try {
             const st = await this.fs.promises.stat(p);
             return st.isFile();
         } catch { return false; }
     }
 
-    async readFile(p: NormalizedPath, _unsafe?: boolean): Promise<string | null> {
+    async readFile(uri: StringUri, _unsafe?: boolean): Promise<string | null> {
+        const p = stringUriToFilePath(uri);
+        if (!p) return null;
         try { return await this.fs.promises.readFile(p, 'utf8'); } catch { return null; }
     }
 
-    async writeFile(p: NormalizedPath, content: string | Uint8Array): Promise<boolean> {
+    async writeFile(uri: StringUri, content: string | Uint8Array): Promise<boolean> {
+        const p = stringUriToFilePath(uri);
+        if (!p) return false;
         try {
             await this.ensureDir(path.dirname(p));
             await this.fs.promises.writeFile(p, content);
@@ -84,43 +90,43 @@ export class NodeHost implements HostInterface {
         }
     }
 
-    async readJSON<T = any>(p: NormalizedPath, unsafe?: boolean): Promise<T | null> {
-        const txt = await this.readFile(p, unsafe);
+    async readJSON<T = any>(uri: StringUri, unsafe?: boolean): Promise<T | null> {
+        const txt = await this.readFile(uri, unsafe);
         if (txt == null) return null;
         try { return JSON.parse(txt) as T; } catch { return null; }
     }
 
-    async writeJSON(p: NormalizedPath, data: any, pretty: boolean = true): Promise<boolean> {
+    async writeJSON(uri: StringUri, data: any, pretty: boolean = true): Promise<boolean> {
         try {
             const serialized = pretty ? JSON.stringify(data, null, 2) : JSON.stringify(data);
-            return await this.writeFile(p, serialized);
+            return await this.writeFile(uri, serialized);
         } catch (err) {
-            this.log.error('writeJSON failed', p, err);
+            this.log.error('writeJSON failed', uri, err);
             return false;
         }
     }
 
-    async readYAML<T = any>(p: NormalizedPath, unsafe?: boolean): Promise<T | null> {
-        const txt = await this.readFile(p, unsafe);
+    async readYAML<T = any>(uri: StringUri, unsafe?: boolean): Promise<T | null> {
+        const txt = await this.readFile(uri, unsafe);
         if (txt == null) return null;
         try { return yaml.load(txt) as T; } catch { return null; }
     }
 
-    async writeYAML(p: NormalizedPath, data: any): Promise<boolean> {
-        try { return await this.writeFile(p, yaml.dump(data)); } catch { return false; }
+    async writeYAML(uri: StringUri, data: any): Promise<boolean> {
+        try { return await this.writeFile(uri, yaml.dump(data)); } catch { return false; }
     }
 
-    async readTOML<T = any>(p: NormalizedPath, unsafe?: boolean): Promise<T | null> {
-        const txt = await this.readFile(p, unsafe);
+    async readTOML<T = any>(uri: StringUri, unsafe?: boolean): Promise<T | null> {
+        const txt = await this.readFile(uri, unsafe);
         if (txt == null) return null;
         try { return toml.parse(txt) as T; } catch { return null; }
     }
 
-    async writeTOML(p: NormalizedPath, data: Record<string, any>): Promise<boolean> {
-        try { return await this.writeFile(p, toml.stringify(data)); } catch { return false; }
+    async writeTOML(uri: StringUri, data: Record<string, any>): Promise<boolean> {
+        try { return await this.writeFile(uri, toml.stringify(data)); } catch { return false; }
     }
 
-    async listWorkspaceFolders(): Promise<NormalizedPath[]> { return this.roots; }
+    async listWorkspaceFolders(): Promise<StringUri[]> { return this.roots.map(r => filePathToStringUri(r)); }
 
     isExtensionAvailable(_id: string): boolean { return false; }
 
@@ -128,10 +134,12 @@ export class NodeHost implements HostInterface {
     /** Resolve include/require file akin to VSCode host but purely on filesystem. */
     async resolveFile(
         filename: string,
-        from: NormalizedPath,
+        fromUri: StringUri,
         extensions: string[],
         includePaths?: string[]
-    ): Promise<NormalizedPath | null> {
+    ): Promise<StringUri | null> {
+        const from = stringUriToFilePath(fromUri);
+        if (!from) return null;
         const fromDir = path.dirname(from);
         const hasExt = path.extname(filename).length > 0;
         const candidateExts = hasExt ? [''] : extensions.map(e => e.startsWith('.') ? e : `.${e}`);
@@ -154,11 +162,11 @@ export class NodeHost implements HostInterface {
         if (isExplicitRelative && !candidateDirs.includes(fromDir)) candidateDirs.unshift(fromDir);
         const containsPath = /[\\/]/.test(filename);
 
-        const tryCandidate = async (absPath: string): Promise<NormalizedPath | null> => {
+        const tryCandidate = async (absPath: string): Promise<StringUri | null> => {
             if (!this.isInsideRoots(absPath)) return null;
             try {
                 const st = await this.fs.promises.stat(absPath);
-                if (st.isFile()) return normalizePath(absPath);
+                if (st.isFile()) return filePathToStringUri(absPath);
             } catch { /* ignore */ }
             return null;
         };
@@ -212,40 +220,6 @@ export class NodeHost implements HostInterface {
 
     private async ensureDir(dir: string): Promise<void> {
         await this.fs.promises.mkdir(dir, { recursive: true });
-    }
-
-    /**
-     * Convert a normalized file path to a file:// URI for NodeHost
-     */
-    fileNameToUri(fileName: NormalizedPath): string {
-        // For NodeHost, we just use file:// URIs with absolute paths
-        const absPath = path.resolve(fileName);
-        // Convert Windows backslashes to forward slashes for URI
-        const uriPath = absPath.split(path.sep).join('/');
-        // Ensure proper file:// URI format
-        return 'file:///' + (uriPath.startsWith('/') ? uriPath.slice(1) : uriPath);
-    }
-
-    /**
-     * Convert a URI back to a normalized file path
-     */
-    uriToFileName(uri: string): NormalizedPath {
-        // Handle file:// URIs
-        if (uri.startsWith('file:///')) {
-            let filePath = uri.substring('file:///'.length);
-            // On Windows, we need to handle drive letters
-            if (process.platform === 'win32' && /^[a-zA-Z]:/.test(filePath)) {
-                // Already has drive letter, just normalize
-                return normalizePath(filePath);
-            }
-            // On Unix or if missing drive letter on Windows, add leading slash
-            if (!filePath.startsWith('/')) {
-                filePath = '/' + filePath;
-            }
-            return normalizePath(filePath);
-        }
-        // If not a recognized URI scheme, treat as a path
-        return normalizePath(uri);
     }
 }
 

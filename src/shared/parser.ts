@@ -6,10 +6,10 @@
  * Consumes token stream from lexer and produces preprocessed output.
  */
 
-import * as path from 'path';
 import { LanguageLexerConfig, Token, TokenType } from './lexer';
-import { NormalizedPath, HostInterface } from '../interfaces/hostinterface';
+import { StringUri, HostInterface, uriDirname } from '../interfaces/hostinterface';
 import { FullConfigInterface, ConfigKey } from '../interfaces/configinterface';
+import { LineMapping } from './linemapper';
 import type { DirectiveImplementations } from './lexingpreprocessor';
 import { MacroProcessor, MacroExpansionContext } from './macroprocessor';
 import { ConditionalProcessor } from './conditionalprocessor';
@@ -23,9 +23,9 @@ import { DiagnosticCollector, PreprocessorDiagnostic, ErrorCodes, DiagnosticErro
  */
 export interface RequireState {
     /** Map of resolved file path to module ID */
-    moduleMap: Map<NormalizedPath, number>;
+    moduleMap: Map<StringUri, number>;
     /** Map of module ID to resolved file path */
-    modulePathMap: Map<number, NormalizedPath>;
+    modulePathMap: Map<number, StringUri>;
     /** Map of module ID to wrapped module tokens */
     wrappedModules: Map<number, Token[]>;
     /** Next available module ID */
@@ -97,14 +97,7 @@ export interface ParserResult {
     success: boolean;
 }
 
-/**
- * Line mapping for source map generation
- */
-export interface LineMapping {
-    processedLine: number;
-    originalLine: number;
-    sourceFile: NormalizedPath;
-}
+// LineMapping is imported from linemapper.ts
 
 /**
  * Information about an include directive
@@ -151,7 +144,7 @@ export class Parser {
     private tokens: Token[];
     private position: number;
     private state: ParserState;
-    private sourceFile: NormalizedPath;
+    private sourceFile: StringUri;
     private language: LanguageLexerConfig;
 
     // Output accumulators
@@ -164,7 +157,7 @@ export class Parser {
     private currentOutputLine: number;
     private lastSourceLine: number;
     private lastSourceColumn: number;
-    private lastSourceFile: NormalizedPath;
+    private lastSourceFile: StringUri;
     private lineDirectiveEmittedForCurrentLine: boolean;
     private lastEmittedTokenType: TokenType | null;
     private lineCommentsDisabled: boolean;
@@ -185,7 +178,7 @@ export class Parser {
     private isTopLevelParser: boolean;
 
     // Workspace roots for generating relative paths in @line directives
-    private workspaceRoots: NormalizedPath[];
+    private workspaceRoots: StringUri[];
 
     // Diagnostic collector
     private diagnostics: DiagnosticCollector;
@@ -196,13 +189,13 @@ export class Parser {
 
     constructor(
         tokens: Token[],
-        sourceFile: NormalizedPath,
+        sourceFile: StringUri,
         language: LanguageLexerConfig,
         host?: HostInterface,
         directives?: DirectiveImplementations,
         initialState?: Partial<ParserState>,
         isTopLevel: boolean = true,
-        workspaceRoots?: NormalizedPath[],
+        workspaceRoots?: StringUri[],
         diagnostics?: DiagnosticCollector,
         config?: FullConfigInterface
     ) {
@@ -221,7 +214,7 @@ export class Parser {
         this.diagnostics = diagnostics || new DiagnosticCollector();
 
         // Default to file's directory as workspace root if not provided
-        this.workspaceRoots = workspaceRoots || [path.dirname(sourceFile) as NormalizedPath];
+        this.workspaceRoots = workspaceRoots || [uriDirname(sourceFile)];
 
         // Read configuration values for include processing from individual config keys
         const maxIncludeDepth = config?.getConfig<number>(ConfigKey.PreprocessorMaxIncludeDepth) ?? 5;
@@ -1247,11 +1240,10 @@ export class Parser {
 
     /**
      * Format a file path for use in @line directives.
-     * Attempts to make paths workspace-relative for portability and readability.
-     * Falls back to normalized absolute paths if file is outside workspace.
+     * Since we're using URIs throughout, just return the URI string.
      */
-    private formatPathForLineDirective(absolutePath: NormalizedPath): string {
-        return this.host?.fileNameToUri(absolutePath) ?? ("file://" + absolutePath);
+    private formatPathForLineDirective(uri: StringUri): string {
+        return uri;
     }
 
     /**
@@ -1894,7 +1886,7 @@ export class Parser {
     /**
      * Wrap module tokens in an anonymous function
      */
-    private wrapModuleInFunction(moduleTokens: Token[], resolvedPath: NormalizedPath, lineNumber: number): Token[] {
+    private wrapModuleInFunction(moduleTokens: Token[], resolvedPath: StringUri, lineNumber: number): Token[] {
         const wrapped: Token[] = [];
 
         // Opening: (function()
@@ -1948,7 +1940,7 @@ export class Parser {
         this.mappings = [];
 
         let outputLine = 1;
-        let currentSourceFile: NormalizedPath = this.sourceFile;
+        let currentSourceFile: StringUri = this.sourceFile;
         let currentSourceLine = 1;
         const lineDirectivePrefix = `${this.language.lineCommentPrefix} @line `;
 
@@ -1963,7 +1955,8 @@ export class Parser {
 
                 if (match) {
                     currentSourceLine = parseInt(match[1], 10);
-                    currentSourceFile = this.host?.uriToFileName(match[2]) ?? match[2] as NormalizedPath;
+                    // URI is stored directly in the @line directive
+                    currentSourceFile = match[2] as StringUri;
                 }
 
                 // Skip to next token (should be newline)
@@ -2010,12 +2003,12 @@ export class Parser {
      * // Line 2 -> main.lsl:1
      * // Line 4 -> math.lsl:3
      */
-    public static parseLineMappingsFromContent(content: string, language: LanguageLexerConfig, host: HostInterface): LineMapping[] {
+    public static parseLineMappingsFromContent(content: string, language: LanguageLexerConfig, _host: HostInterface): LineMapping[] {
         const lines = content.split('\n');
         const lineMappings: LineMapping[] = [];
         const commentPrefix = `${language.lineCommentPrefix} @line`;
 
-        let currentSourceFile: NormalizedPath | null = null;
+        let currentSourceFile: StringUri | null = null;
         let currentSourceLine = 1;
 
         for (let i = 0; i < lines.length; i++) {
@@ -2034,8 +2027,8 @@ export class Parser {
                     const lineNumber = parseInt(match[1], 10);
                     const sourceFileString = match[2];
 
-                    // Convert URI to normalized path using host
-                    currentSourceFile = host.uriToFileName(sourceFileString);
+                    // Store URI directly from the @line directive
+                    currentSourceFile = sourceFileString as StringUri;
                     currentSourceLine = lineNumber;
                 }
             } else if (currentSourceFile) {

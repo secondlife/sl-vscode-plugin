@@ -7,10 +7,10 @@
 import * as assert from 'assert';
 import { getLanguageConfig, Lexer, TokenType } from '../../shared/lexer';
 import { DiagnosticCollector, DiagnosticSeverity, ErrorCodes } from '../../shared/diagnostics';
-import { NormalizedPath } from '../../interfaces/hostinterface';
+import { filePathToStringUri } from '../../interfaces/hostinterface';
 
 suite('Lexer Diagnostics', () => {
-    const testFile = "test.lsl" as NormalizedPath;
+    const testFile = filePathToStringUri('d:/test/test.lsl');
     const lslLanguageConfig = getLanguageConfig('lsl');
     const luauLanguageConfig = getLanguageConfig('luau');
 

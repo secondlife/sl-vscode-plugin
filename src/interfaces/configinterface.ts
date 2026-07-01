@@ -3,11 +3,10 @@
  * Abstraction layer for configuration access so core logic remains framework-agnostic.
  *
  * This mirrors responsibilities currently handled inside LLConfigService but avoids
- * any direct dependency on VS Code types. All paths MUST be normalized before
- * returning using the NormalizedPath branding from hostinterface.
+ * any direct dependency on VS Code types. All paths are returned as StringUri.
  */
 
-import { NormalizedPath } from './hostinterface';
+import { StringUri } from './hostinterface';
 
 /** Keys used by configuration (mirrors LLConfigNames). */
 export enum ConfigKey {
@@ -60,10 +59,10 @@ export interface ConfigInterface {
   setConfig<T>(key: ConfigKey, value: T, scope?: ConfigScope): Promise<void>;
 
   /** Path helpers analogous to LLConfigService static methods. */
-  getExtensionInstallPath(): Promise<NormalizedPath>;
-  getGlobalConfigPath(): Promise<NormalizedPath>;
+  getExtensionInstallPath(): Promise<StringUri>;
+  getGlobalConfigPath(): Promise<StringUri>;
   /** Workspace-level config path (may fallback to global if local not enabled). */
-  getWorkspaceConfigPath(): Promise<NormalizedPath>;
+  getWorkspaceConfigPath(): Promise<StringUri>;
 
   /** Arbitrary session-scoped values (non-persisted) similar to SessionConfigs. */
   getSessionValue<T>(key: ConfigKey): T | undefined;

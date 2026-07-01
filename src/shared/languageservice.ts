@@ -7,8 +7,8 @@ import { JSONRPCInterface } from "../websockclient";
 import { LanguageTransformer } from "./languagetransformer";
 import { LanguageRepository } from "./languagerepository";
 import {
-    NormalizedPath,
-    normalizeJoinPath,
+    StringUri,
+    resolveUri,
     HostInterface,
     TextDocLike,
     DisposableLike
@@ -208,14 +208,14 @@ export class LanguageService implements DisposableLike {
     //#endregion
 
     //#region Language ID Caching utils
-    public async getCachedSyntaxFileName(syntaxId: string): Promise<NormalizedPath> {
-        let base: NormalizedPath;
+    public async getCachedSyntaxFileName(syntaxId: string): Promise<StringUri> {
+        let base: StringUri;
         if (!syntaxId || syntaxId === "default") {
-            base = normalizeJoinPath(await this.host.config.getExtensionInstallPath(), "data");
+            base = resolveUri(await this.host.config.getExtensionInstallPath(), "data");
         } else {
             base = await this.host.config.getGlobalConfigPath();
         }
-        return normalizeJoinPath(base, `syntax_def_${syntaxId}.json`);
+        return resolveUri(base, `syntax_def_${syntaxId}.json`);
     }
 
     public async hasCachedSyntaxFile(syntaxId: string): Promise<boolean> {

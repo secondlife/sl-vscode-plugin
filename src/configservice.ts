@@ -5,7 +5,7 @@
 import * as vscode from "vscode";
 import { hasWorkspace } from "./utils";
 import { ConfigKey, ConfigScope, FullConfigInterface } from "./interfaces/configinterface";
-import { normalizePath, NormalizedPath } from "./interfaces/hostinterface";
+import { filePathToStringUri, StringUri } from "./interfaces/hostinterface";
 
 /** Number of seconds to display status bar messages */
 export const STATUS_BAR_TIMEOUT_SECONDS = 3;
@@ -75,16 +75,16 @@ export class ConfigService implements vscode.Disposable, FullConfigInterface {
     }
 
     // ConfigInterface path methods -------------------------------------------------
-    public async getExtensionInstallPath(): Promise<NormalizedPath> {
-        return normalizePath(ConfigService.getExtensionPath().fsPath);
+    public async getExtensionInstallPath(): Promise<StringUri> {
+        return filePathToStringUri(ConfigService.getExtensionPath().fsPath);
     }
 
-    public async getGlobalConfigPath(): Promise<NormalizedPath> {
-        return normalizePath((await ConfigService.getGlobalConfigPath()).fsPath);
+    public async getGlobalConfigPath(): Promise<StringUri> {
+        return filePathToStringUri((await ConfigService.getGlobalConfigPath()).fsPath);
     }
 
-    public async getWorkspaceConfigPath(): Promise<NormalizedPath> {
-        return normalizePath((await ConfigService.getConfigPath()).fsPath);
+    public async getWorkspaceConfigPath(): Promise<StringUri> {
+        return filePathToStringUri((await ConfigService.getConfigPath()).fsPath);
     }
 
     // Session value helpers -------------------------------------------------------

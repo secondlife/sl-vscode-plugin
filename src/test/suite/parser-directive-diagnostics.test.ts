@@ -7,14 +7,14 @@ import * as assert from 'assert';
 import { Parser } from '../../shared/parser';
 import { getLanguageConfig, Lexer, TokenType } from '../../shared/lexer';
 import { DiagnosticCollector, DiagnosticSeverity, ErrorCodes } from '../../shared/diagnostics';
-import { normalizePath, NormalizedPath } from '../../interfaces/hostinterface';
+import { filePathToStringUri, StringUri } from '../../interfaces/hostinterface';
 
 suite('Parser Directive Validation', () => {
-    let sourceFile: NormalizedPath;
+    let sourceFile: StringUri;
     const lslLanguageConfig = getLanguageConfig('lsl');
 
     setup(() => {
-        sourceFile = normalizePath('test.lsl');
+        sourceFile = filePathToStringUri('d:/test/test.lsl');
     });
 
     suite('PAR001: Malformed Directive', () => {
