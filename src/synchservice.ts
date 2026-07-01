@@ -42,6 +42,7 @@ import { getLanguageConfig } from "./shared/lexer";
 import { HostInterface } from "./interfaces/hostinterface";
 import { SyncedFileDecorator } from "./vscode/SyncedFileDecorator";
 import { ObjectContentService } from "./vscode/objectcontentservice";
+import { SL_SCHEME, SL_AUTHORITY } from "./vscode/objectcontentprovider";
 
 type ParsedTempFile = { scriptName: string; scriptId: string; extension: string, language: ScriptLanguage };
 
@@ -372,6 +373,7 @@ export class SynchService implements vscode.Disposable {
             },
             onObjectUpdate: (msg: ObjectUpdateMessage): any => {
                 logDebug(`[object.update] object_id=${msg.object_id}`);
+                logDebug(`[object.update] object_name=${msg.object_name}`);
                 ObjectContentService.getInstance().handleUpdate(msg);
             },
         };
@@ -488,6 +490,7 @@ export class SynchService implements vscode.Disposable {
         this._onDidChangeConnectionState.fire(true);
 
         await this.handleLaunchParams();
+        await this.requestWorkspaceObjects();
     }
 
     private onDisconnect(params: SessionDisconnect): void {
@@ -1005,6 +1008,35 @@ export class SynchService implements vscode.Disposable {
 
         await this.setupConnection(params.port);
         // handleLaunchParams is called from onHandshakeOk
+    }
+
+    private async requestWorkspaceObjects(): Promise<void> {
+        if (!this.websocket?.isConnected()) { return; }
+
+        const service = ObjectContentService.getInstance();
+        const folders = vscode.workspace.workspaceFolders ?? [];
+
+        for (const folder of folders) {
+            if (folder.uri.scheme !== SL_SCHEME || folder.uri.authority !== SL_AUTHORITY) {
+                continue;
+            }
+
+            const object_id = folder.uri.path.slice(1); // strip leading "/"
+            if (!object_id || service.hasObject(object_id)) {
+                continue; // already published
+            }
+
+            try {
+                const result = await this.websocket.requestObject({ object_id });
+                if (result.object) {
+                    service.handlePublish({ object: result.object });
+                } else if (result.success === false) {
+                    logDebug(`[requestWorkspaceObjects] viewer rejected ${object_id}: ${result.message ?? "unknown"}`);
+                }
+            } catch (err) {
+                logDebug(`[requestWorkspaceObjects] error requesting ${object_id}: ${err}`);
+            }
+        }
     }
 
     private async handleLaunchParams(): Promise<void> {

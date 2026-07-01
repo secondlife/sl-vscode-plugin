@@ -23,6 +23,10 @@ import {
 export interface ObjectTreeChangeEvent {
     type: "added" | "removed" | "updated";
     object_id: string;
+    /** link_ids of prims newly added to the linkset (only set when type === "updated") */
+    added_link_ids?: string[];
+    /** link_ids of prims removed from the linkset (only set when type === "updated") */
+    removed_link_ids?: string[];
 }
 
 /** Fired when cached content for a specific item is invalidated or needs refresh */
@@ -100,6 +104,9 @@ export class ObjectContentService implements vscode.Disposable {
             entry.object.object_name = msg.object_name;
         }
 
+        let added_link_ids: string[] | undefined;
+        let removed_link_ids: string[] | undefined;
+
         if (msg.changes) {
             // Delta update
             if (msg.changes.inventory) {
@@ -158,15 +165,24 @@ export class ObjectContentService implements vscode.Disposable {
                 this._evictPrimCache(entry, msg.object_id, msg.object_id);
             }
             if (msg.linked_objects !== undefined) {
+                const oldLinks = entry.object.linked_objects ?? [];
+                const newIdSet = new Set(msg.linked_objects.map((lo) => lo.link_id));
+                const oldIdSet = new Set(oldLinks.map((lo) => lo.link_id));
+                removed_link_ids = oldLinks
+                    .filter((lo) => !newIdSet.has(lo.link_id))
+                    .map((lo) => lo.link_id);
+                added_link_ids = msg.linked_objects
+                    .filter((lo) => !oldIdSet.has(lo.link_id))
+                    .map((lo) => lo.link_id);
                 // Evict cache for all replaced linked prims
-                for (const lo of entry.object.linked_objects ?? []) {
+                for (const lo of oldLinks) {
                     this._evictPrimCache(entry, msg.object_id, lo.link_id);
                 }
                 entry.object.linked_objects = msg.linked_objects;
             }
         }
 
-        this._onDidChangeObjects.fire({ type: "updated", object_id: msg.object_id });
+        this._onDidChangeObjects.fire({ type: "updated", object_id: msg.object_id, added_link_ids, removed_link_ids });
     }
 
     // ============================================

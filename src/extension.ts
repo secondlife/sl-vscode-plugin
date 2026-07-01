@@ -75,6 +75,16 @@ export function activate(context: vscode.ExtensionContext): void {
                 if (slIdx !== -1) {
                     vscode.workspace.updateWorkspaceFolders(slIdx, 1);
                 }
+            } else if (type === "updated") {
+                if (slIdx !== -1) {
+                    const entry = objectContentService.getObject(object_id);
+                    if (entry) {
+                        vscode.workspace.updateWorkspaceFolders(slIdx, 1, {
+                            uri: rootUri(object_id),
+                            name: entry.object.object_name,
+                        });
+                    }
+                }
             }
         })
     );

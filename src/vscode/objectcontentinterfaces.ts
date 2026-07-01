@@ -98,6 +98,16 @@ export interface ObjectUnpublishMessage {
     reason?: string;
 }
 
+/** object.unpublish — Extension → Viewer (call) */
+export interface ObjectUnpublishParams {
+    object_id: string;
+}
+
+export interface ObjectUnpublishResponse {
+    success: boolean;
+    object_id?: string;
+}
+
 /** Delta changes for inventory items */
 export interface InventoryChanges {
     added?: ObjectInventoryItem[];

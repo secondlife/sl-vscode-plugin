@@ -9,6 +9,7 @@ import { ObjectContentService } from "./objectcontentservice";
 import { ViewerEditWSClient } from "../viewereditwsclient";
 import {
     InventoryItemType,
+    LinkedObject,
     ObjectContentSaveVM,
     ObjectInventoryItem,
     ScriptVM,
@@ -94,6 +95,46 @@ function isUUID(s: string): boolean {
 }
 
 /**
+ * Returns the display name to use for a linked prim's directory entry in readDirectory.
+ * Uses link_name when unique among siblings; disambiguates with link_number when names collide.
+ * Falls back to link_id when link_name is empty.
+ */
+function linkedPrimDirName(lo: LinkedObject, allLinked: LinkedObject[]): string {
+    if (!lo.link_name) return lo.link_id;
+    const hasDuplicate = allLinked.some(
+        (other) => other.link_id !== lo.link_id && other.link_name === lo.link_name
+    );
+    return hasDuplicate ? `${lo.link_name} (${lo.link_number})` : lo.link_name;
+}
+
+/**
+ * Resolves a linked prim directory segment (as returned by readDirectory) back to its link_id.
+ * Accepts: plain UUID, "Name (link_number)" disambiguated format, or plain name.
+ */
+function resolveLinkedPrimId(
+    segment: string,
+    linkedObjects: LinkedObject[]
+): string | undefined {
+    // UUID — used by internal API calls and content-change notifications
+    const byId = linkedObjects.find((lo) => lo.link_id === segment);
+    if (byId) return byId.link_id;
+
+    // "Name (N)" — disambiguated display name
+    const m = segment.match(/^(.*) \((\d+)\)$/);
+    if (m) {
+        const baseName = m[1];
+        const linkNum = parseInt(m[2], 10);
+        const found = linkedObjects.find(
+            (lo) => lo.link_name === baseName && lo.link_number === linkNum
+        );
+        if (found) return found.link_id;
+    }
+
+    // Plain name — for unique names
+    return linkedObjects.find((lo) => lo.link_name === segment)?.link_id;
+}
+
+/**
  * Find an item in an inventory list by its display name.
  * Returns the item_id if found, undefined otherwise.
  */
@@ -144,11 +185,11 @@ function parseUri(
 
     if (parts.length === 2) {
         // Is seg1 a linked prim (directory) or an item (file)?
-        const isLinkedPrim =
-            entry?.object.linked_objects?.some((lo) => lo.link_id === seg1) ?? false;
+        const linkedObjects = entry?.object.linked_objects ?? [];
+        const resolvedLinkId = resolveLinkedPrimId(seg1, linkedObjects);
 
-        if (isLinkedPrim) {
-            return { root_id, link_id: seg1, isDirectory: true };
+        if (resolvedLinkId !== undefined) {
+            return { root_id, link_id: resolvedLinkId, isDirectory: true };
         }
 
         // seg1 is either a UUID or a display name
@@ -168,7 +209,8 @@ function parseUri(
     }
 
     if (parts.length === 3) {
-        const link_id = parts[1];
+        const linkedObjects = entry?.object.linked_objects ?? [];
+        const link_id = resolveLinkedPrimId(parts[1], linkedObjects) ?? parts[1];
         const seg2 = parts[2];
 
         // seg2 is either a UUID or a display name
@@ -281,6 +323,9 @@ export class ObjectContentProvider implements vscode.FileSystemProvider, vscode.
     private _onDidChangeFile = new vscode.EventEmitter<vscode.FileChangeEvent[]>();
     readonly onDidChangeFile = this._onDidChangeFile.event;
 
+    /** Maps object_id → (link_id → last-known dir segment name) for change notification lookup */
+    private _linkedDirNames = new Map<string, Map<string, string>>();
+
     private disposables: vscode.Disposable[] = [];
 
     constructor(
@@ -290,7 +335,22 @@ export class ObjectContentProvider implements vscode.FileSystemProvider, vscode.
         // Forward content invalidations to VS Code as Changed events
         this.disposables.push(
             service.onDidChangeContent(({ object_id, prim_id, item_id }) => {
-                const uri = itemUri(object_id, prim_id, item_id);
+                // Build the URI using the same display-name segment that readDirectory exposes,
+                // so VS Code can match the notification to the correct open editor.
+                let uri: vscode.Uri;
+                if (prim_id === object_id) {
+                    uri = itemUri(object_id, prim_id, item_id);
+                } else {
+                    const entry2 = service.getObject(object_id);
+                    const allLinked = entry2?.object.linked_objects ?? [];
+                    const lo = allLinked.find((l) => l.link_id === prim_id);
+                    const linkSegment = lo ? linkedPrimDirName(lo, allLinked) : prim_id;
+                    uri = vscode.Uri.from({
+                        scheme: SL_SCHEME,
+                        authority: SL_AUTHORITY,
+                        path: `/${object_id}/${linkSegment}/${item_id}`,
+                    });
+                }
                 // Defer to ensure VS Code processes even when not focused
                 setTimeout(() => {
                     this._onDidChangeFile.fire([{ type: vscode.FileChangeType.Changed, uri }]);
@@ -298,16 +358,83 @@ export class ObjectContentProvider implements vscode.FileSystemProvider, vscode.
             }),
 
             // Forward tree changes (added/removed objects) as directory changes
-            service.onDidChangeObjects(({ type, object_id }) => {
+            service.onDidChangeObjects((event) => {
+                const { type, object_id } = event;
                 const uri = rootUri(object_id);
                 // Defer to ensure VS Code processes even when not focused
                 setTimeout(() => {
                     if (type === "added") {
                         this._onDidChangeFile.fire([{ type: vscode.FileChangeType.Created, uri }]);
                     } else if (type === "removed") {
+                        this._linkedDirNames.delete(object_id);
                         this._onDidChangeFile.fire([{ type: vscode.FileChangeType.Deleted, uri }]);
                     } else {
-                        this._onDidChangeFile.fire([{ type: vscode.FileChangeType.Changed, uri }]);
+                        const { added_link_ids, removed_link_ids } = event;
+                        const fileEvents: vscode.FileChangeEvent[] = [];
+
+                        if (added_link_ids?.length || removed_link_ids?.length) {
+                            // Structural change: fire Deleted for removed dirs (using cached
+                            // names) and Created for added dirs.
+                            const nameMap = this._linkedDirNames.get(object_id) ?? new Map<string, string>();
+                            if (!this._linkedDirNames.has(object_id)) {
+                                this._linkedDirNames.set(object_id, nameMap);
+                            }
+
+                            for (const link_id of removed_link_ids ?? []) {
+                                const segment = nameMap.get(link_id);
+                                if (segment) {
+                                    fileEvents.push({
+                                        type: vscode.FileChangeType.Deleted,
+                                        uri: vscode.Uri.from({
+                                            scheme: SL_SCHEME,
+                                            authority: SL_AUTHORITY,
+                                            path: `/${object_id}/${segment}`,
+                                        }),
+                                    });
+                                    nameMap.delete(link_id);
+                                }
+                            }
+
+                            const entry = service.getObject(object_id);
+                            const allLinked = entry?.object.linked_objects ?? [];
+                            for (const link_id of added_link_ids ?? []) {
+                                const lo = allLinked.find((l) => l.link_id === link_id);
+                                if (lo) {
+                                    const segment = linkedPrimDirName(lo, allLinked);
+                                    nameMap.set(link_id, segment);
+                                    fileEvents.push({
+                                        type: vscode.FileChangeType.Created,
+                                        uri: vscode.Uri.from({
+                                            scheme: SL_SCHEME,
+                                            authority: SL_AUTHORITY,
+                                            path: `/${object_id}/${segment}`,
+                                        }),
+                                    });
+                                }
+                            }
+
+                            // Changed on root so VS Code re-calls readDirectory
+                            fileEvents.push({ type: vscode.FileChangeType.Changed, uri });
+                        } else {
+                            // Non-structural update — refresh root and all current child dirs
+                            fileEvents.push({ type: vscode.FileChangeType.Changed, uri });
+                            const entry = service.getObject(object_id);
+                            if (entry?.object.linked_objects?.length) {
+                                const allLinked = entry.object.linked_objects;
+                                for (const lo of allLinked) {
+                                    fileEvents.push({
+                                        type: vscode.FileChangeType.Changed,
+                                        uri: vscode.Uri.from({
+                                            scheme: SL_SCHEME,
+                                            authority: SL_AUTHORITY,
+                                            path: `/${object_id}/${linkedPrimDirName(lo, allLinked)}`,
+                                        }),
+                                    });
+                                }
+                            }
+                        }
+
+                        this._onDidChangeFile.fire(fileEvents);
                     }
                 }, 0);
             }),
@@ -389,10 +516,19 @@ export class ObjectContentProvider implements vscode.FileSystemProvider, vscode.
             for (const item of entry.object.inventory) {
                 results.push([displayName(item), vscode.FileType.File]);
             }
-            for (const lo of entry.object.linked_objects ?? []) {
-                // Use link_id (UUID) as the directory name so URIs remain stable.
-                // link_name is used as display label via workspace folder naming.
-                results.push([lo.link_id, vscode.FileType.Directory]);
+            const allLinked = entry.object.linked_objects ?? [];
+            // Cache dir names so the change-notification handler can fire Deleted
+            // events with the correct URI even after the entry has been updated.
+            let nameMap = this._linkedDirNames.get(root_id);
+            if (!nameMap) {
+                nameMap = new Map();
+                this._linkedDirNames.set(root_id, nameMap);
+            }
+            for (const lo of allLinked) {
+                // Use a human-readable display name; disambiguate duplicates with link_number.
+                const segment = linkedPrimDirName(lo, allLinked);
+                nameMap.set(lo.link_id, segment);
+                results.push([segment, vscode.FileType.Directory]);
             }
         }
 

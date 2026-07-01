@@ -170,6 +170,8 @@ WebSocket connects → session.handshake → session.ok
 | `runtime.error`                 | Viewer → Extension | Notification | `RuntimeError`             |
 | `object.publish`                | Viewer → Extension | Notification | `ObjectPublishMessage`     |
 | `object.unpublish`              | Viewer → Extension | Notification | `ObjectUnpublishMessage`   |
+| `object.unpublish`              | Extension → Viewer | Call         | `ObjectUnpublishParams`    |
+| `object.unpublish` (response)   | Viewer → Extension | Response     | `ObjectUnpublishResponse`  |
 | `object.update`                 | Viewer → Extension | Notification | `ObjectUpdateMessage`      |
 | `object.content.get`            | Extension → Viewer | Call         | `ObjectContentGetParams`   |
 | `object.content.get` (response) | Viewer → Extension | Response     | `ObjectContentGetResponse` |
@@ -779,6 +781,28 @@ interface ObjectUnpublishMessage {
 
 - `object_id`: UUID of the root prim that is being unpublished
 - `reason` (optional): Human-readable explanation (e.g. `"object deleted"`, `"out of range"`)
+
+**JSON-RPC Method:** `object.unpublish` (call from extension to viewer)
+
+The extension may also call `object.unpublish` to manually stop tracking an object. The viewer will stop publishing it and send a corresponding `object.unpublish` notification back to the caller.
+
+```typescript
+interface ObjectUnpublishParams {
+  object_id: string;  // UUID of the root prim to unpublish
+}
+
+interface ObjectUnpublishResponse {
+  success: boolean;
+  object_id?: string;
+}
+```
+
+**Fields:**
+
+- `object_id`: UUID of the root prim to unpublish.
+- `success`: `true` if the object was published and has been removed.
+
+**Note:** The viewer also sends an `object.unpublish` notification to the caller immediately after responding. Extensions should handle that notification idempotently.
 
 ---
 

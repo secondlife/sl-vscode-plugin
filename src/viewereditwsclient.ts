@@ -21,6 +21,8 @@ import {
     ObjectItemDeleteResponse,
     ObjectScriptSetRunningParams,
     ObjectScriptSetRunningResponse,
+    ObjectUnpublishParams,
+    ObjectUnpublishResponse,
     ObjectRequestParams,
     ObjectRequestResponse,
 } from "./vscode/objectcontentinterfaces";
@@ -277,6 +279,10 @@ export class ViewerEditWSClient extends JSONRPCClient {
 
     public setScriptRunning(params: ObjectScriptSetRunningParams): Promise<ObjectScriptSetRunningResponse> {
         return this.call("object.script.set_running", params);
+    }
+
+    public unpublishObject(params: ObjectUnpublishParams): Promise<ObjectUnpublishResponse> {
+        return this.call("object.unpublish", params);
     }
 
     public requestObject(params: ObjectRequestParams): Promise<ObjectRequestResponse> {
