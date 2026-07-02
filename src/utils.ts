@@ -275,9 +275,12 @@ export class VSCodeHost implements HostInterface {
      */
     private absPathToStringUri(absPath: string): StringUri {
         const norm = path.normalize(absPath);
+        const isWin = process.platform === "win32";
+        const normCmp = isWin ? norm.toLowerCase() : norm;
         for (const folder of vscode.workspace.workspaceFolders || []) {
             const folderPath = path.normalize(folder.uri.fsPath);
-            if (norm.toLowerCase().startsWith(folderPath.toLowerCase() + path.sep)) {
+            const folderCmp = isWin ? folderPath.toLowerCase() : folderPath;
+            if (normCmp.startsWith(folderCmp + path.sep)) {
                 const relativePath = path.relative(folderPath, norm).split(path.sep).join('/');
                 return `workspace:///${folder.name}/${relativePath}` as StringUri;
             }

@@ -84,26 +84,29 @@ export function stringUriToFilePath(uri: StringUri): string | null {
 
 /**
  * Resolve a relative path against a base URI.
- * Works for file:// and workspace:// URIs.
+ * Treats `base` as a directory URI and appends `relativePath` to it.
+ * Works for file:// and workspace:// URIs, preserving the scheme prefix exactly.
+ * Use uriDirname(base) first if base is a file URI and you want its parent directory.
  */
 export function resolveUri(base: StringUri, relativePath: string): StringUri {
-    // Find the last slash to get directory
-    const lastSlash = base.lastIndexOf("/");
-    if (lastSlash === -1) {
-        throw new Error(`Invalid base URI: ${base}`);
-    }
-
-    // Get base directory (everything up to last slash)
-    const baseDir = base.slice(0, lastSlash);
-
-    // Normalize relative path separators
     const normalizedRelative = relativePath.replace(/\\/g, "/");
 
-    // Simple resolution: append relative to base directory
-    // Handle ../ and ./ segments
-    const parts = `${baseDir}/${normalizedRelative}`.split("/");
-    const resolved: string[] = [];
+    // Treat base as a directory; strip any trailing slash before appending
+    const baseDir = base.endsWith("/") ? base.slice(0, -1) : base as string;
+    const full = `${baseDir}/${normalizedRelative}`;
 
+    // Extract the scheme+authority prefix (e.g. "file:///", "workspace:///") exactly,
+    // so that empty-segment collapsing below never erases the ":///" triple slash.
+    const schemeMatch = full.match(/^([a-zA-Z][a-zA-Z0-9+\-.]*:\/\/\/?)/);
+    if (!schemeMatch) {
+        throw new Error(`Invalid base URI (no scheme): ${base}`);
+    }
+    const schemePrefix = schemeMatch[1];
+    const pathStr = full.slice(schemePrefix.length);
+
+    // Resolve . and .. segments
+    const parts = pathStr.split("/");
+    const resolved: string[] = [];
     for (const part of parts) {
         if (part === "..") {
             resolved.pop();
@@ -112,15 +115,7 @@ export function resolveUri(base: StringUri, relativePath: string): StringUri {
         }
     }
 
-    // Reconstruct with proper scheme prefix
-    const result = resolved.join("/");
-
-    // Ensure file:// URIs have triple slash for absolute paths
-    if (result.startsWith("file:/") && !result.startsWith("file:///")) {
-        return result.replace("file:/", "file:///") as StringUri;
-    }
-
-    return result as StringUri;
+    return (schemePrefix + resolved.join("/")) as StringUri;
 }
 
 /**
@@ -229,7 +224,7 @@ export interface HostInterface {
     /** Central configuration provider (framework-agnostic). */
     config: FullConfigInterface;
 
-    existsInSameWorkspace(knownUri: string, desiredUri: string): Promise<boolean>;
+    existsInSameWorkspace(knownUri: StringUri, desiredPath: string): Promise<boolean>;
 
     exists(uri: StringUri, unsafe?: boolean): Promise<boolean>;
     resolveFile(
