@@ -24,12 +24,12 @@ function normalizePathsForComparison(content: string, workspaceRoot: string): st
     const workspaceUri = filePathToStringUri(workspaceRoot);
     // Extract the path portion after file:///
     const workspaceUriPath = workspaceUri.replace(/^file:\/\/\//, '');
-    
+
     // Replace absolute paths with relative-style paths matching expected output format
     // The expected files use format like: file:///test/workspace/set_1/...
     // We need to replace: file:///c:/Users/.../src/test/workspace/set_1/...
     // with: file:///test/workspace/set_1/...
-    
+
     const absolutePattern = new RegExp(
         `file:///${workspaceUriPath.replace(/[.*+?^${}()|[\]\\]/g, '\\$&').replace(/\\\//g, '/')}`,
         'gi'
@@ -238,7 +238,7 @@ suite('LSL Include Directive Tests - Disk-based Integration', () => {
 
         // Normalize paths for comparison (actual output has absolute URIs, expected has relative)
         const normalizedContent = normalizePathsForComparison(result.content, workspaceRoot);
-        
+
         // Compare with expected output
         assert.strictEqual(normalizedContent, expected, 'Output should match expected file');
 
@@ -259,7 +259,7 @@ suite('LSL Include Directive Tests - Disk-based Integration', () => {
 
         // Normalize paths for comparison
         const normalizedContent = normalizePathsForComparison(result.content, workspaceRoot);
-        
+
         // Compare with expected output
         assert.strictEqual(normalizedContent, expected, 'Output should match expected file');
 
@@ -284,7 +284,7 @@ suite('LSL Include Directive Tests - Disk-based Integration', () => {
 
         // Normalize paths for comparison
         const normalizedContent = normalizePathsForComparison(result.content, workspaceRoot);
-        
+
         // Compare with expected output
         assert.strictEqual(normalizedContent, expected, 'Output should match expected file');
 
@@ -384,7 +384,7 @@ suite('LSL Include Directive Tests - Disk-based Integration', () => {
 
         // Normalize paths for comparison
         const normalizedContent = normalizePathsForComparison(result.content, workspaceRoot);
-        
+
         // Compare with expected output
         assert.strictEqual(normalizedContent, expected, 'Output should match expected file');
 
