@@ -224,6 +224,16 @@ export class ObjectContentService implements vscode.Disposable {
         );
     }
 
+    /** Returns inventory arrays for all prims in the object (root first, then linked). */
+    getAllInventories(object_id: string): ObjectInventoryItem[][] {
+        const entry = this.objects.get(object_id);
+        if (!entry) return [];
+        return [
+            entry.object.inventory ?? [],
+            ...(entry.object.linked_objects ?? []).map(lo => lo.inventory ?? []),
+        ];
+    }
+
     // ============================================
     // Content Cache
     // ============================================

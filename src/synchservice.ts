@@ -24,6 +24,7 @@ import {
     ObjectPublishMessage,
     ObjectUnpublishMessage,
     ObjectUpdateMessage,
+    ObjectInventoryItem,
 } from "./vscode/objectcontentinterfaces";
 import {
     hasWorkspace,
@@ -42,7 +43,7 @@ import { getLanguageConfig } from "./shared/lexer";
 import { HostInterface } from "./interfaces/hostinterface";
 import { SyncedFileDecorator } from "./vscode/SyncedFileDecorator";
 import { ObjectContentService } from "./vscode/objectcontentservice";
-import { SL_SCHEME, SL_AUTHORITY } from "./vscode/objectcontentprovider";
+import { SL_SCHEME, SL_AUTHORITY, displayName } from "./vscode/objectcontentprovider";
 
 type ParsedTempFile = { scriptName: string; scriptId: string; extension: string, language: ScriptLanguage };
 
@@ -202,6 +203,10 @@ export class SynchService implements vscode.Disposable {
     private async setupSync(
         viewerDocument: vscode.TextDocument,
     ): Promise<boolean> {
+        if (viewerDocument.uri.scheme === SL_SCHEME) {
+            await this.setupSyncForSlUri(viewerDocument);
+            return true;
+        }
         const viewerFilePath = path.normalize(viewerDocument.uri.fsPath);
         const openedBase = path.basename(viewerFilePath);
 
@@ -277,17 +282,8 @@ export class SynchService implements vscode.Disposable {
             // Already syncing the master, add another id and viewer file
             syncs.forEach(sync => sync.subscribe(parsed.scriptId, viewerDocument));
         } else {
-            const config = ConfigService.getInstance();
-            const sync = new ScriptSync(
-                masterDoc,
-                parsed.extension as ScriptLanguage,
-                config,
-                parsed.scriptId,
-                viewerDocument,
-                this,
-            );
-            await sync.initialize();
-            this.activeSyncs.set(masterUri.toString(), sync);
+            const sync = await this.getOrCreateSync(masterDoc, parsed.extension as ScriptLanguage);
+            sync.subscribe(parsed.scriptId, viewerDocument);
             syncs.push(sync);
         }
 
@@ -308,6 +304,56 @@ export class SynchService implements vscode.Disposable {
         return true;
     }
 
+    private async getOrCreateSync(
+        masterDoc: vscode.TextDocument,
+        language: ScriptLanguage,
+    ): Promise<ScriptSync> {
+        const key = masterDoc.uri.toString();
+        const existing = this.activeSyncs.get(key);
+        if (existing) return existing;
+
+        const config = ConfigService.getInstance();
+        const sync = new ScriptSync(masterDoc, language, config, '', undefined, this);
+        await sync.initialize();
+        this.activeSyncs.set(key, sync);
+        return sync;
+    }
+
+    private async setupSyncForSlUri(
+        slDocument: vscode.TextDocument,
+    ): Promise<void> {
+        if (!hasWorkspace()) {
+            return;
+        }
+        if (!this.websocket?.isConnected()) {
+            showWarningMessage(`Cannot link sl:// script: not connected to Second Life viewer.`);
+            return;
+        }
+        const parsed = SynchService.parseSlFileInfo(slDocument.uri);
+        if (!parsed) {
+            logInfo(`[setupSyncForSlUri] Could not parse sl:// URI: ${slDocument.uri.toString()}`);
+            return;
+        }
+        const masterUri = await SynchService.findMasterFile(parsed, slDocument);
+        if (!masterUri) {
+            logInfo(
+                `[setupSyncForSlUri] No master found for "${parsed.scriptName}.${parsed.extension}"; ` +
+                `editing directly via viewer.`,
+            );
+            return;
+        }
+        const masterEditor = await SynchService.openMasterScript(masterUri);
+        const sync = await this.getOrCreateSync(masterEditor.document, parsed.language);
+        sync.subscribeVirtual(slDocument.uri);
+        this.syncedFileDecorator.refresh(masterEditor.document.uri);
+        logInfo(
+            `[setupSyncForSlUri] Linked "${parsed.scriptName}" ` +
+            `(${slDocument.uri.toString()}) \u2192 ${masterUri.fsPath}`,
+        );
+        // Do NOT call setupConnection() — already connected
+        // Do NOT call sendSyncSubscription() — sl:// content travels via object.content.save
+    }
+
     public removeSync(filePath: string): void {
         // seeing if we closed a temp file or a master file
         let sync = this.findSyncByMasterFilePath(filePath);
@@ -320,6 +366,13 @@ export class SynchService implements vscode.Disposable {
         this.syncedFileDecorator.refresh(sync.getMasterDocument().uri);
         sync.dispose();
 
+        this.clearEmptySyncs();
+    }
+
+    public evictSlSyncs(object_id: string): void {
+        for (const [, sync] of this.activeSyncs) {
+            sync.evictVirtualMappingsForObject(object_id);
+        }
         this.clearEmptySyncs();
     }
 
@@ -729,6 +782,51 @@ export class SynchService implements vscode.Disposable {
             : null;
     }
 
+    private static parseSlFileInfo(uri: vscode.Uri): ParsedTempFile | null {
+        if (uri.scheme !== SL_SCHEME || uri.authority !== SL_AUTHORITY) {
+            return null;
+        }
+        // Path segments after stripping the leading "/"
+        // Structure: /<root_id>/[<link_dir>/]<item_id_or_display_name>
+        const segments = uri.path.replace(/^\//, '').split('/');
+        if (segments.length < 2) {
+            return null;
+        }
+
+        const root_id = segments[0];
+        const lastSeg = segments[segments.length - 1];
+
+        // Always resolve name and type from the inventory record, never from the URI path.
+        // The last segment may be a UUID (itemUri) or a display name (Explorer) — both are
+        // matched against the service inventory.
+        const item = SynchService.findSlInventoryItem(root_id, lastSeg);
+        if (!item) return null;
+
+        const fullName = displayName(item);           // e.g. "My Script.luau"
+        const di = fullName.lastIndexOf('.');
+        if (di < 0) return null;
+
+        const scriptName = fullName.slice(0, di);     // "My Script"
+        const extension = fullName.slice(di + 1).toLowerCase(); // "luau"
+        const language: ScriptLanguage = extension === 'lsl' ? 'lsl' : 'luau';
+
+        return { scriptName, scriptId: uri.toString(), extension, language };
+    }
+
+    private static findSlInventoryItem(
+        root_id: string,
+        seg: string,
+    ): ObjectInventoryItem | undefined {
+        const service = ObjectContentService.getInstance();
+        for (const inv of service.getAllInventories(root_id)) {
+            const byId = inv.find(i => i.item_id === seg);
+            if (byId) return byId;
+            const byName = inv.find(i => displayName(i) === seg);
+            if (byName) return byName;
+        }
+        return undefined;
+    }
+
     public findSyncByScriptId(scriptId: string): ScriptSync | undefined {
         return [...this.activeSyncs.values()].find((sync) =>
             sync.isTrackingId(scriptId),
@@ -769,12 +867,17 @@ export class SynchService implements vscode.Disposable {
         if(metaMatch) return metaMatch;
 
         let files = await vscode.workspace.findFiles(`**/${script.scriptName}.${script.extension}`);
+        // Only consider local files as master candidates. Remote/virtual workspace support
+        // would require updating ScriptSync.initialize and handleMasterSaved to use
+        // vscode.workspace.fs.readFile instead of fs.promises.readFile.
+        files = files.filter(f => f.scheme === 'file');
         if (files.length > 0) {
             return files[0];
         } else {
             // Not found a glob match, try a broader fit
             // Get all files with right extenstion
-            const possibleFiles = await vscode.workspace.findFiles(`**/*.${script.extension}`)
+            const possibleFiles = (await vscode.workspace.findFiles(`**/*.${script.extension}`))
+                .filter(f => f.scheme === 'file'); // see note above
             for (const possibleFile of possibleFiles) {
                 const wsFile = vscode.Uri.file(vscode.workspace.asRelativePath(possibleFile));
                 // filter out paths with hidden directories

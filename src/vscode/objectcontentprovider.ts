@@ -262,7 +262,7 @@ function extensionForItem(item: ObjectInventoryItem): string {
 }
 
 /** Returns the display filename (name + synthetic extension) */
-function displayName(item: ObjectInventoryItem): string {
+export function displayName(item: ObjectInventoryItem): string {
     return item.name + extensionForItem(item);
 }
 
@@ -624,6 +624,7 @@ export class ObjectContentProvider implements vscode.FileSystemProvider, vscode.
 
                     this.service.cacheContent(root_id, parsed.item_id, content);
                     this.service.markContentSaved(root_id, parsed.item_id);
+                    this._onDidChangeFile.fire([{ type: vscode.FileChangeType.Changed, uri }]);
                     return;
                 } catch (error) {
                     if (error instanceof vscode.FileSystemError) {

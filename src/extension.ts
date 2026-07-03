@@ -75,6 +75,7 @@ export function activate(context: vscode.ExtensionContext): void {
                 if (slIdx !== -1) {
                     vscode.workspace.updateWorkspaceFolders(slIdx, 1);
                 }
+                synchService.evictSlSyncs(object_id);
             } else if (type === "updated") {
                 if (slIdx !== -1) {
                     const entry = objectContentService.getObject(object_id);
