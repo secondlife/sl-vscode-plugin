@@ -124,7 +124,8 @@ export interface LinkedObjectChanges {
     modified?: {
         link_id: string;
         link_name?: string;
-        inventory?: InventoryChanges;
+        // Can be either full replacement (array) or delta changes (object)
+        inventory?: InventoryChanges | ObjectInventoryItem[];
     }[];
 }
 
@@ -182,8 +183,9 @@ export interface ObjectContentSaveResponse {
 export interface ObjectItemCreateParams {
     prim_id: string;           // UUID of any prim (root or child)
     name: string;              // Item name (no extension — pure SL inventory name)
-    type: InventoryItemType;   // "script" for current create flow ("notecard" reserved for future)
-    vm: ScriptVM;              // Required for scripts: "luau" | "mono" | "lsl2"
+    type: InventoryItemType;   // "script" | "notecard"
+    vm?: ScriptVM;             // Required for scripts: "luau" | "mono" | "lsl2"
+    text?: string;             // Optional initial text content (notecards only)
 }
 
 /** object.item.create response */
@@ -227,6 +229,11 @@ export interface ObjectRequestResponse {
     object?: PublishedObject; // Primary response payload for requested object
     success?: boolean;        // Legacy compatibility for older viewers
     message?: string;         // reason on failure (e.g. "object not found", "permission denied")
+}
+
+/** object.list response */
+export interface ObjectListResponse {
+    objects: PublishedObject[];
 }
 
 // ============================================

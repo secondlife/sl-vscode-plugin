@@ -12,6 +12,7 @@ import {
     LinkedObject,
     ObjectContentSaveVM,
     ObjectInventoryItem,
+    ObjectItemCreateParams,
     ScriptVM,
 } from "./objectcontentinterfaces";
 
@@ -83,6 +84,8 @@ interface ParsedObjectUri {
     pending_name?: string;
     /** Whether this URI refers to a directory */
     isDirectory: boolean;
+    /** Whether this is a /+create/ URI for explicit item creation */
+    isCreate?: boolean;
 }
 
 interface ParseUriOptions {
@@ -175,6 +178,21 @@ function parseUri(
     }
 
     const root_id = parts[0];
+
+    // Detect /+create/ pattern early — no inventory lookup needed
+    const createIdx = parts.indexOf("+create");
+    if (createIdx !== -1) {
+        if (createIdx === 1 && parts.length === 3) {
+            // sl://objects/{root_id}/+create/{filename}
+            return { root_id, pending_name: parts[2], isDirectory: false, isCreate: true };
+        }
+        if (createIdx === 2 && parts.length === 4) {
+            // sl://objects/{root_id}/{link_id}/+create/{filename}
+            return { root_id, link_id: parts[1], pending_name: parts[3], isDirectory: false, isCreate: true };
+        }
+        throw vscode.FileSystemError.FileNotFound(uri);
+    }
+
     const entry = service.getObject(root_id);
 
     if (parts.length === 1) {
@@ -257,7 +275,7 @@ export function itemUri(root_id: string, prim_id: string, item_id: string): vsco
 
 /** Map item subtype to the appropriate file extension for display */
 function extensionForItem(item: ObjectInventoryItem): string {
-    if (item.type === "notecard") return ".txt";
+    if (item.type === "notecard") return ""; // no synthetic extension; user-supplied extension stays in the name
     return item.subtype === 1 ? ".luau" : ".lsl";
 }
 
@@ -270,11 +288,11 @@ export function displayName(item: ObjectInventoryItem): string {
  * Derive type and vm from a synthetic display extension.
  * Used when creating new items from a filename the user typed.
  */
-function typeAndVmFromExtension(ext: string): { type: InventoryItemType; vm: ScriptVM } | undefined {
+function typeAndVmFromExtension(ext: string): { type: InventoryItemType; vm?: ScriptVM } {
     switch (ext.toLowerCase()) {
         case ".luau": return { type: "script", vm: "luau" };
         case ".lsl":  return { type: "script", vm: "lsl2" };
-        default:      return undefined;
+        default:      return { type: "notecard" };
     }
 }
 
@@ -460,6 +478,17 @@ export class ObjectContentProvider implements vscode.FileSystemProvider, vscode.
     stat(uri: vscode.Uri): vscode.FileStat {
         const parsed = parseUri(uri, this.service);
 
+        // /+create/ URI — return writable placeholder unconditionally
+        if (parsed.isCreate) {
+            return {
+                type: vscode.FileType.File,
+                ctime: 0,
+                mtime: 0,
+                size: 0,
+                // No Readonly permission — file is writable
+            };
+        }
+
         if (parsed.isDirectory) {
             return {
                 type: vscode.FileType.Directory,
@@ -537,6 +566,12 @@ export class ObjectContentProvider implements vscode.FileSystemProvider, vscode.
 
     async readFile(uri: vscode.Uri): Promise<Uint8Array> {
         const parsed = parseUri(uri, this.service);
+
+        // /+create/ URI — return empty content (file doesn't exist yet)
+        if (parsed.isCreate) {
+            return Buffer.from("", "utf-8");
+        }
+
         if (parsed.isDirectory) {
             throw vscode.FileSystemError.FileIsADirectory(uri);
         }
@@ -573,6 +608,12 @@ export class ObjectContentProvider implements vscode.FileSystemProvider, vscode.
         const parsed = parseUri(uri, this.service, { allowMissingLeaf: options.create });
         if (parsed.isDirectory) {
             throw vscode.FileSystemError.FileIsADirectory(uri);
+        }
+
+        // /+create/ URI — explicit creation path
+        if (parsed.isCreate) {
+            await this.handleCreate(uri, parsed, content);
+            return;
         }
 
         const { root_id, link_id } = parsed;
@@ -635,41 +676,97 @@ export class ObjectContentProvider implements vscode.FileSystemProvider, vscode.
             }
         }
 
-        // No existing item — create new
+        // No existing item — fallback create path (for non-/+create/ URIs)
         if (!options.create) {
             throw vscode.FileSystemError.FileNotFound(uri);
         }
 
-        const filename = parsed.pending_name
-            ?? uri.path.replace(/^\//, "").split("/").slice(-1)[0];
-        const { name, ext } = stripExtension(filename);
-        const createParams = typeAndVmFromExtension(ext);
-        if (!createParams) {
-            throw vscode.FileSystemError.NoPermissions(
-                "Only script creation is currently supported (.lsl, .luau)."
-            );
+        // Redirect to handleCreate with synthesized ParsedObjectUri
+        await this.handleCreate(uri, parsed, content);
+    }
+
+    /**
+     * Handle item creation for /+create/ URIs or fallback create requests.
+     */
+    private async handleCreate(
+        uri: vscode.Uri,
+        parsed: ParsedObjectUri,
+        content: Uint8Array,
+    ): Promise<void> {
+        const { root_id, link_id, pending_name } = parsed;
+        const prim_id = link_id ?? root_id;
+
+        const entry = this.service.getObject(root_id);
+        if (!entry) {
+            throw vscode.FileSystemError.FileNotFound(uri);
         }
 
-        const { type, vm } = createParams;
+        const filename = pending_name
+            ?? uri.path.replace(/^\//, "").split("/").slice(-1)[0];
+        const { name, ext } = stripExtension(filename);
+        const { type, vm } = typeAndVmFromExtension(ext);
+        // Scripts use a synthetic extension — strip it and let extensionForItem add it back.
+        // Notecards have no synthetic extension, so keep the full filename as the SL item name.
+        const itemName = type === "notecard" ? filename : name;
+
         const client = this.getClient();
         if (!client) throw vscode.FileSystemError.Unavailable("Not connected to viewer");
 
         try {
-            const result = await client.createObjectItem({
-                prim_id,
-                name,
-                type,
-                vm,
-            });
+            const createCallParams: ObjectItemCreateParams = { prim_id, name: itemName, type };
+            if (vm) {
+                createCallParams.vm = vm;
+            }
+            if (type === "notecard" && content.length > 0) {
+                createCallParams.text = Buffer.from(content).toString("utf-8");
+            }
+
+            const result = await client.createObjectItem(createCallParams);
 
             if (!result.item_id) {
                 throw vscode.FileSystemError.Unavailable("Create failed: missing item_id");
             }
 
-            const response = await client.getObjectContent({ prim_id, item_id: result.item_id });
-            const text = response.content ?? "";
-            // Cache under the real item_id returned by the viewer
-            this.service.cacheContent(root_id, result.item_id, Buffer.from(text, "utf-8"));
+            // Fetch the created item's content. For scripts, the server generates
+            // a template. There's a race between handleObjectItemCreate returning
+            // and the inventory being fully visible, so retry with delay if needed.
+            let fetchedContent: string | undefined;
+            for (let attempt = 0; attempt < 3; attempt++) {
+                try {
+                    const response = await client.getObjectContent({ prim_id, item_id: result.item_id });
+                    fetchedContent = response.content ?? "";
+                    break;
+                } catch (fetchError) {
+                    // If item not found yet, wait and retry
+                    if (attempt < 2) {
+                        await new Promise(resolve => setTimeout(resolve, 250 * (attempt + 1)));
+                    } else {
+                        throw fetchError;
+                    }
+                }
+            }
+
+            // Cache the content from the server
+            this.service.cacheContent(root_id, result.item_id, Buffer.from(fetchedContent ?? "", "utf-8"));
+
+            // Build the canonical URI for the created item
+            const correctName = displayName(result);
+            // Remove /+create/ segment if present, then build correct path
+            let parentPath: string;
+            if (parsed.isCreate) {
+                // URI was: /{root_id}/+create/{name} or /{root_id}/{link_id}/+create/{name}
+                parentPath = link_id ? `/${root_id}/${link_id}` : `/${root_id}`;
+            } else {
+                parentPath = uri.path.substring(0, uri.path.lastIndexOf("/"));
+            }
+            const correctUri = uri.with({ path: `${parentPath}/${correctName}` });
+
+            // Fire events: delete the create URI, create the real URI
+            const fileEvents: vscode.FileChangeEvent[] = [
+                { type: vscode.FileChangeType.Deleted, uri },
+                { type: vscode.FileChangeType.Created, uri: correctUri },
+            ];
+            this._onDidChangeFile.fire(fileEvents);
         } catch (error) {
             if (error instanceof vscode.FileSystemError) {
                 throw error;

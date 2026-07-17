@@ -25,6 +25,7 @@ import {
     ObjectUnpublishMessage,
     ObjectUpdateMessage,
     ObjectInventoryItem,
+    PublishedObject,
 } from "./vscode/objectcontentinterfaces";
 import {
     hasWorkspace,
@@ -43,7 +44,7 @@ import { getLanguageConfig } from "./shared/lexer";
 import { HostInterface } from "./interfaces/hostinterface";
 import { SyncedFileDecorator } from "./vscode/SyncedFileDecorator";
 import { ObjectContentService } from "./vscode/objectcontentservice";
-import { SL_SCHEME, SL_AUTHORITY, displayName } from "./vscode/objectcontentprovider";
+import { SL_SCHEME, SL_AUTHORITY, displayName, itemUri } from "./vscode/objectcontentprovider";
 
 type ParsedTempFile = { scriptName: string; scriptId: string; extension: string, language: ScriptLanguage };
 
@@ -345,6 +346,7 @@ export class SynchService implements vscode.Disposable {
         const masterEditor = await SynchService.openMasterScript(masterUri);
         const sync = await this.getOrCreateSync(masterEditor.document, parsed.language);
         sync.subscribeVirtual(slDocument.uri);
+        SynchService.checkAndUpdateMasterDocumentInBackground(masterEditor, slDocument);
         this.syncedFileDecorator.refresh(masterEditor.document.uri);
         logInfo(
             `[setupSyncForSlUri] Linked "${parsed.scriptName}" ` +
@@ -409,6 +411,7 @@ export class SynchService implements vscode.Disposable {
             onHandshake: (message: SessionHandshake): any => this.onHandshake(message),
             onHandshakeOk: (): any => this.onHandshakeOk(),
             onDisconnect: (message: SessionDisconnect): any => this.onDisconnect(message),
+            onConnectionClosed: (): any => this.onConnectionClosed(),
             onUnsubscribe: (message: ScriptUnsubscribe): any =>
                 this.onScriptUnsubscribe(message),
             onSyntaxChange: (message: SyntaxChange): any => this.onSyntaxChange(message),
@@ -541,29 +544,35 @@ export class SynchService implements vscode.Disposable {
 
         this._onDidChangeConnectionState.fire(true);
 
+        // Start periodic ping timer for connection health monitoring
+        this.websocket?.startPingTimer();
+
         await this.handleLaunchParams();
-        await this.requestWorkspaceObjects();
+        await this.syncPublishedObjects();
     }
 
     private onDisconnect(params: SessionDisconnect): void {
+        // Graceful disconnect - just show the message with reason
+        // Actual cleanup happens in onConnectionClosed which fires after socket closes
         const reason = params?.reason || 0;
         const message = params?.message || "Session disconnected";
+        showStatusMessage(
+            `Second Life viewer disconnected: ${message} (reason ${reason})`,
+        );
+    }
 
-        // Show status message specific to this script
+    private onConnectionClosed(): void {
+        // All cleanup happens here - fires for both graceful and crash disconnects
+        console.log("[SynchService] Connection closed");
+        this.websocket?.stopPingTimer();
 
         if (this.handshakeResolve) {
-            this.handshakeResolve(false, message);
-        } else {
-            showStatusMessage(
-                `Second Life session disconnected from viewer: ${message} (reason ${reason})`,
-            );
+            this.handshakeResolve(false, "Connection closed");
         }
 
         this._onDidChangeConnectionState.fire(false);
-
-        // Don't dispose immediately - let the connection close handler do the cleanup
-        // The websocket will be closed by the server, triggering our close handler
-        ObjectContentService.getInstance().clear();
+        // Collapse explorer folders instead of removing tracked objects
+        vscode.commands.executeCommand("workbench.files.action.collapseExplorerFolders");
     }
 
     private onScriptUnsubscribe(message: ScriptUnsubscribe): void {
@@ -987,7 +996,8 @@ export class SynchService implements vscode.Disposable {
     private static checkAndUpdateMasterDocumentInBackground(masterEditor: vscode.TextEditor, viewerDocument: vscode.TextDocument): void {
         if (!ConfigService.getInstance().getConfig<boolean>(ConfigKey.AskIfViewerScriptMismatchesMaster, true)) return;
         if (masterEditor.document.getText() == viewerDocument.getText()) return;
-        const viewerFileName = SynchService.parseTempFile(viewerDocument.fileName)?.scriptName;
+        const viewerFileName = SynchService.parseTempFile(viewerDocument.fileName)?.scriptName
+            ?? path.basename(viewerDocument.fileName);
         const masterFileName = path.basename(masterEditor.document.fileName);
         vscode.window.showInformationMessage(`Viewer script "${viewerFileName}" differs from master script "${masterFileName}". What would you like to do?`,
             "Ignore", "Overwrite master", "Compare", "Always ignore")
@@ -1015,6 +1025,47 @@ export class SynchService implements vscode.Disposable {
 
     public isConnected(): boolean {
         return this.websocket?.isConnected() ?? false;
+    }
+
+    /**
+     * Explicitly connect to the Second Life viewer WebSocket.
+     * @returns true if connection was successful
+     */
+    public async connect(): Promise<boolean> {
+        return this.setupConnection();
+    }
+
+    /**
+     * Disconnect from the Second Life viewer WebSocket.
+     */
+    public disconnect(): void {
+        if (this.websocket) {
+            if (this.websocket.isConnected()) {
+                this.websocket.disconnect();
+            }
+            this.websocket.dispose();
+            this.websocket = undefined;
+        }
+        this._onDidChangeConnectionState.fire(false);
+    }
+
+    /**
+     * Get current connection status information for display.
+     */
+    public getConnectionStatus(): string {
+        if (!this.isConnected()) {
+            return "Not connected to Second Life viewer";
+        }
+        const parts: string[] = [];
+        if (this.viewerName) {
+            parts.push(`Viewer: ${this.viewerName} ${this.viewerVersion || ""}`.trim());
+        }
+        if (this.agentName) {
+            parts.push(`Agent: ${this.agentName}`);
+        }
+        const syncCount = this.activeSyncs.size;
+        parts.push(`Active syncs: ${syncCount}`);
+        return parts.join("\n");
     }
     //#endregion
 
@@ -1111,6 +1162,29 @@ export class SynchService implements vscode.Disposable {
         // handleLaunchParams is called from onHandshakeOk
     }
 
+    private async syncPublishedObjects(): Promise<void> {
+        if (!this.websocket?.isConnected()) { return; }
+
+        const service = ObjectContentService.getInstance();
+
+        // Step 1: restore/refresh objects the viewer currently has published
+        try {
+            const result = await this.websocket.getObjectList();
+            for (const obj of result.objects ?? []) {
+                // Always call handlePublish — this is authoritative state from the viewer.
+                // If the object is already known, handlePublish is a no-op for the workspace
+                // folder (slIdx !== -1 guard in extension.ts), but refreshes the service data.
+                service.handlePublish({ object: obj });
+                logDebug(`[object.list] refreshed ${obj.object_id} (${obj.object_name})`);
+            }
+        } catch (err) {
+            logDebug(`[object.list] failed: ${err}`);
+        }
+
+        // Step 2: request publishing for workspace folders not yet in the published list
+        await this.requestWorkspaceObjects();
+    }
+
     private async requestWorkspaceObjects(): Promise<void> {
         if (!this.websocket?.isConnected()) { return; }
 
@@ -1147,21 +1221,48 @@ export class SynchService implements vscode.Disposable {
         this.pendingLaunchScriptId = undefined;
 
         if (objectId && this.websocket?.isConnected()) {
+            // Tight-integration path: objectId always present.
+            // scriptId, when provided, is the inventory item_id — open via sl:// virtual FS.
+            let publishedObject: PublishedObject | undefined;
+
             const result = await this.websocket.requestObject({ object_id: objectId });
             if (result.object) {
                 logDebug(`[object.request] response contained object_id=${result.object.object_id}`);
                 ObjectContentService.getInstance().handlePublish({ object: result.object });
+                publishedObject = result.object;
             } else if (result.success === false) {
                 showWarningMessage(`Failed to request object: ${result.message ?? "unknown error"}`);
             } else {
                 // Keep this visible while we support mixed viewer versions.
                 logDebug("[object.request] response contained no object payload; waiting for object.publish notification");
             }
-        }
 
-        if (scriptId && this.websocket?.isConnected()) {
+            if (scriptId && publishedObject) {
+                await this.openScriptInObject(publishedObject, scriptId);
+            }
+        } else if (scriptId && this.websocket?.isConnected()) {
+            // Command-line / legacy-URI path: script only, no object.
+            // scriptId is the custom hash; search viewer temp directory.
             await this.openScriptById(scriptId);
         }
+    }
+
+    private async openScriptInObject(obj: PublishedObject, itemId: string): Promise<void> {
+        // Check root prim inventory first.
+        if (obj.inventory.some(i => i.item_id === itemId)) {
+            const uri = itemUri(obj.object_id, obj.object_id, itemId);
+            await vscode.window.showTextDocument(uri);
+            return;
+        }
+        // Check linked prims.
+        for (const linked of obj.linked_objects ?? []) {
+            if (linked.inventory?.some(i => i.item_id === itemId)) {
+                const uri = itemUri(obj.object_id, linked.link_id, itemId);
+                await vscode.window.showTextDocument(uri);
+                return;
+            }
+        }
+        showWarningMessage(`Script ${itemId} not found in object ${obj.object_id}`);
     }
 
     private async openScriptById(scriptId: string): Promise<void> {

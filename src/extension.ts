@@ -56,7 +56,32 @@ export function activate(context: vscode.ExtensionContext): void {
         objectContentDecorator,
     );
 
-    // Manage workspace folders for published objects so Explorer shows friendly names
+    // Manage workspace folders for published objects so Explorer shows friendly names.
+    // Batch folder adds to avoid VS Code cancelling rapid successive updateWorkspaceFolders calls.
+    const pendingFolderAdds: Array<{ object_id: string; name: string }> = [];
+    let flushScheduled = false;
+
+    function flushPendingFolderAdds(): void {
+        flushScheduled = false;
+        if (pendingFolderAdds.length === 0) {
+            return;
+        }
+        const currentFolders = vscode.workspace.workspaceFolders ?? [];
+        const toAdd: Array<{ uri: vscode.Uri; name: string }> = [];
+        for (const { object_id, name } of pendingFolderAdds) {
+            const alreadyPresent = currentFolders.some(
+                (f) => f.uri.scheme === SL_SCHEME && f.uri.authority === SL_AUTHORITY && f.uri.path === `/${object_id}`
+            );
+            if (!alreadyPresent) {
+                toAdd.push({ uri: rootUri(object_id), name });
+            }
+        }
+        pendingFolderAdds.length = 0;
+        if (toAdd.length > 0) {
+            vscode.workspace.updateWorkspaceFolders(currentFolders.length, 0, ...toAdd);
+        }
+    }
+
     context.subscriptions.push(
         objectContentService.onDidChangeObjects(({ type, object_id }) => {
             const folders = vscode.workspace.workspaceFolders ?? [];
@@ -66,10 +91,11 @@ export function activate(context: vscode.ExtensionContext): void {
             if (type === "added") {
                 const entry = objectContentService.getObject(object_id);
                 if (entry && slIdx === -1) {
-                    vscode.workspace.updateWorkspaceFolders(folders.length, 0, {
-                        uri: rootUri(object_id),
-                        name: entry.object.object_name,
-                    });
+                    pendingFolderAdds.push({ object_id, name: entry.object.object_name });
+                    if (!flushScheduled) {
+                        flushScheduled = true;
+                        setTimeout(flushPendingFolderAdds, 0);
+                    }
                 }
             } else if (type === "removed") {
                 if (slIdx !== -1) {
@@ -182,9 +208,19 @@ function setupCommands(context: vscode.ExtensionContext) : void {
     context.subscriptions.push(
         vscode.commands.registerCommand(
             "second-life-scripting.connectWebSocket",
-            () => {
-                // TODO: Implement WebSocket connection logic
-                vscode.window.showInformationMessage("Connect WebSocket command executed");
+            async () => {
+                const sync = SynchService.getInstance();
+                if (sync.isConnected()) {
+                    vscode.window.showInformationMessage("Already connected to Second Life viewer");
+                    return;
+                }
+                const promise = sync.connect();
+                showStatusMessage("Connecting to Second Life viewer...", promise);
+                const success = await promise;
+                if (success) {
+                    vscode.window.showInformationMessage("Connected to Second Life viewer");
+                }
+                // Warning message is shown by SynchService on failure
             }
         )
     );
@@ -193,8 +229,13 @@ function setupCommands(context: vscode.ExtensionContext) : void {
         vscode.commands.registerCommand(
             "second-life-scripting.disconnectWebSocket",
             () => {
-                // TODO: Implement WebSocket disconnection logic
-                vscode.window.showInformationMessage("Disconnect WebSocket command executed");
+                const sync = SynchService.getInstance();
+                if (!sync.isConnected()) {
+                    vscode.window.showInformationMessage("Not connected to Second Life viewer");
+                    return;
+                }
+                sync.disconnect();
+                vscode.window.showInformationMessage("Disconnected from Second Life viewer");
             }
         )
     );
@@ -204,8 +245,10 @@ function setupCommands(context: vscode.ExtensionContext) : void {
             "second-life-scripting.showWebSocketClientStatus",
             () => {
                 showOutputChannel();
-                logInfo("WebSocket status requested");
-                // TODO: Add actual status information
+                const sync = SynchService.getInstance();
+                const status = sync.getConnectionStatus();
+                logInfo(status);
+                vscode.window.showInformationMessage(status);
             }
         )
     );

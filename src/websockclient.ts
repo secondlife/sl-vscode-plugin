@@ -433,8 +433,7 @@ export class JSONRPCClient extends WebsockClient implements JSONRPCInterface {
     }
   >();
     private nextRequestId: number = 1;
-    //private requestTimeout: number = 30000; // 30 seconds
-    private requestTimeout: number = 300000; // 5 minutes TODO: Debbuging
+    private requestTimeout: number = 30000; // 30 seconds
 
     // Unified handler registration - single map for both notifications and requests
     private methodHandlers = new Map<

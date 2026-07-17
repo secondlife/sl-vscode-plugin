@@ -146,13 +146,22 @@ export class ObjectContentService implements vscode.Disposable {
                             lo.link_name = mod.link_name;
                         }
                         if (mod.inventory) {
-                            this._applyInventoryChanges(
-                                entry,
-                                msg.object_id,
-                                mod.link_id,
-                                lo.inventory,
-                                mod.inventory
-                            );
+                            // The viewer may send either a full inventory array or delta changes.
+                            // Detect which format by checking if it's an array.
+                            if (Array.isArray(mod.inventory)) {
+                                // Full replacement — evict cache and replace inventory
+                                this._evictPrimCache(entry, msg.object_id, mod.link_id);
+                                lo.inventory = mod.inventory;
+                            } else {
+                                // Delta changes — apply incremental updates
+                                this._applyInventoryChanges(
+                                    entry,
+                                    msg.object_id,
+                                    mod.link_id,
+                                    lo.inventory,
+                                    mod.inventory
+                                );
+                            }
                         }
                     }
                 }

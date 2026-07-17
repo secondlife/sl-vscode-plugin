@@ -25,6 +25,7 @@ import {
     ObjectUnpublishResponse,
     ObjectRequestParams,
     ObjectRequestResponse,
+    ObjectListResponse,
 } from "./vscode/objectcontentinterfaces";
 
 //#region Message Formats
@@ -56,6 +57,15 @@ export interface SessionHandshakeResponse {
 export interface SessionDisconnect {
     reason: number;
     message: string;
+}
+
+export interface SessionPing {
+    timestamp: number;
+}
+
+export interface SessionPingResponse {
+    timestamp: number;
+    server_time: number;
 }
 
 export interface ScriptSubscribe {
@@ -170,6 +180,9 @@ export interface ClientInfo {
  */
 export class ViewerEditWSClient extends JSONRPCClient {
     private handlers: WebSocketHandlers = {};
+    private pingTimer: NodeJS.Timeout | undefined;
+    private consecutivePingFailures: number = 0;
+    private static readonly MAX_PING_FAILURES = 2;
 
     constructor(
         context: vscode.ExtensionContext,
@@ -184,6 +197,8 @@ export class ViewerEditWSClient extends JSONRPCClient {
         }
 
         try {
+            // Stop ping timer before disconnecting
+            this.stopPingTimer();
             // Don't wait for disconnect messages during disposal
             // Just close the connection immediately
             this.disconnect();
@@ -217,6 +232,21 @@ export class ViewerEditWSClient extends JSONRPCClient {
         this.on("object.publish", this.handlers.onObjectPublish);
         this.on("object.unpublish", this.handlers.onObjectUnpublish);
         this.on("object.update", this.handlers.onObjectUpdate);
+
+        // Register handler for viewer-initiated pings
+        this.on("session.ping", (params: SessionPing): SessionPingResponse => ({
+            timestamp: params.timestamp,
+            server_time: Date.now()
+        }));
+
+        // Handle connection close - stop ping timer and notify handlers
+        this.onConnectionChange((event) => {
+            if (!event.connected) {
+                console.log("[WebSocket] Connection closed, cleaning up");
+                this.stopPingTimer();
+                this.handlers.onConnectionClosed?.();
+            }
+        });
 
         // Setup connection close handler
         this.setupConnectionCloseHandler();
@@ -257,6 +287,59 @@ export class ViewerEditWSClient extends JSONRPCClient {
         }
     }
 
+    /**
+     * Sends a ping to the viewer to check connection health and measure latency.
+     * @returns Promise resolving to the ping response with timing information
+     */
+    public sendPing(): Promise<SessionPingResponse> {
+        return this.call("session.ping", {
+            timestamp: Date.now()
+        });
+    }
+
+    /**
+     * Starts periodic pinging to the viewer.
+     * @param intervalMs - Interval between pings in milliseconds (default: 30000)
+     */
+    public startPingTimer(intervalMs: number = 30000): void {
+        this.stopPingTimer();
+        console.log(`[Ping] Starting ping timer with interval ${intervalMs}ms`);
+        this.pingTimer = setInterval(async () => {
+            if (!this.isConnected() || this.isDisposed()) {
+                console.log("[Ping] Connection closed, stopping timer");
+                this.stopPingTimer();
+                return;
+            }
+            try {
+                console.log("[Ping] Sending ping...");
+                const response = await this.sendPing();
+                const latency = Date.now() - response.timestamp;
+                console.log(`[Ping] Received pong, latency: ${latency}ms`);
+                this.consecutivePingFailures = 0;
+            } catch (error) {
+                this.consecutivePingFailures++;
+                console.warn(`[Ping] Failed (${this.consecutivePingFailures}/${ViewerEditWSClient.MAX_PING_FAILURES}):`, error);
+                if (this.consecutivePingFailures >= ViewerEditWSClient.MAX_PING_FAILURES) {
+                    console.warn(`[Ping] Max failures reached, closing connection`);
+                    this.stopPingTimer();
+                    this.handlers.onConnectionClosed?.();
+                    this.disconnect();
+                }
+            }
+        }, intervalMs);
+    }
+
+    /**
+     * Stops the periodic ping timer.
+     */
+    public stopPingTimer(): void {
+        if (this.pingTimer) {
+            clearInterval(this.pingTimer);
+            this.pingTimer = undefined;
+        }
+        this.consecutivePingFailures = 0;
+    }
+
     // ============================================
     // Object Content Calls (Extension → Viewer)
     // ============================================
@@ -287,6 +370,10 @@ export class ViewerEditWSClient extends JSONRPCClient {
 
     public requestObject(params: ObjectRequestParams): Promise<ObjectRequestResponse> {
         return this.call("object.request", params);
+    }
+
+    public getObjectList(): Promise<ObjectListResponse> {
+        return this.call("object.list", {});
     }
 
     public getScriptList(): Promise<ScriptList> {
