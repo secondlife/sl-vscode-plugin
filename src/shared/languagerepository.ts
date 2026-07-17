@@ -2,7 +2,7 @@
  * @file languagerepository.ts
  * Copyright (C) 2025, Linden Research, Inc.
  */
-import { HostInterface, NormalizedPath, normalizeJoinPath } from '../interfaces/hostinterface';
+import { HostInterface, StringUri, resolveUri } from '../interfaces/hostinterface';
 import { LanguageTransformer } from './languagetransformer';
 import { JSONRPCInterface } from '../websockclient';
 import { SyntaxCacheFile, SyntaxCacheGetRequest, SyntaxCacheList } from '../viewereditwsclient';
@@ -50,14 +50,14 @@ export class LanguageRepository {
         return syntax;
     }
 
-    public async getCachedSyntaxFileName(syntaxId: string): Promise<NormalizedPath> {
-        let base: NormalizedPath;
+    public async getCachedSyntaxFileName(syntaxId: string): Promise<StringUri> {
+        let base: StringUri;
         if (!syntaxId || syntaxId === 'default') {
-            base = normalizeJoinPath(await this.host.config.getExtensionInstallPath(), 'data');
+            base = resolveUri(await this.host.config.getExtensionInstallPath(), 'data');
         } else {
             base = await this.host.config.getGlobalConfigPath();
         }
-        return normalizeJoinPath(base, `syntax_def_${syntaxId}.json`);
+        return resolveUri(base, `syntax_def_${syntaxId}.json`);
     }
 
     public async hasCachedSyntaxFile(syntaxId: string): Promise<boolean> {

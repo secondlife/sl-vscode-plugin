@@ -47,7 +47,7 @@ import { SL_SCHEME, SL_AUTHORITY } from "./vscode/objectcontentprovider";
 type ParsedTempFile = { scriptName: string; scriptId: string; extension: string, language: ScriptLanguage };
 
 export class SynchService implements vscode.Disposable {
-    // Tracks all active sync relationships between temp files and master files
+    // Tracks all active sync relationships, keyed by master file uri.toString()
     private activeSyncs: Map<string, ScriptSync> = new Map();
     private context: vscode.ExtensionContext;
     private static instance: SynchService;
@@ -99,11 +99,11 @@ export class SynchService implements vscode.Disposable {
 
     dispose(): void {
         // Dispose of all active script syncs
-        for (const [tempFilePath, scriptSync] of this.activeSyncs) {
+        for (const [masterUriKey, scriptSync] of this.activeSyncs) {
             try {
                 scriptSync.dispose();
             } catch (error) {
-                console.warn(`Error disposing sync for ${tempFilePath}:`, error);
+                console.warn(`Error disposing sync for ${masterUriKey}:`, error);
             }
         }
         this.activeSyncs.clear();
@@ -287,8 +287,7 @@ export class SynchService implements vscode.Disposable {
                 this,
             );
             await sync.initialize();
-            const normalizedMasterPath = path.normalize(masterPath);
-            this.activeSyncs.set(normalizedMasterPath, sync);
+            this.activeSyncs.set(masterUri.toString(), sync);
             syncs.push(sync);
         }
 
@@ -317,7 +316,7 @@ export class SynchService implements vscode.Disposable {
             return;
         }
 
-        this.activeSyncs.delete(sync.getMasterFilePath());
+        this.activeSyncs.delete(sync.getMasterUri().toString());
         this.syncedFileDecorator.refresh(sync.getMasterDocument().uri);
         sync.dispose();
 
@@ -437,7 +436,7 @@ export class SynchService implements vscode.Disposable {
         }
 
         const firstSync = this.activeSync ?? [...this.activeSyncs.values()][0];
-        const scriptName = firstSync ? path.basename(firstSync.getMasterFilePath()) : undefined;
+        const scriptName = firstSync ? path.basename(firstSync.getMasterUri().fsPath) : undefined;
         const scriptLanguage = firstSync ? firstSync.getLanguage() : undefined;
 
         const response: SessionHandshakeResponse = {
@@ -746,7 +745,7 @@ export class SynchService implements vscode.Disposable {
     public findSyncByMasterFilePath(
         masterFilePath: string,
     ): ScriptSync | undefined {
-        return this.activeSyncs.get(path.normalize(masterFilePath));
+        return this.activeSyncs.get(vscode.Uri.file(masterFilePath).toString());
     }
 
     public findSyncByIncludeFilePath(
@@ -766,7 +765,7 @@ export class SynchService implements vscode.Disposable {
         viewerFile: vscode.TextDocument
     ): Promise<vscode.Uri | null> {
         // Attempt to match by file meta info
-        const metaMatch = SynchService.findMasterFileByMetaComment(script, viewerFile);
+        const metaMatch = await SynchService.findMasterFileByMetaComment(script, viewerFile);
         if(metaMatch) return metaMatch;
 
         let files = await vscode.workspace.findFiles(`**/${script.scriptName}.${script.extension}`);
@@ -948,13 +947,12 @@ export class SynchService implements vscode.Disposable {
     private onDeleteFiles(event: vscode.FileDeleteEvent): void {
         const uris = event.files;
         uris.forEach((uri) => {
-            const filePath = path.normalize(uri.fsPath);
-            this.removeSync(filePath);
+            this.removeSync(uri.fsPath);
         });
     }
 
     private async onSaveTextDocument(document: vscode.TextDocument): Promise<void> {
-        const filePath = path.normalize(document.fileName);
+        const filePath = document.uri.fsPath;
         const sync = this.findSyncByMasterFilePath(filePath);
         if (sync) {
             await sync.handleMasterSaved();

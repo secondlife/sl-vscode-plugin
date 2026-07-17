@@ -12,7 +12,7 @@
  */
 
 import { ScriptLanguage } from "./languageservice";
-import { NormalizedPath, HostInterface } from "../interfaces/hostinterface";
+import { StringUri, HostInterface } from "../interfaces/hostinterface";
 import { FullConfigInterface, ConfigKey } from "../interfaces/configinterface";
 import { LanguageLexerConfig, Lexer } from "./lexer";
 import { IncludeInfo, Parser } from "./parser";
@@ -43,7 +43,7 @@ export interface PreprocessorError {
     message: string;
     lineNumber: number;
     columnNumber?: number;
-    file?: NormalizedPath;
+    file?: StringUri;
     isWarning: boolean;
 }
 
@@ -122,7 +122,7 @@ export class LexingPreprocessor {
      */
     public async process(
         source: string,
-        sourceFile: NormalizedPath,
+        sourceFile: StringUri,
         language: LanguageLexerConfig
     ): Promise<PreprocessorResult> {
         // Check if preprocessing is enabled
@@ -145,7 +145,7 @@ export class LexingPreprocessor {
             const lexerDiagnostics = lexer.getDiagnostics();
 
             // Get workspace roots if available
-            let workspaceRoots: NormalizedPath[] | undefined = undefined;
+            let workspaceRoots: StringUri[] | undefined = undefined;
             if (this.fs && this.fs.listWorkspaceFolders) {
                 workspaceRoots = await this.fs.listWorkspaceFolders();
             }

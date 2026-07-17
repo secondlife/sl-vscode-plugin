@@ -3,13 +3,13 @@
  * Copyright (C) 2025, Linden Research, Inc.
  */
 
-import { HostInterface, NormalizedPath } from "../interfaces/hostinterface";
+import { HostInterface, StringUri } from "../interfaces/hostinterface";
 import { ScriptLanguage } from "./languageservice";
 
 //-------------------------------------------------------------
 export interface LineMapping {
     processedLine: number;
-    sourceFile: NormalizedPath;
+    sourceFile: StringUri;
     originalLine: number;
 }
 
@@ -17,7 +17,7 @@ export interface LineMapping {
 
 export class LineMapper {
 
-    public static parseLineMappingsFromContent(content: string, language: ScriptLanguage = "lsl", host: HostInterface): LineMapping[] {
+    public static parseLineMappingsFromContent(content: string, language: ScriptLanguage = "lsl", _host: HostInterface): LineMapping[] {
         const lines = content.split('\n');
         const lineMappings: LineMapping[] = [];
         const commentPrefix = language === "lsl" ? "// @line" : "-- @line";
@@ -50,12 +50,12 @@ export class LineMapper {
                 // console.log(`quoted is: ${sourceFileString} `);
                 const processedLine = i + 1; // Line numbers are 1-based
 
-                // Convert URI to filename using host interface
-                const sourceFileAbsolute: NormalizedPath = host.uriToFileName(sourceFileString);
-                // console.log(`absolute is ${sourceFileAbsolute}`);
+                // Store URI directly from the @line directive
+                const sourceFileUri = sourceFileString as StringUri;
+                // console.log(`URI is ${sourceFileUri}`);
                 lineMappings.push({
                     processedLine: processedLine,
-                    sourceFile: sourceFileAbsolute,
+                    sourceFile: sourceFileUri,
                     originalLine: lineNumber
                 });
             }
@@ -74,7 +74,7 @@ export class LineMapper {
      * @returns Object with source file URI and original line number, or null if not found
      */
     public static convertAbsoluteLineToSource(lineMappings: LineMapping[], absoluteLine: number): {
-        source: NormalizedPath;
+        source: StringUri;
         line: number
     } | null {
 
@@ -111,10 +111,10 @@ export class LineMapper {
     /**
      * Finds all line mappings that reference a specific source file
      * @param lineMappings - Array of line mappings to search
-     * @param sourceFile - The source file to find mappings for (normalized path)
+     * @param sourceFile - The source file to find mappings for (URI)
      * @returns Array of line mappings that reference the specified source file
      */
-    public static findMappingsForSourceFile(lineMappings: LineMapping[], sourceFile: NormalizedPath): LineMapping[] {
+    public static findMappingsForSourceFile(lineMappings: LineMapping[], sourceFile: StringUri): LineMapping[] {
         return lineMappings.filter(mapping => mapping.sourceFile === sourceFile);
     }
 
@@ -122,11 +122,11 @@ export class LineMapper {
      * Finds all processed line numbers that correspond to a specific line in a source file
      * This is useful when a single source line generates multiple output lines (e.g., macro expansion)
      * @param lineMappings - Array of line mappings to search
-     * @param sourceFile - The source file to search for (normalized path)
+     * @param sourceFile - The source file to search for (URI)
      * @param originalLine - The line number in the original source file
      * @returns Array of processed line numbers that map to the specified source location
      */
-    public static findProcessedLines(lineMappings: LineMapping[], sourceFile: NormalizedPath, originalLine: number): number[] {
+    public static findProcessedLines(lineMappings: LineMapping[], sourceFile: StringUri, originalLine: number): number[] {
         return lineMappings
             .filter(mapping => mapping.sourceFile === sourceFile && mapping.originalLine === originalLine)
             .map(mapping => mapping.processedLine);

@@ -223,7 +223,7 @@ A standalone Node runtime implementation of `HostInterface` now exists at `src/s
 Capabilities:
 * File I/O (read/write text, JSON, YAML, TOML) using native fs + `js-yaml` + `@iarna/toml`.
 * Include resolution logic ported from the VS Code host: supports relative paths, explicit `.` / `./subdir`, workspace-root relative paths, and wildcard directory patterns (e.g. `**/include/`). Uses `glob` for wildcard matching.
-* Path normalization with `NormalizedPath` branding preserved.
+* Path identification uses `StringUri` branding throughout.
 * Workspace roots provided at construction (`new NodeHost({ roots, config })`).
 * Minimal logger injection (optional) with no-op defaults.
 * Config access fully delegated to injected `FullConfigInterface` implementation—no direct env or global lookups inside NodeHost.
@@ -243,7 +243,7 @@ Guidelines:
 1. Do not introduce VS Code imports into `src/server/`.
 2. Keep feature parity between extension host and NodeHost include resolution.
 3. Add new serialization helpers via optional methods (feature-detect in callers) rather than expanding core method contracts.
-4. Always return `NormalizedPath` for resolved files.
+4. Always return `StringUri` for resolved files.
 
 Future Extensions:
 * Optional file watching (likely via `fs.watch` or chokidar) for cache invalidation.
@@ -266,24 +266,24 @@ Most services use optional chaining and the `maybe()` utility for safe property 
 
 Always use workspace-relative paths for security. Include paths are configurable via `includePaths` setting with patterns like `["./include/", "include/", "*/include/", "."]`.
 
-#### NormalizedPath Abstraction (2025-09 Update)
+#### StringUri Abstraction (2025-09 Update, replaced NormalizedPath 2026-07)
 
-All internal path handling in the preprocessor layer now uses `NormalizedPath`, a branded string type produced by `normalizePath()` (see `llsharedutils`). This replaces previous reliance on `vscode.Uri` within core logic and tests.
+All internal path handling in the preprocessor layer uses `StringUri`, a branded `string` type produced by `filePathToStringUri()` (see `hostinterface.ts`). This replaced the earlier `NormalizedPath`/`normalizePath()` approach and the reliance on `vscode.Uri` within core logic and tests.
 
 Key guidelines:
-- Do not store or compare raw/relative paths directly; always normalize first.
-- Equality checks are simple strict equality (`===`) because normalization canonicalizes separators and casing rules (platform appropriate).
-- Tests must no longer access `.fsPath` or other `Uri` properties—compare the `NormalizedPath` values directly.
-- When constructing mappings (`LineMapping`), assign `sourceFile: NormalizedPath`.
+- Do not store or compare raw/relative paths directly; always convert to `StringUri` first.
+- Equality checks use `uriEquals()` (case-insensitive on Windows for `file://` URIs); use `uriKey()` for Map/Set keys.
+- Tests compare `StringUri` values directly, not `.fsPath` or other `Uri` properties.
+- When constructing mappings (`LineMapping`), assign `sourceFile: StringUri`.
 
 #### HostInterface for Includes (formerly FileInterface)
 
 `IncludeProcessor` now depends on an injected `HostInterface` (renamed from earlier `FileInterface` for broader future responsibilities) instead of directly using VS Code APIs. Implementations must provide:
 
 ```
-readFile(path: NormalizedPath): Promise<string | null>
-exists(path: NormalizedPath): Promise<boolean>
-resolveFile(filename: string, from: NormalizedPath, extensions?: string[], includePaths?: string[]): Promise<NormalizedPath | null>
+readFile(path: StringUri): Promise<string | null>
+exists(path: StringUri): Promise<boolean>
+resolveFile(filename: string, from: StringUri, extensions?: string[], includePaths?: string[]): Promise<StringUri | null>
 ```
 
 Test shims may implement minimal logic (e.g., in-memory maps). For realistic include resolution tests, provide a hybrid in-memory + disk implementation and pass it to `new IncludeProcessor(fsImpl)`.
@@ -320,7 +320,7 @@ Deprecated/Removed (late Sept 2025): free helpers `getConfig` / `setConfig`.
 
 `processInclude` signature:
 ```
-processInclude(filename: string, sourceFile: NormalizedPath, isRequire: boolean, state: PreprocessorState)
+processInclude(filename: string, sourceFile: StringUri, isRequire: boolean, state: PreprocessorState)
 ```
 Static helper methods like `pathToGlobPattern` and `getIncludeDirectories` have been removed; tests referring to them should be deleted or rewritten.
 
@@ -354,7 +354,7 @@ expectMapping(mapping, processedLine, originalLine, filePathNormalized);
 expectMappings(arrayOfMappings, [ [processed, original, file], ... ]);
 ```
 
-Adopt these helpers when adding or modifying mapping tests. They perform strict equality on `NormalizedPath` and provide clearer failure messaging.
+Adopt these helpers when adding or modifying mapping tests. They perform strict equality on `StringUri` and provide clearer failure messaging.
 
 ## Maintaining These Instructions
 
@@ -373,7 +373,7 @@ Examples of updates to include:
 - Removed legacy global configuration helpers (`getConfig`, `setConfig`); explicit dependency injection via `host.config` only.
 - HostInterface trimmed: configuration & path access consolidated under `FullConfigInterface` implementation (`LLConfigService`).
 - Updated services and sync logic to use `LLConfigService.getInstance()` only at composition boundaries; core logic depends on abstracted `HostInterface` + `FullConfigInterface`.
-- Ensured path branding (`NormalizedPath`) throughout preprocessing and language data flows.
+- Ensured URI branding (`StringUri`) throughout preprocessing and language data flows.
 - Guidance: New settings belong in `ConfigKey` + `LLConfigService`; avoid reintroducing host-level config APIs.
 
 ### 2025-10 Nested Require Processing (Oct 10)

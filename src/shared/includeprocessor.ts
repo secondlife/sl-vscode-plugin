@@ -10,7 +10,7 @@
  * - File resolution via HostInterface
  */
 
-import { NormalizedPath, HostInterface, normalizeJoinPath, normalizePath } from '../interfaces/hostinterface';
+import { StringUri, HostInterface, UriSet, resolveUri, uriDirname, filePathToStringUri } from '../interfaces/hostinterface';
 import { LanguageLexerConfig, Lexer, Token } from './lexer';
 import { MacroProcessor } from './macroprocessor';
 import { ConditionalProcessor } from './conditionalprocessor';
@@ -27,15 +27,15 @@ export interface IncludeResult {
     /** Parsed tokens from the included file */
     tokens: Token[];
     /** Resolved path of the included file */
-    resolvedPath: NormalizedPath | null;
+    resolvedPath: StringUri | null;
     /** Error message if unsuccessful */
     error?: string;
     /** Whether the file was included via an external alias */
     external?: boolean;
 }
 
-export type LuauRCRequireMap = {[k:NormalizedPath]:RequireMap};
-export type RequireMap = {[k:string]:NormalizedPath};
+export type LuauRCRequireMap = {[k: string]: RequireMap};  // Keys are StringUri at runtime
+export type RequireMap = {[k: string]: StringUri};
 export type LuauRCFile = {
     aliases: {[k:string]:string};
 };
@@ -45,9 +45,9 @@ export type LuauRCFile = {
  */
 export interface IncludeState {
     /** Files already included (for include guards) */
-    includedFiles: Set<NormalizedPath>;
+    includedFiles: UriSet;
     /** Current include stack (for circular detection) */
-    includeStack: NormalizedPath[];
+    includeStack: StringUri[];
     /** Current include depth */
     includeDepth: number;
     /** Maximum include depth allowed */
@@ -86,7 +86,7 @@ export class IncludeProcessor {
      */
     public async processInclude(
         include: IncludeInfo,
-        sourceFile: NormalizedPath,
+        sourceFile: StringUri,
         state: IncludeState,
         _macros: MacroProcessor,
         _conditionals: ConditionalProcessor,
@@ -333,7 +333,7 @@ export class IncludeProcessor {
         return filename;
     }
 
-    private async getLuauRequireAliasDir(requirePath:string, sourceFile:NormalizedPath, state:IncludeState) : Promise<string> {
+    private async getLuauRequireAliasDir(requirePath:string, sourceFile:StringUri, state:IncludeState) : Promise<string> {
         if(!requirePath.startsWith("@")) {
             throw "Alias must start with @";
         }
@@ -359,17 +359,17 @@ export class IncludeProcessor {
         throw `Require alias not found: ${requirePath}`;
     }
 
-    private async resolveLuaurcFileAliases(sourceFile:string, rcMap: LuauRCRequireMap) : Promise<RequireMap> {
+    private async resolveLuaurcFileAliases(sourceFile: StringUri, rcMap: LuauRCRequireMap) : Promise<RequireMap> {
         const map: RequireMap = {};
-        let dir = normalizePath(sourceFile);
+        let dir: StringUri = sourceFile;
         let last = dir;
         let limit = 25;
         while(limit-- > 0) {
-            dir = normalizePath(path.dirname(dir));
+            dir = uriDirname(dir);
             if(last == dir) {
                 break;
             }
-            const norm = normalizeJoinPath(dir,".luaurc");
+            const norm = resolveUri(dir,".luaurc");
             let dirMap = rcMap[norm] ?? null;
             if(!dirMap) {
                 const rcfile = await this.host.readJSON<LuauRCFile>(norm);
@@ -386,9 +386,9 @@ export class IncludeProcessor {
                 for(const alias in aliases) {
                     let str = aliases[alias];
                     if(path.isAbsolute(str)) {
-                        rcMap[norm][alias] = normalizePath(str);
+                        rcMap[norm][alias] = filePathToStringUri(str);
                     } else {
-                        rcMap[norm][alias] = normalizeJoinPath(dir,str);
+                        rcMap[norm][alias] = resolveUri(dir, str);
                     }
                 }
                 dirMap = rcMap[norm] ?? {};
@@ -406,7 +406,7 @@ export class IncludeProcessor {
      */
     public static createState(maxIncludeDepth: number = 5, includePaths?: string[]): IncludeState {
         return {
-            includedFiles: new Set(),
+            includedFiles: new UriSet(),
             includeStack: [],
             includeDepth: 0,
             maxIncludeDepth,

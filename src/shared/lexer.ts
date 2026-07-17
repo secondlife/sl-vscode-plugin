@@ -7,7 +7,7 @@
  */
 
 import { ScriptLanguage } from "./languageservice";
-import { NormalizedPath } from "../interfaces/hostinterface";
+import { StringUri } from "../interfaces/hostinterface";
 import { DiagnosticCollector, ErrorCodes } from "./diagnostics";
 import { ConfigKey, FullConfigInterface } from "../interfaces/configinterface";
 
@@ -391,13 +391,13 @@ export class Lexer {
     private context: LexerContext;
     private tokens: Token[];
     private config: BaseLanguageLexerConfig;
-    private sourceFile: NormalizedPath;
+    private sourceFile: StringUri;
     private diagnostics: DiagnosticCollector;
 
     constructor(
         source: string,
         languageConfig: BaseLanguageLexerConfig,
-        sourceFile?: NormalizedPath,
+        sourceFile?: StringUri,
         diagnostics?: DiagnosticCollector
     ) {
         this.source = source;
@@ -411,7 +411,7 @@ export class Lexer {
             interpolatedStringDepth: [],
         };
         this.tokens = [];
-        this.sourceFile = sourceFile || ("<unknown>" as NormalizedPath);
+        this.sourceFile = sourceFile || ("<unknown>" as StringUri);
         this.diagnostics = diagnostics || new DiagnosticCollector();
     }
 
