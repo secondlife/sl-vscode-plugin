@@ -33,7 +33,7 @@ This document describes all the message interfaces defined for WebSocket communi
 - [Handler and Configuration Interfaces](../../../VSCode/sl-vscode-edit/doc/Message_Interfaces.md#handler-and-configuration-interfaces)
   - [WebSocketHandlers](../../../VSCode/sl-vscode-edit/doc/Message_Interfaces.md#websockethandlers)
   - [ClientInfo](../../../VSCode/sl-vscode-edit/doc/Message_Interfaces.md#clientinfo)
-- [Object Content Interfaces](../../../VSCode/sl-vscode-edit/doc/Message_Interfaces.md#object-content-interfaces)
+- [Object Explorer Interfaces](../../../VSCode/sl-vscode-edit/doc/Message_Interfaces.md#object-explorer-interfaces)
   - [Core Data Types](../../../VSCode/sl-vscode-edit/doc/Message_Interfaces.md#core-data-types)
   - [ObjectPublish](../../../VSCode/sl-vscode-edit/doc/Message_Interfaces.md#objectpublish)
   - [ObjectUnpublish](../../../VSCode/sl-vscode-edit/doc/Message_Interfaces.md#objectunpublish)
@@ -66,10 +66,10 @@ This document describes all the message interfaces defined for WebSocket communi
    - When subscription needs to be terminated, viewer sends `script.unsubscribe` notification with `ScriptUnsubscribe` data
    - Extension handles unsubscription by cleaning up local script tracking
 
-4. **Object Content Publishing:**
+4. **Object Explorer:**
 
-   - Viewer sends `object.publish` notification when an in-world object's contents are made available for editing
-   - Viewer sends `object.unpublish` notification when an object is removed or the owner stops publishing
+   - Viewer sends `object.publish` notification when an in-world object's contents are made available for editing (user clicks "Explore in IDE")
+   - Viewer sends `object.unpublish` notification when an object is removed or the user stops exploring
    - Viewer sends `object.update` notification when object inventory changes (full replacement or delta)
    - Extension calls `object.content.get` to fetch an item's content on demand
    - Extension calls `object.content.save` to write modified content back to the viewer
@@ -102,7 +102,7 @@ vscode://lindenlab.sl-vscode-plugin/connect[?port=<port>][&object=<uuid>][&scrip
 | Parameter | Required | Description |
 | --------- | -------- | ----------- |
 | `port`    | No       | Port number the viewer's WebSocket server is listening on. Overrides the user's configured port for this session. Defaults to the configured `slVscodeEdit.network.websocketPort` (default `9020`) if absent. Must be in range 1024–65535. |
-| `object`  | No       | UUID of a root prim. After the handshake completes the extension calls `object.request` to ask the viewer to publish this object. The viewer then sends an `object.publish` notification and the object appears as a workspace folder in the Explorer. |
+| `object`  | No       | UUID of a root prim. After the handshake completes the extension calls `object.request` to ask the viewer to start exploring this object. The viewer then sends an `object.publish` notification and the object appears as a workspace folder in the Explorer. |
 | `script`  | No       | UUID of a script. After the handshake completes the extension locates the corresponding temp file via `script.list` and opens it, triggering the normal `script.subscribe` + live-sync flow. |
 
 `object` and `script` are mutually exclusive in typical use but both may be supplied; the extension will process both.
@@ -116,7 +116,7 @@ vscode://lindenlab.sl-vscode-plugin/connect
 # Connect on a custom port
 vscode://lindenlab.sl-vscode-plugin/connect?port=9021
 
-# Connect and immediately publish a specific object
+# Connect and immediately explore a specific object
 vscode://lindenlab.sl-vscode-plugin/connect?port=9020&object=550e8400-e29b-41d4-a716-446655440000
 
 # Connect and open a specific script for editing
@@ -737,9 +737,9 @@ interface ClientInfo {
 
 ---
 
-## Object Content Interfaces
+## Object Explorer Interfaces
 
-These interfaces support publishing in-world object inventories (scripts and notecards) to the external editor as a browseable virtual filesystem. The extension exposes published objects under the `sl://objects/` URI scheme.
+These interfaces support exploring in-world object inventories (scripts and notecards) from the external editor as a browseable virtual filesystem. The extension exposes explored objects under the `sl://objects/` URI scheme.
 
 ### Core Data Types
 
@@ -821,7 +821,7 @@ interface ObjectPublishMessage {
 
 **Fields:**
 
-- `object`: The full published object tree, including root prim inventory and all linked prim inventories.
+- `object`: The full object tree being explored, including root prim inventory and all linked prim inventories.
 
 ---
 
@@ -829,7 +829,7 @@ interface ObjectPublishMessage {
 
 **JSON-RPC Method:** `object.unpublish` (notification from viewer)
 
-Sent when the viewer removes a previously published object — for example when the owner deselects it, moves away, or the object is deleted.
+Sent when the viewer stops exploring a previously explored object — for example when the user clicks "Stop Exploring", moves away, or the object is deleted.
 
 ```typescript
 interface ObjectUnpublishMessage {
@@ -840,12 +840,12 @@ interface ObjectUnpublishMessage {
 
 **Fields:**
 
-- `object_id`: UUID of the root prim that is being unpublished
+- `object_id`: UUID of the root prim that is no longer being explored
 - `reason` (optional): Human-readable explanation (e.g. `"object deleted"`, `"out of range"`)
 
 **JSON-RPC Method:** `object.unpublish` (call from extension to viewer)
 
-The extension may also call `object.unpublish` to manually stop tracking an object. The viewer will stop publishing it and send a corresponding `object.unpublish` notification back to the caller.
+The extension may also call `object.unpublish` to manually stop exploring an object. The viewer will stop and send a corresponding `object.unpublish` notification back to the caller.
 
 ```typescript
 interface ObjectUnpublishParams {
@@ -860,8 +860,8 @@ interface ObjectUnpublishResponse {
 
 **Fields:**
 
-- `object_id`: UUID of the root prim to unpublish.
-- `success`: `true` if the object was published and has been removed.
+- `object_id`: UUID of the root prim to stop exploring.
+- `success`: `true` if the object was being explored and has been removed.
 
 **Note:** The viewer also sends an `object.unpublish` notification to the caller immediately after responding. Extensions should handle that notification idempotently.
 
@@ -871,7 +871,7 @@ interface ObjectUnpublishResponse {
 
 **JSON-RPC Method:** `object.update` (notification from viewer)
 
-Sent when the inventory of a published object changes. Supports two modes:
+Sent when the inventory of an explored object changes. Supports two modes:
 - **Full replacement**: `inventory` and/or `linked_objects` fields replace the entire prior state.
 - **Delta update**: `changes` field describes only what changed. Takes precedence over full replacement fields when present.
 
@@ -1061,7 +1061,7 @@ This is typically called immediately after the handshake completes when the exte
 
 ```typescript
 interface ObjectRequestParams {
-  object_id: string;  // UUID of the root prim to request publishing for
+  object_id: string;  // UUID of the root prim to request exploring
 }
 
 interface ObjectRequestResponse {
@@ -1072,7 +1072,7 @@ interface ObjectRequestResponse {
 
 **Fields:**
 
-- `object_id`: UUID of the root prim of the linkset to publish.
+- `object_id`: UUID of the root prim of the linkset to explore.
 - `success`: Whether the viewer accepted the request. A `true` response does not mean `object.publish` has been sent yet — it means the viewer will send it.
 - `message` (optional): Human-readable failure reason. Only present when `success` is `false`.
 
@@ -1087,21 +1087,21 @@ interface ObjectRequestResponse {
 
 **JSON-RPC Method:** `object.list` (call from extension to viewer)
 
-Requests the complete list of currently published objects. Called by the extension immediately after the handshake completes (`session.ok`) to restore state for any objects the viewer already has published.
+Requests the complete list of currently explored objects. Called by the extension immediately after the handshake completes (`session.ok`) to restore state for any objects the viewer already has open for exploration.
 
-The viewer responds synchronously with all published objects in the same format as `object.publish` notifications. No follow-up notifications are sent.
+The viewer responds synchronously with all explored objects in the same format as `object.publish` notifications. No follow-up notifications are sent.
 
 ```typescript
 // No request parameters
 
 interface ObjectListResponse {
-  objects: PublishedObject[];  // All currently published objects; empty array if none
+  objects: PublishedObject[];  // All currently explored objects; empty array if none
 }
 ```
 
 **Fields:**
 
-- `objects`: Array of `PublishedObject` records (same shape as the `object` field in `object.publish`). Empty array when no objects are currently published.
+- `objects`: Array of `PublishedObject` records (same shape as the `object` field in `object.publish`). Empty array when no objects are currently being explored.
 
 **Sequence:**
 1. Viewer sends `session.ok`
