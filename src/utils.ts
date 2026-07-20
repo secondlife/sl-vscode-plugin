@@ -346,7 +346,16 @@ export class VSCodeHost implements HostInterface {
     }
 
     async exists(filename: StringUri, unsafe?: boolean): Promise<boolean> {
-        const filePath = stringUriToFilePath(filename);
+        // Handle both file:// and workspace:// URIs
+        let filePath = stringUriToFilePath(filename);
+        if (!filePath && filename.startsWith('workspace:///')) {
+            try {
+                const vscodeUri = stringUriToVscodeUri(filename);
+                filePath = vscodeUri.fsPath;
+            } catch {
+                return false;
+            }
+        }
         if (!filePath) return false;
 
         if (unsafe) {
@@ -383,8 +392,21 @@ export class VSCodeHost implements HostInterface {
         unsafe: boolean = false,
     ): Promise<StringUri | null> {
         // Convert from StringUri to file path
-        const fromPath = stringUriToFilePath(from);
-        if (!fromPath) return null;
+        // Handle both file:// and workspace:// URIs
+        let fromPath = stringUriToFilePath(from);
+        if (!fromPath) {
+            // Try workspace:// URI - convert via vscode.Uri to get fsPath
+            if (from.startsWith('workspace:///')) {
+                try {
+                    const vscodeUri = stringUriToVscodeUri(from);
+                    fromPath = vscodeUri.fsPath;
+                } catch {
+                    return null;
+                }
+            } else {
+                return null;
+            }
+        }
 
         const fromDir = path.dirname(fromPath);
         const hasExt = path.extname(filename).length > 0;
