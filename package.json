@@ -5,6 +5,7 @@
   "version": "1.0.4",
   "publisher": "lindenlab",
   "icon": "sl-logo-vscode.png",
+  "type": "commonjs",
   "extensionDependencies": [],
   "engines": {
     "vscode": "^1.85.0"
@@ -388,8 +389,7 @@
     "lint": "eslint src",
     "lint:fix": "eslint src --fix",
     "test": "node ./out/test/runTest.js",
-    "test-basic": "npx mocha \"./out/test/suite/basic.test.js\" --ui tdd --timeout 5000",
-    "test-unit": "npx mocha \"./out/test/suite/{basic,preprocessor,include-disk-integration}.test.js\" --ui tdd --timeout 5000",
+    "test-unit": "npx mocha \"./out/test/suite/parser.test.js\" \"./out/test/suite/lexingpreprocessor.test.js\" \"./out/test/suite/include-disk-integration.test.js\" --ui tdd --timeout 5000",
     "test-compile": "tsc -p . --outDir out --skipLibCheck",
     "precommit": "npm run lint && npm run test-compile && npm run test-unit"
   },
@@ -405,7 +405,7 @@
     "@vscode/test-electron": "^2.5.2",
     "eslint": "^9.34.0",
     "glob": "^11.1.0",
-    "mocha": "^10.0.0",
+    "mocha": "^11.7.6",
     "typescript": "^5.9.2"
   },
   "dependencies": {

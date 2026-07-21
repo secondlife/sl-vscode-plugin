@@ -3,7 +3,6 @@
  * Copyright (C) 2025, Linden Research, Inc.
  */
 import * as vscode from "vscode";
-import * as path from "path";
 import { HostInterface, StringUri, filePathToStringUri, resolveUri } from "./interfaces/hostinterface";
 import { LuaTypeDefinitions } from "./shared/luadefsinterface";
 import { LuauDefsGenerator } from "./shared/luadefsgenerator";
