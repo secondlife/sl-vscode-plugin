@@ -36,6 +36,14 @@ export interface ObjectContentChangeEvent {
     item_id: string;
 }
 
+/** Fired when a script's running state changes */
+export interface ScriptRunningChangeEvent {
+    object_id: string;
+    prim_id: string;
+    item_id: string;
+    running: boolean;
+}
+
 // ============================================
 // Service
 // ============================================
@@ -51,10 +59,13 @@ export class ObjectContentService implements vscode.Disposable {
     private _onDidChangeContent = new vscode.EventEmitter<ObjectContentChangeEvent>();
     readonly onDidChangeContent = this._onDidChangeContent.event;
 
+    private _onDidChangeRunningState = new vscode.EventEmitter<ScriptRunningChangeEvent>();
+    readonly onDidChangeRunningState = this._onDidChangeRunningState.event;
+
     private disposables: vscode.Disposable[] = [];
 
     private constructor() {
-        this.disposables.push(this._onDidChangeObjects, this._onDidChangeContent);
+        this.disposables.push(this._onDidChangeObjects, this._onDidChangeContent, this._onDidChangeRunningState);
     }
 
     static getInstance(): ObjectContentService {
@@ -233,6 +244,19 @@ export class ObjectContentService implements vscode.Disposable {
         );
     }
 
+    /**
+     * Find an item by its display filename (name + extension).
+     * Used by decorators that receive URIs with display names.
+     */
+    getItemByDisplayName(object_id: string, prim_id: string, filename: string): ObjectInventoryItem | undefined {
+        const inventory = this.getInventory(object_id, prim_id);
+        if (!inventory) return undefined;
+        return inventory.find((item) => {
+            const ext = item.type === "notecard" ? "" : (item.subtype === 1 ? ".luau" : ".lsl");
+            return item.name + ext === filename;
+        });
+    }
+
     /** Returns inventory arrays for all prims in the object (root first, then linked). */
     getAllInventories(object_id: string): ObjectInventoryItem[][] {
         const entry = this.objects.get(object_id);
@@ -241,6 +265,18 @@ export class ObjectContentService implements vscode.Disposable {
             entry.object.inventory ?? [],
             ...(entry.object.linked_objects ?? []).map(lo => lo.inventory ?? []),
         ];
+    }
+
+    /**
+     * Update a script's running state and fire the change event.
+     * Called after a successful set_running RPC response.
+     */
+    setScriptRunningState(object_id: string, prim_id: string, item_id: string, running: boolean): void {
+        const item = this.getItem(object_id, prim_id, item_id);
+        if (item && item.type === "script") {
+            item.running = running;
+            this._onDidChangeRunningState.fire({ object_id, prim_id, item_id, running });
+        }
     }
 
     // ============================================
@@ -342,6 +378,7 @@ export class ObjectContentService implements vscode.Disposable {
                 const item = inventory.find((i) => i.item_id === rc.item_id);
                 if (item) {
                     item.running = rc.running;
+                    this._onDidChangeRunningState.fire({ object_id, prim_id, item_id: rc.item_id, running: rc.running });
                 }
             }
         }

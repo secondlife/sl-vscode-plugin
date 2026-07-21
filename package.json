@@ -35,6 +35,14 @@
         }
       }
     ],
+    "views": {
+      "explorer": [
+        {
+          "id": "slInworldExplorer",
+          "name": "Second Life (Inworld)"
+        }
+      ]
+    },
     "commands": [
       {
         "command": "second-life-scripting.enable",
@@ -44,12 +52,14 @@
       {
         "command": "second-life-scripting.connectWebSocket",
         "title": "Connect WebSocket Client",
-        "category": "Second Life"
+        "category": "Second Life",
+        "icon": "$(plug)"
       },
       {
         "command": "second-life-scripting.disconnectWebSocket",
         "title": "Disconnect WebSocket Client",
-        "category": "Second Life"
+        "category": "Second Life",
+        "icon": "$(debug-disconnect)"
       },
       {
         "command": "second-life-scripting.showWebSocketClientStatus",
@@ -66,6 +76,68 @@
         "shortTitle": "Stop File Sync",
         "title": "Stop file sync with SL Viewer",
         "category": "Second Life"
+      },
+      {
+        "command": "slVscodeEdit.openInventoryItem",
+        "title": "Open",
+        "category": "Second Life"
+      },
+      {
+        "command": "slVscodeEdit.renameInventoryItem",
+        "title": "Rename...",
+        "category": "Second Life"
+      },
+      {
+        "command": "slVscodeEdit.deleteInventoryItem",
+        "title": "Delete",
+        "category": "Second Life"
+      },
+      {
+        "command": "slVscodeEdit.saveItem",
+        "title": "Save",
+        "category": "Second Life"
+      },
+      {
+        "command": "slVscodeEdit.recompileScript",
+        "title": "Recompile",
+        "category": "Second Life"
+      },
+      {
+        "command": "slVscodeEdit.renameObject",
+        "title": "Rename...",
+        "category": "Second Life"
+      },
+      {
+        "command": "slVscodeEdit.teleportToObject",
+        "title": "Teleport To",
+        "category": "Second Life",
+        "enablement": "false"
+      },
+      {
+        "command": "slVscodeEdit.startScript",
+        "title": "Start",
+        "category": "Second Life"
+      },
+      {
+        "command": "slVscodeEdit.stopScript",
+        "title": "Stop",
+        "category": "Second Life"
+      },
+      {
+        "command": "slVscodeEdit.restartScript",
+        "title": "Restart",
+        "category": "Second Life"
+      },
+      {
+        "command": "slVscodeEdit.restartScriptDisabled",
+        "title": "Restart",
+        "category": "Second Life",
+        "enablement": "false"
+      },
+      {
+        "command": "slVscodeEdit.newFile",
+        "title": "New file...",
+        "category": "Second Life"
       }
     ],
     "menus": {
@@ -81,6 +153,80 @@
           "command": "second-life-scripting.stopFileSync",
           "group": "1_close@99",
           "when": "resourceScheme == file && slVscodeEdit:syncsActive"
+        }
+      ],
+      "view/item/context": [
+        {
+          "command": "slVscodeEdit.openInventoryItem",
+          "when": "view == slInworldExplorer && viewItem =~ /inventoryItem|scriptRunning|scriptStopped/",
+          "group": "navigation"
+        },
+        {
+          "command": "slVscodeEdit.recompileScript",
+          "when": "view == slInworldExplorer && viewItem =~ /scriptRunning|scriptStopped/",
+          "group": "navigation"
+        },
+        {
+          "command": "slVscodeEdit.saveItem",
+          "when": "view == slInworldExplorer && viewItem == inventoryItem",
+          "group": "navigation"
+        },
+        {
+          "command": "slVscodeEdit.startScript",
+          "when": "view == slInworldExplorer && viewItem == scriptStopped",
+          "group": "1_scriptControl"
+        },
+        {
+          "command": "slVscodeEdit.stopScript",
+          "when": "view == slInworldExplorer && viewItem == scriptRunning",
+          "group": "1_scriptControl"
+        },
+        {
+          "command": "slVscodeEdit.restartScript",
+          "when": "view == slInworldExplorer && viewItem == scriptRunning",
+          "group": "1_scriptControl"
+        },
+        {
+          "command": "slVscodeEdit.restartScriptDisabled",
+          "when": "view == slInworldExplorer && viewItem == scriptStopped",
+          "group": "1_scriptControl"
+        },
+        {
+          "command": "slVscodeEdit.renameInventoryItem",
+          "when": "view == slInworldExplorer && viewItem =~ /inventoryItem|scriptRunning|scriptStopped/",
+          "group": "7_modification"
+        },
+        {
+          "command": "slVscodeEdit.deleteInventoryItem",
+          "when": "view == slInworldExplorer && viewItem =~ /inventoryItem|scriptRunning|scriptStopped/",
+          "group": "7_modification"
+        },
+        {
+          "command": "slVscodeEdit.renameObject",
+          "when": "view == slInworldExplorer && viewItem =~ /slObject|slLinkedPrim/",
+          "group": "7_modification"
+        },
+        {
+          "command": "slVscodeEdit.teleportToObject",
+          "when": "view == slInworldExplorer && viewItem == slObject",
+          "group": "navigation"
+        },
+        {
+          "command": "slVscodeEdit.newFile",
+          "when": "view == slInworldExplorer && viewItem =~ /slObject|slLinkedPrim/",
+          "group": "navigation"
+        }
+      ],
+      "view/title": [
+        {
+          "command": "second-life-scripting.connectWebSocket",
+          "when": "view == slInworldExplorer && !slVscodeEdit:connected",
+          "group": "navigation"
+        },
+        {
+          "command": "second-life-scripting.disconnectWebSocket",
+          "when": "view == slInworldExplorer && slVscodeEdit:connected",
+          "group": "navigation"
         }
       ]
     },

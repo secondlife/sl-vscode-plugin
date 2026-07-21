@@ -6,8 +6,9 @@ import * as vscode from "vscode";
 import { SynchService } from "./synchservice";
 import { LanguageService } from "./shared/languageservice";
 import { ObjectContentService } from "./vscode/objectcontentservice";
-import { ObjectContentProvider, SL_SCHEME, SL_AUTHORITY, rootUri } from "./vscode/objectcontentprovider";
+import { ObjectContentProvider, SL_SCHEME, displayName } from "./vscode/objectcontentprovider";
 import { ObjectContentDecorator } from "./vscode/ObjectContentDecorator";
+import { ObjectExplorerProvider, ExplorerNode } from "./vscode/objectexplorerprovider";
 import { ConfigService, configPrefix } from "./configservice";
 import {
     VSCodeHost,
@@ -20,7 +21,50 @@ import {
     showErrorMessage
 } from "./utils";
 import { ConfigKey } from "./interfaces/configinterface";
+import { ViewerEditWSClient } from "./viewereditwsclient";
 import path from "path";
+
+/**
+ * Helper function for rename operations on objects and inventory items.
+ * Consolidates common logic: connection check, input box, validation, and error handling.
+ */
+async function renameNode(
+    synchService: SynchService,
+    entityType: string,
+    currentName: string,
+    doRename: (client: ViewerEditWSClient, newName: string) => Promise<{ success: boolean; message?: string }>
+): Promise<void> {
+    const client = synchService.getWebSocket();
+    if (!client) {
+        vscode.window.showErrorMessage("Not connected to Second Life viewer.");
+        return;
+    }
+
+    const newName = await vscode.window.showInputBox({
+        prompt: `Enter new name for the ${entityType}`,
+        value: currentName,
+        validateInput: (value) => {
+            if (!value || value.trim().length === 0) {
+                return "Name cannot be empty";
+            }
+            if (value.length > 63) {
+                return "Name must be 63 characters or less";
+            }
+            return undefined;
+        }
+    });
+
+    if (!newName || newName === currentName) return;
+
+    try {
+        const result = await doRename(client, newName);
+        if (!result.success) {
+            vscode.window.showErrorMessage(`Failed to rename: ${result.message}`);
+        }
+    } catch (err) {
+        vscode.window.showErrorMessage(`Failed to rename ${entityType}: ${err}`);
+    }
+}
 
 // This method is called when your extension is activated
 // Your extension is activated the very first time the command is executed
@@ -46,72 +90,237 @@ export function activate(context: vscode.ExtensionContext): void {
         objectContentService,
     );
 
-    // Register file decoration provider for sl:// URIs (shows disconnected state)
+    // Register file decoration provider for sl:// URIs (shows disconnected state, script running state)
     const objectContentDecorator = new ObjectContentDecorator(
         () => synchService.isConnected(),
         (listener) => synchService.onDidChangeConnectionState(listener),
+        objectContentService,
     );
     context.subscriptions.push(
         vscode.window.registerFileDecorationProvider(objectContentDecorator),
         objectContentDecorator,
     );
 
-    // Manage workspace folders for published objects so Explorer shows friendly names.
-    // Batch folder adds to avoid VS Code cancelling rapid successive updateWorkspaceFolders calls.
-    const pendingFolderAdds: Array<{ object_id: string; name: string }> = [];
-    let flushScheduled = false;
+    // Register the "Second Life" tree view in Explorer
+    const objectExplorerProvider = new ObjectExplorerProvider(
+        context.extensionPath,
+        () => synchService.isConnected(),
+        synchService.onDidChangeConnectionState
+    );
+    const objectTreeView = vscode.window.createTreeView("slInworldExplorer", {
+        treeDataProvider: objectExplorerProvider,
+    });
 
-    function flushPendingFolderAdds(): void {
-        flushScheduled = false;
-        if (pendingFolderAdds.length === 0) {
-            return;
-        }
-        const currentFolders = vscode.workspace.workspaceFolders ?? [];
-        const toAdd: Array<{ uri: vscode.Uri; name: string }> = [];
-        for (const { object_id, name } of pendingFolderAdds) {
-            const alreadyPresent = currentFolders.some(
-                (f) => f.uri.scheme === SL_SCHEME && f.uri.authority === SL_AUTHORITY && f.uri.path === `/${object_id}`
-            );
-            if (!alreadyPresent) {
-                toAdd.push({ uri: rootUri(object_id), name });
+    // Set initial title
+    objectTreeView.title = synchService.isConnected()
+        ? "Second Life (connected)"
+        : "Second Life (disconnected)";
+
+    context.subscriptions.push(objectTreeView, objectExplorerProvider);
+
+    // Command to open sl:// items from the tree view
+    context.subscriptions.push(
+        vscode.commands.registerCommand(
+            "slVscodeEdit.openInventoryItem",
+            (uri: vscode.Uri) => {
+                vscode.window.showTextDocument(uri, { preview: false });
             }
-        }
-        pendingFolderAdds.length = 0;
-        if (toAdd.length > 0) {
-            vscode.workspace.updateWorkspaceFolders(currentFolders.length, 0, ...toAdd);
-        }
-    }
+        )
+    );
 
+    // Rename commands for context menu actions
+    context.subscriptions.push(
+        vscode.commands.registerCommand("slVscodeEdit.renameInventoryItem", async (node: ExplorerNode) => {
+            if (node.kind !== "item") return;
+            await renameNode(synchService, "item", node.item.name, (client, newName) =>
+                client.modifyObjectItem({ prim_id: node.prim_id, item_id: node.item.item_id, name: newName })
+            );
+        }),
+        vscode.commands.registerCommand("slVscodeEdit.deleteInventoryItem", async (node: ExplorerNode) => {
+            if (node.kind !== "item") {
+                return;
+            }
+            const itemName = displayName(node.item);
+            const confirm = await vscode.window.showWarningMessage(
+                `Delete "${itemName}" from object?`,
+                { modal: true },
+                "Delete"
+            );
+            if (confirm !== "Delete") {
+                return;
+            }
+            const client = synchService.getWebSocket();
+            if (!client) {
+                vscode.window.showErrorMessage("Not connected to Second Life viewer.");
+                return;
+            }
+            try {
+                const result = await client.deleteObjectItem({
+                    prim_id: node.prim_id,
+                    item_id: node.item.item_id,
+                });
+                if (result.success) {
+                    vscode.window.showInformationMessage(`Deleted "${itemName}".`);
+                } else {
+                    vscode.window.showErrorMessage(`Failed to delete "${itemName}".`);
+                }
+            } catch (err) {
+                vscode.window.showErrorMessage(`Error deleting "${itemName}": ${err}`);
+            }
+        }),
+        vscode.commands.registerCommand("slVscodeEdit.saveItem", async (node: ExplorerNode) => {
+            if (node.kind !== "item") return;
+            try {
+                const doc = await vscode.workspace.openTextDocument(node.uri);
+                await doc.save();
+            } catch (err) {
+                vscode.window.showErrorMessage(`Failed to save: ${err}`);
+            }
+        }),
+        vscode.commands.registerCommand("slVscodeEdit.recompileScript", async (node: ExplorerNode) => {
+            if (node.kind !== "item" || node.item.type !== "script") return;
+            try {
+                const doc = await vscode.workspace.openTextDocument(node.uri);
+                await doc.save();
+            } catch (err) {
+                vscode.window.showErrorMessage(`Failed to recompile: ${err}`);
+            }
+        }),
+        vscode.commands.registerCommand("slVscodeEdit.renameObject", async (node: ExplorerNode) => {
+            if (node.kind !== "object" && node.kind !== "linkedPrim") return;
+            const prim_id = node.kind === "object" ? node.object_id : node.link_id;
+            await renameNode(synchService, "object", node.label, (client, newName) =>
+                client.modifyObject({ prim_id, name: newName })
+            );
+        }),
+        vscode.commands.registerCommand("slVscodeEdit.teleportToObject", () => {
+            vscode.window.showInformationMessage("Teleport is not yet implemented.");
+        }),
+        vscode.commands.registerCommand("slVscodeEdit.startScript", async (node: ExplorerNode) => {
+            if (node.kind !== "item" || node.item.type !== "script") return;
+            const client = synchService.getWebSocket();
+            if (!client) {
+                vscode.window.showErrorMessage("Not connected to Second Life viewer.");
+                return;
+            }
+            try {
+                const result = await client.setScriptRunning({ prim_id: node.prim_id, item_id: node.item.item_id, running: true });
+                if (result.success) {
+                    objectContentService.setScriptRunningState(node.object_id, node.prim_id, node.item.item_id, true);
+                }
+            } catch (err) {
+                vscode.window.showErrorMessage(`Failed to start script: ${err}`);
+            }
+        }),
+        vscode.commands.registerCommand("slVscodeEdit.stopScript", async (node: ExplorerNode) => {
+            if (node.kind !== "item" || node.item.type !== "script") return;
+            const client = synchService.getWebSocket();
+            if (!client) {
+                vscode.window.showErrorMessage("Not connected to Second Life viewer.");
+                return;
+            }
+            try {
+                const result = await client.setScriptRunning({ prim_id: node.prim_id, item_id: node.item.item_id, running: false });
+                if (result.success) {
+                    objectContentService.setScriptRunningState(node.object_id, node.prim_id, node.item.item_id, false);
+                }
+            } catch (err) {
+                vscode.window.showErrorMessage(`Failed to stop script: ${err}`);
+            }
+        }),
+        vscode.commands.registerCommand("slVscodeEdit.restartScript", async (node: ExplorerNode) => {
+            if (node.kind !== "item" || node.item.type !== "script") return;
+            const client = synchService.getWebSocket();
+            if (!client) {
+                vscode.window.showErrorMessage("Not connected to Second Life viewer.");
+                return;
+            }
+            try {
+                await client.resetScript({ prim_id: node.prim_id, item_id: node.item.item_id });
+                // Reset restarts the script, so it's running after success
+                objectContentService.setScriptRunningState(node.object_id, node.prim_id, node.item.item_id, true);
+            } catch (err) {
+                vscode.window.showErrorMessage(`Failed to restart script: ${err}`);
+            }
+        }),
+        vscode.commands.registerCommand("slVscodeEdit.restartScriptDisabled", () => {
+            // This command is always disabled, just a placeholder
+        }),
+        vscode.commands.registerCommand("slVscodeEdit.newFile", async (node: ExplorerNode) => {
+            if (node.kind !== "object" && node.kind !== "linkedPrim") {
+                return;
+            }
+            // Get inventory for duplicate checking
+            const object_id = node.object_id;
+            const prim_id = node.kind === "object" ? node.object_id : node.link_id;
+            const inventory = objectContentService.getInventory(object_id, prim_id) ?? [];
+            const existingNames = new Set(inventory.map((item) => displayName(item).toLowerCase()));
+
+            const filename = await vscode.window.showInputBox({
+                prompt: "Enter filename (.lsl, .luau for scripts, or notecard name)",
+                placeHolder: "e.g., MyScript.luau or MyNotecard",
+                validateInput: (value) => {
+                    if (!value || !value.trim()) {
+                        return "Filename cannot be empty";
+                    }
+                    // Check for duplicate - compare against displayNames
+                    if (existingNames.has(value.trim().toLowerCase())) {
+                        return `"${value.trim()}" already exists in this prim`;
+                    }
+                    return undefined;
+                },
+            });
+            if (!filename) {
+                return; // User pressed Escape
+            }
+            const client = synchService.getWebSocket();
+            if (!client) {
+                vscode.window.showErrorMessage("Not connected to Second Life viewer.");
+                return;
+            }
+            // Determine type and vm from extension
+            const ext = path.extname(filename).toLowerCase();
+            let type: "script" | "notecard";
+            let vm: "luau" | "lsl2" | undefined;
+            let name: string;
+            if (ext === ".luau") {
+                type = "script";
+                vm = "luau";
+                name = filename.slice(0, -ext.length); // Strip extension for scripts
+            } else if (ext === ".lsl") {
+                type = "script";
+                vm = "lsl2";
+                name = filename.slice(0, -ext.length); // Strip extension for scripts
+            } else {
+                type = "notecard";
+                name = filename; // Keep full filename for notecards
+            }
+            try {
+                const result = await client.createObjectItem({ prim_id, name, type, vm });
+                vscode.window.showInformationMessage(`Created "${displayName(result)}".`);
+            } catch (err) {
+                vscode.window.showErrorMessage(`Error creating "${filename}": ${err}`);
+            }
+        })
+    );
+
+    // Track connection state for UI visibility and tree title
+    context.subscriptions.push(
+        synchService.onDidChangeConnectionState((connected) => {
+            vscode.commands.executeCommand("setContext", "slVscodeEdit:connected", connected);
+            objectTreeView.title = connected
+                ? "Second Life (connected)"
+                : "Second Life (disconnected)";
+        })
+    );
+    // Set initial connection state
+    vscode.commands.executeCommand("setContext", "slVscodeEdit:connected", synchService.isConnected());
+
+    // Clean up syncs when objects are unpublished
     context.subscriptions.push(
         objectContentService.onDidChangeObjects(({ type, object_id }) => {
-            const folders = vscode.workspace.workspaceFolders ?? [];
-            const slIdx = folders.findIndex(
-                (f) => f.uri.scheme === SL_SCHEME && f.uri.authority === SL_AUTHORITY && f.uri.path === `/${object_id}`
-            );
-            if (type === "added") {
-                const entry = objectContentService.getObject(object_id);
-                if (entry && slIdx === -1) {
-                    pendingFolderAdds.push({ object_id, name: entry.object.object_name });
-                    if (!flushScheduled) {
-                        flushScheduled = true;
-                        setTimeout(flushPendingFolderAdds, 0);
-                    }
-                }
-            } else if (type === "removed") {
-                if (slIdx !== -1) {
-                    vscode.workspace.updateWorkspaceFolders(slIdx, 1);
-                }
+            if (type === "removed") {
                 synchService.evictSlSyncs(object_id);
-            } else if (type === "updated") {
-                if (slIdx !== -1) {
-                    const entry = objectContentService.getObject(object_id);
-                    if (entry) {
-                        vscode.workspace.updateWorkspaceFolders(slIdx, 1, {
-                            uri: rootUri(object_id),
-                            name: entry.object.object_name,
-                        });
-                    }
-                }
             }
         })
     );

@@ -645,6 +645,7 @@ export class ObjectContentProvider implements vscode.FileSystemProvider, vscode.
                         item_id: parsed.item_id,
                         content: text,
                         vm,
+                        running: item.type === "script" ? item.running : undefined,
                     });
 
                     if (!result.success) {

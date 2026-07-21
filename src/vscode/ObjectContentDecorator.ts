@@ -15,11 +15,13 @@ import {
     Disposable,
 } from "vscode";
 import { SL_SCHEME } from "./objectcontentprovider";
+import { ObjectContentService } from "./objectcontentservice";
 import { logDebug } from "../utils";
 
 /**
- * Provides file decorations for sl:// URIs based on connection state.
+ * Provides file decorations for sl:// URIs based on connection state and script running state.
  * When disconnected from the viewer, shows a red badge and tooltip.
+ * For scripts, shows running/stopped state indicators.
  */
 export class ObjectContentDecorator implements FileDecorationProvider, Disposable {
     private _onDidChangeFileDecorations = new EventEmitter<Uri | Uri[] | undefined>();
@@ -31,12 +33,13 @@ export class ObjectContentDecorator implements FileDecorationProvider, Disposabl
     constructor(
         private readonly getConnectionState: () => boolean,
         onConnectionChange: (listener: (connected: boolean) => void) => Disposable,
+        private readonly contentService: ObjectContentService,
     ) {
         this.isConnected = getConnectionState();
         logDebug(`[ObjectContentDecorator] Initial connection state: ${this.isConnected}`);
 
         // Listen for connection state changes
-        const subscription = onConnectionChange((connected) => {
+        const connectionSub = onConnectionChange((connected) => {
             logDebug(`[ObjectContentDecorator] Connection state changed: ${connected}`);
             this.isConnected = connected;
             // Refresh all sl:// decorations (deferred to ensure processing when not focused)
@@ -44,8 +47,17 @@ export class ObjectContentDecorator implements FileDecorationProvider, Disposabl
                 this._onDidChangeFileDecorations.fire(undefined);
             }, 0);
         });
+
+        // Listen for script running state changes
+        const runningSub = contentService.onDidChangeRunningState((event) => {
+            logDebug(`[ObjectContentDecorator] Script running state changed: ${event.item_id} -> ${event.running}`);
+            // Fire undefined to refresh all decorations (simpler than reconstructing the exact URI)
+            this._onDidChangeFileDecorations.fire(undefined);
+        });
+
         this.disposables.push(
-            subscription,
+            connectionSub,
+            runningSub,
             this._onDidChangeFileDecorations,
         );
     }
@@ -72,9 +84,50 @@ export class ObjectContentDecorator implements FileDecorationProvider, Disposabl
             };
         }
 
-        // Connected state - no special decoration for now
-        // Future: could show script running state, dirty state, etc.
-        return undefined;
+        // Parse URI to check for script running state
+        // URI format: sl://objects/{root_id}/{displayName} or sl://objects/{root_id}/{link_id}/{displayName}
+        const parts = uri.path.replace(/^\//,"").split("/").filter(p => p.length > 0);
+        if (parts.length < 2) {
+            return undefined; // Directory, not a file
+        }
+
+        const root_id = parts[0];
+        let prim_id: string;
+        let filename: string;
+
+        if (parts.length === 2) {
+            // Could be file in root or linked prim directory - check if it's a linked prim
+            const linkedPrim = this.contentService.getLinkedObject(root_id, parts[1]);
+            if (linkedPrim) {
+                return undefined; // It's a linked prim directory, not a file
+            }
+            prim_id = root_id;
+            filename = decodeURIComponent(parts[1]);
+        } else {
+            // File in linked prim
+            prim_id = parts[1];
+            filename = decodeURIComponent(parts[2]);
+        }
+
+        const item = this.contentService.getItemByDisplayName(root_id, prim_id, filename);
+        if (!item || item.type !== "script") {
+            return undefined; // Not a script, no decoration
+        }
+
+        // Return decoration based on running state
+        if (item.running) {
+            return {
+                badge: "▶",
+                tooltip: "Script is running",
+                color: new ThemeColor("charts.green"),
+            };
+        } else {
+            return {
+                badge: "⏹",
+                tooltip: "Script is stopped",
+                color: new ThemeColor("charts.red"),
+            };
+        }
     }
 
     /**

@@ -167,6 +167,7 @@ export interface ObjectContentSaveParams {
     item_id: string;
     content: string;
     vm?: ObjectContentSaveVM;  // Scripts only: explicit compile target
+    running?: boolean;         // Scripts only: whether to start the script after save
 }
 
 /** object.content.save response */
@@ -219,6 +220,20 @@ export interface ObjectScriptSetRunningResponse {
     message?: string;
 }
 
+/** object.script.reset — Extension → Viewer (call)
+ * Resets a script, clearing its state and restarting from default state.
+ */
+export interface ObjectScriptResetParams {
+    prim_id: string;           // UUID of any prim (root or child)
+    item_id: string;           // UUID of the script inventory item
+}
+
+/** object.script.reset response */
+export interface ObjectScriptResetResponse {
+    success: boolean;
+    message?: string;
+}
+
 /** object.request — Extension → Viewer (call) */
 export interface ObjectRequestParams {
     object_id: string;   // UUID of the root prim to request publishing for
@@ -234,6 +249,50 @@ export interface ObjectRequestResponse {
 /** object.list response */
 export interface ObjectListResponse {
     objects: PublishedObject[];
+}
+
+/**
+ * object.modify — Extension → Viewer (call)
+ * Modifies properties of a prim (root or linked).
+ * Only specified fields are modified; omitted fields remain unchanged.
+ */
+export interface ObjectModifyParams {
+    prim_id: string;               // UUID of any prim (root or child)
+    name?: string;                 // New display name
+    description?: string;          // New description
+    permissions?: {
+        next_owner?: number;       // Permission mask applied on transfer
+    };
+}
+
+/** object.modify response */
+export interface ObjectModifyResponse {
+    success: boolean;
+    prim_id: string;               // Echoed back from request
+    message?: string;              // Error description on failure
+}
+
+/**
+ * object.item.modify — Extension → Viewer (call)
+ * Modifies properties of an inventory item.
+ * Only specified fields are modified; omitted fields remain unchanged.
+ */
+export interface ObjectItemModifyParams {
+    prim_id: string;               // UUID of any prim (root or child)
+    item_id: string;               // Inventory item UUID
+    name?: string;                 // New display name (no file extension)
+    description?: string;          // New description
+    permissions?: {
+        next_owner?: number;       // Permission mask applied on transfer
+    };
+}
+
+/** object.item.modify response */
+export interface ObjectItemModifyResponse {
+    success: boolean;
+    prim_id: string;               // Echoed back from request
+    item_id: string;               // Echoed back from request
+    message?: string;              // Error description on failure
 }
 
 // ============================================

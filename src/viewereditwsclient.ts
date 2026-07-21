@@ -21,11 +21,17 @@ import {
     ObjectItemDeleteResponse,
     ObjectScriptSetRunningParams,
     ObjectScriptSetRunningResponse,
+    ObjectScriptResetParams,
+    ObjectScriptResetResponse,
     ObjectUnpublishParams,
     ObjectUnpublishResponse,
     ObjectRequestParams,
     ObjectRequestResponse,
     ObjectListResponse,
+    ObjectModifyParams,
+    ObjectModifyResponse,
+    ObjectItemModifyParams,
+    ObjectItemModifyResponse,
 } from "./vscode/objectcontentinterfaces";
 
 //#region Message Formats
@@ -364,6 +370,10 @@ export class ViewerEditWSClient extends JSONRPCClient {
         return this.call("object.script.set_running", params);
     }
 
+    public resetScript(params: ObjectScriptResetParams): Promise<ObjectScriptResetResponse> {
+        return this.call("object.script.reset", params);
+    }
+
     public unpublishObject(params: ObjectUnpublishParams): Promise<ObjectUnpublishResponse> {
         return this.call("object.unpublish", params);
     }
@@ -374,6 +384,14 @@ export class ViewerEditWSClient extends JSONRPCClient {
 
     public getObjectList(): Promise<ObjectListResponse> {
         return this.call("object.list", {});
+    }
+
+    public modifyObject(params: ObjectModifyParams): Promise<ObjectModifyResponse> {
+        return this.call("object.modify", params);
+    }
+
+    public modifyObjectItem(params: ObjectItemModifyParams): Promise<ObjectItemModifyResponse> {
+        return this.call("object.item.modify", params);
     }
 
     public getScriptList(): Promise<ScriptList> {
