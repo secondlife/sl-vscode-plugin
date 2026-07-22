@@ -335,8 +335,14 @@ export function activate(context: vscode.ExtensionContext): void {
 
                 if (uri.path !== "/connect") { return; }
 
-                // Decode the query string first - some viewers incorrectly encode the delimiters
-                const decodedQuery = decodeURIComponent(uri.query);
+                // Decode the query string first - some viewers incorrectly encode the delimiters.
+                // Malformed percent-encoding from an external viewer should not break the URI handler.
+                let decodedQuery = uri.query;
+                try {
+                    decodedQuery = decodeURIComponent(uri.query);
+                } catch {
+                    showErrorMessage("Second Life: Launch URI contained malformed encoding. Trying to continue with the raw query.");
+                }
                 logDebug(`Decoded query: ${decodedQuery}`);
 
                 const query = Object.fromEntries(

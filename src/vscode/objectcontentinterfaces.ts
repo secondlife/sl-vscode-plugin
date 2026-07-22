@@ -155,6 +155,7 @@ export interface ObjectContentGetParams {
 
 /** object.content.get response */
 export interface ObjectContentGetResponse {
+    success: boolean;
     prim_id: string;
     item_id: string;
     content: string;
