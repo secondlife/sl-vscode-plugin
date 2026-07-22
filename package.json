@@ -163,7 +163,7 @@
         },
         {
           "command": "slVscodeEdit.recompileScript",
-          "when": "view == slInworldExplorer && viewItem =~ /scriptRunning|scriptStopped/",
+          "when": "view == slInworldExplorer && viewItem =~ /^scriptRunning$|^scriptStopped$/",
           "group": "navigation"
         },
         {
@@ -173,22 +173,22 @@
         },
         {
           "command": "slVscodeEdit.startScript",
-          "when": "view == slInworldExplorer && viewItem == scriptStopped",
+          "when": "view == slInworldExplorer && viewItem =~ /^scriptStopped/",
           "group": "1_scriptControl"
         },
         {
           "command": "slVscodeEdit.stopScript",
-          "when": "view == slInworldExplorer && viewItem == scriptRunning",
+          "when": "view == slInworldExplorer && viewItem =~ /^scriptRunning/",
           "group": "1_scriptControl"
         },
         {
           "command": "slVscodeEdit.restartScript",
-          "when": "view == slInworldExplorer && viewItem == scriptRunning",
+          "when": "view == slInworldExplorer && viewItem =~ /^scriptRunning/",
           "group": "1_scriptControl"
         },
         {
           "command": "slVscodeEdit.restartScriptDisabled",
-          "when": "view == slInworldExplorer && viewItem == scriptStopped",
+          "when": "view == slInworldExplorer && viewItem =~ /^scriptStopped/",
           "group": "1_scriptControl"
         },
         {

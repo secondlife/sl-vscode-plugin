@@ -7,8 +7,36 @@
 import * as vscode from "vscode";
 import * as path from "path";
 import { ObjectContentService } from "./objectcontentservice";
-import { ObjectInventoryItem, LinkedObject, ObjectEntry } from "./objectcontentinterfaces";
+import { ObjectInventoryItem, LinkedObject, ObjectEntry, ItemPermissions } from "./objectcontentinterfaces";
 import { displayName, itemUri } from "./objectcontentprovider";
+
+// Permission bit flags from LLPermissions
+const PERM_MODIFY = 0x4000;
+const PERM_COPY = 0x8000;
+const PERM_TRANSFER = 0x2000;
+
+/**
+ * Generate permission indicator icons for restricted permissions.
+ * Shows icons only for permissions that are NOT granted.
+ * @param permissions Item permission masks
+ * @returns String with codicons for restricted permissions, or undefined if all permissions granted
+ */
+function getPermissionIcons(permissions: ItemPermissions | undefined): string | undefined {
+    if (!permissions) return undefined;
+
+    const icons: string[] = [];
+    if ((permissions.owner & PERM_MODIFY) === 0) {
+        icons.push("$(lock)");  // No-modify
+    }
+    if ((permissions.owner & PERM_COPY) === 0) {
+        icons.push("$(circle-slash)");  // No-copy
+    }
+    if ((permissions.owner & PERM_TRANSFER) === 0) {
+        icons.push("$(person)");  // No-transfer
+    }
+
+    return icons.length > 0 ? icons.join(" ") : undefined;
+}
 
 // ============================================
 // Node Types
@@ -125,16 +153,24 @@ export class ObjectExplorerProvider implements vscode.TreeDataProvider<ExplorerN
             case "item": {
                 const label = displayName(node.item);
                 const item = new vscode.TreeItem(label, vscode.TreeItemCollapsibleState.None);
+                // Determine modify permission for contextValue
+                const canModify = !node.item.permissions || (node.item.permissions.owner & PERM_MODIFY) !== 0;
+                const noModSuffix = canModify ? "" : "NoMod";
                 if (node.item.type === "script") {
-                    item.contextValue = node.item.running ? "scriptRunning" : "scriptStopped";
+                    item.contextValue = (node.item.running ? "scriptRunning" : "scriptStopped") + noModSuffix;
                 } else {
-                    item.contextValue = "inventoryItem";
+                    item.contextValue = "inventoryItem" + noModSuffix;
                 }
-                item.command = {
-                    command: "slVscodeEdit.openInventoryItem",
-                    title: "Open",
-                    arguments: [node.uri],
-                };
+                // Show permission restriction icons in description
+                item.description = getPermissionIcons(node.item.permissions);
+                // Allow opening: notecards always, scripts only if modifiable
+                if (node.item.type !== "script" || canModify) {
+                    item.command = {
+                        command: "slVscodeEdit.openInventoryItem",
+                        title: "Open",
+                        arguments: [node.uri],
+                    };
+                }
                 // Icon based on item type
                 if (node.item.type === "notecard") {
                     item.iconPath = vscode.Uri.file(path.join(this.extensionPath, "icons", "Inv_Notecard.png"));

@@ -46,7 +46,10 @@ import { SyncedFileDecorator } from "./vscode/SyncedFileDecorator";
 import { ObjectContentService } from "./vscode/objectcontentservice";
 import { SL_SCHEME, SL_AUTHORITY, displayName, itemUri } from "./vscode/objectcontentprovider";
 
-type ParsedTempFile = { scriptName: string; scriptId: string; extension: string, language: ScriptLanguage };
+/** PERM_MODIFY bit from viewer LLPermissions */
+const PERM_MODIFY = 0x4000;
+
+type ParsedTempFile = { scriptName: string; scriptId: string; extension: string, language: ScriptLanguage, item?: ObjectInventoryItem };
 
 export class SynchService implements vscode.Disposable {
     // Tracks all active sync relationships, keyed by master file uri.toString()
@@ -333,6 +336,14 @@ export class SynchService implements vscode.Disposable {
         const parsed = SynchService.parseSlFileInfo(slDocument.uri);
         if (!parsed) {
             logInfo(`[setupSyncForSlUri] Could not parse sl:// URI: ${slDocument.uri.toString()}`);
+            return;
+        }
+        // Skip filesystem linking for no-modify items (they can still be viewed but not synced)
+        const canModify = !parsed.item?.permissions || (parsed.item.permissions.owner & PERM_MODIFY) !== 0;
+        if (!canModify) {
+            logInfo(
+                `[setupSyncForSlUri] Skipping filesystem link for no-modify item "${parsed.scriptName}.${parsed.extension}"`,
+            );
             return;
         }
         const masterUri = await SynchService.findMasterFile(parsed, slDocument);
@@ -819,7 +830,7 @@ export class SynchService implements vscode.Disposable {
         const extension = fullName.slice(di + 1).toLowerCase(); // "luau"
         const language: ScriptLanguage = extension === 'lsl' ? 'lsl' : 'luau';
 
-        return { scriptName, scriptId: uri.toString(), extension, language };
+        return { scriptName, scriptId: uri.toString(), extension, language, item };
     }
 
     private static findSlInventoryItem(
