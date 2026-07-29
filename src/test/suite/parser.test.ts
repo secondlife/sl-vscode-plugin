@@ -6,71 +6,14 @@
 import * as assert from 'assert';
 import { Parser } from '../../shared/parser';
 import { getLanguageConfig, Lexer, TokenType } from '../../shared/lexer';
-import { normalizePath, HostInterface, NormalizedPath } from '../../interfaces/hostinterface';
-import { ConfigKey, FullConfigInterface } from '../../interfaces/configinterface';
+import { filePathToStringUri, StringUri, stringUriToFilePath } from '../../interfaces/hostinterface';
+import { createMockHost } from './helpers/mockHost';
 
 suite('Parser Tests', () => {
-    const testFile = normalizePath('/test/script.lsl');
+    const testFile = filePathToStringUri('/test/script.lsl');
 
     const lslLanguageConfig = getLanguageConfig('lsl');
     const luauLanguageConfig = getLanguageConfig('luau');
-
-    // Create a minimal mock host for testing URI conversions
-    function createMockHost(): HostInterface {
-        return new class implements HostInterface {
-            config = {} as FullConfigInterface;
-
-            async readFile(path: NormalizedPath): Promise<string | null> {
-                return null;
-            }
-            async exists(path: NormalizedPath): Promise<boolean> {
-                return false;
-            }
-            async resolveFile(
-                filename: string,
-                from: NormalizedPath,
-                extensions?: string[],
-                includePaths?: string[]
-            ): Promise<NormalizedPath | null> {
-                return null;
-            }
-            async writeFile(p: NormalizedPath, content: string | Uint8Array): Promise<boolean> {
-                return false;
-            }
-            async readJSON<T = any>(p: NormalizedPath): Promise<T | null> {
-                return null;
-            }
-            async readYAML<T = any>(p: NormalizedPath): Promise<T | null> {
-                return null;
-            }
-            async readTOML<T = any>(p: NormalizedPath): Promise<T | null> {
-                return null;
-            }
-            async writeJSON(p: NormalizedPath, data: any, pretty?: boolean): Promise<boolean> {
-                return false;
-            }
-            async writeYAML(p: NormalizedPath, data: any): Promise<boolean> {
-                return false;
-            }
-            async writeTOML(p: NormalizedPath, data: Record<string, any>): Promise<boolean> {
-                return false;
-            }
-            async existsInSameWorkspace(knownPath: string, desiredPath: string): Promise<boolean> {
-                return false;
-            }
-            fileNameToUri(fileName: NormalizedPath): string {
-                // Strip path to only include directories/filename after "test" directory
-                const testIndex = fileName.indexOf('test');
-                const relativePath = testIndex !== -1 ? fileName.substring(testIndex) : fileName;
-                // Normalize backslashes to forward slashes
-                const normalizedPath = relativePath.replace(/\\/g, '/');
-                return "unittest:///" + normalizedPath;
-            }
-            uriToFileName(uri: string): NormalizedPath {
-                return normalizePath(uri.replace("unittest:///", ""));
-            }
-        };
-    }
 
     //#region Basic Parser Tests
 
@@ -979,25 +922,16 @@ float area = PI * r * r;`;
         // Create a mock host interface
         const mockHost = {
             config: {} as any,
-            resolveFile: async (filename: string): Promise<NormalizedPath | null> => {
-                return filename === 'lib.lsl' ? normalizePath('/test/lib.lsl') : null;
+            resolveFile: async (filename: string): Promise<StringUri | null> => {
+                return filename === 'lib.lsl' ? filePathToStringUri('/test/lib.lsl') : null;
             },
             readFile: async (path: any): Promise<string | null> => {
-                return path === normalizePath('/test/lib.lsl') ? includeContent : null;
+                return path === filePathToStringUri('/test/lib.lsl') ? includeContent : null;
             },
             exists: async (): Promise<boolean> => true,
             writeFile: async (): Promise<boolean> => true,
             readJSON: async (): Promise<any> => null,
             writeJSON: async (): Promise<boolean> => true,
-            fileNameToUri: (fileName: any): string => {
-                const testIndex = fileName.indexOf('test');
-                const relativePath = testIndex !== -1 ? fileName.substring(testIndex) : fileName;
-                const normalizedPath = relativePath.replace(/\\/g, '/');
-                return "unittest:///" + normalizedPath;
-            },
-            uriToFileName: (uri: string): any => {
-                return normalizePath(uri.replace(/^unittest:\/\/\//, '/'));
-            },
         };
 
         const lexer = new Lexer(source, lslLanguageConfig);
@@ -1035,30 +969,21 @@ float area = PI * r * r;`;
         let callCount = 0;
         const mockHost = {
             config: {} as any,
-            resolveFile: async (filename: string): Promise<NormalizedPath | null> => {
-                if (filename === 'a.lsl') return normalizePath('/test/a.lsl');
-                if (filename === 'b.lsl') return normalizePath('/test/b.lsl');
+            resolveFile: async (filename: string): Promise<StringUri | null> => {
+                if (filename === 'a.lsl') return filePathToStringUri('/test/a.lsl');
+                if (filename === 'b.lsl') return filePathToStringUri('/test/b.lsl');
                 return null;
             },
             readFile: async (path: any): Promise<string | null> => {
                 callCount++;
-                if (path === normalizePath('/test/a.lsl')) return '#include "b.lsl"\nstring a = "a";';
-                if (path === normalizePath('/test/b.lsl')) return '#include "a.lsl"\nstring b = "b";';
+                if (path === filePathToStringUri('/test/a.lsl')) return '#include "b.lsl"\nstring a = "a";';
+                if (path === filePathToStringUri('/test/b.lsl')) return '#include "a.lsl"\nstring b = "b";';
                 return null;
             },
             exists: async (): Promise<boolean> => true,
             writeFile: async (): Promise<boolean> => true,
             readJSON: async (): Promise<any> => null,
             writeJSON: async (): Promise<boolean> => true,
-            fileNameToUri: (fileName: any): string => {
-                const testIndex = fileName.indexOf('test');
-                const relativePath = testIndex !== -1 ? fileName.substring(testIndex) : fileName;
-                const normalizedPath = relativePath.replace(/\\/g, '/');
-                return "unittest:///" + normalizedPath;
-            },
-            uriToFileName: (uri: string): any => {
-                return normalizePath(uri.replace(/^unittest:\/\/\//, '/'));
-            },
         };
 
         const source = '#include "a.lsl"';
@@ -1082,11 +1007,11 @@ float area = PI * r * r;`;
 
         const mockHost = {
             config: {} as any,
-            resolveFile: async (filename: string): Promise<NormalizedPath | null> => {
-                return filename === 'lib.lsl' ? normalizePath('/test/lib.lsl') : null;
+            resolveFile: async (filename: string): Promise<StringUri | null> => {
+                return filename === 'lib.lsl' ? filePathToStringUri('/test/lib.lsl') : null;
             },
             readFile: async (path: any): Promise<string | null> => {
-                if (path === normalizePath('/test/lib.lsl')) {
+                if (path === filePathToStringUri('/test/lib.lsl')) {
                     readCount++;
                     return libContent;
                 }
@@ -1096,15 +1021,6 @@ float area = PI * r * r;`;
             writeFile: async (): Promise<boolean> => true,
             readJSON: async (): Promise<any> => null,
             writeJSON: async (): Promise<boolean> => true,
-            fileNameToUri: (fileName: any): string => {
-                const testIndex = fileName.indexOf('test');
-                const relativePath = testIndex !== -1 ? fileName.substring(testIndex) : fileName;
-                const normalizedPath = relativePath.replace(/\\/g, '/');
-                return "unittest:///" + normalizedPath;
-            },
-            uriToFileName: (uri: string): any => {
-                return normalizePath(uri.replace(/^unittest:\/\/\//, '/'));
-            },
         };
 
         const source = `#include "lib.lsl"
@@ -1129,7 +1045,7 @@ integer x = 1;`;
         // a.lsl -> b.lsl -> c.lsl -> d.lsl -> e.lsl -> f.lsl (6 levels, should fail)
         const mockHost = {
             config: {} as any,
-            resolveFile: async (filename: string): Promise<NormalizedPath | null> => {
+            resolveFile: async (filename: string): Promise<StringUri | null> => {
                 const fileMap: { [key: string]: string } = {
                     'a.lsl': '/test/a.lsl',
                     'b.lsl': '/test/b.lsl',
@@ -1138,16 +1054,16 @@ integer x = 1;`;
                     'e.lsl': '/test/e.lsl',
                     'f.lsl': '/test/f.lsl',
                 };
-                return fileMap[filename] ? normalizePath(fileMap[filename]) : null;
+                return fileMap[filename] ? filePathToStringUri(fileMap[filename]) : null;
             },
             readFile: async (path: any): Promise<string | null> => {
                 const contentMap: { [key: string]: string } = {
-                    [normalizePath('/test/a.lsl')]: '#include "b.lsl"\nstring a = "a";',
-                    [normalizePath('/test/b.lsl')]: '#include "c.lsl"\nstring b = "b";',
-                    [normalizePath('/test/c.lsl')]: '#include "d.lsl"\nstring c = "c";',
-                    [normalizePath('/test/d.lsl')]: '#include "e.lsl"\nstring d = "d";',
-                    [normalizePath('/test/e.lsl')]: '#include "f.lsl"\nstring e = "e";',
-                    [normalizePath('/test/f.lsl')]: 'string f = "f";',
+                    [filePathToStringUri('/test/a.lsl') as string]: '#include "b.lsl"\nstring a = "a";',
+                    [filePathToStringUri('/test/b.lsl') as string]: '#include "c.lsl"\nstring b = "b";',
+                    [filePathToStringUri('/test/c.lsl') as string]: '#include "d.lsl"\nstring c = "c";',
+                    [filePathToStringUri('/test/d.lsl') as string]: '#include "e.lsl"\nstring d = "d";',
+                    [filePathToStringUri('/test/e.lsl') as string]: '#include "f.lsl"\nstring e = "e";',
+                    [filePathToStringUri('/test/f.lsl') as string]: 'string f = "f";',
                 };
                 return contentMap[path] || null;
             },
@@ -1155,15 +1071,6 @@ integer x = 1;`;
             writeFile: async (): Promise<boolean> => true,
             readJSON: async (): Promise<any> => null,
             writeJSON: async (): Promise<boolean> => true,
-            fileNameToUri: (fileName: any): string => {
-                const testIndex = fileName.indexOf('test');
-                const relativePath = testIndex !== -1 ? fileName.substring(testIndex) : fileName;
-                const normalizedPath = relativePath.replace(/\\/g, '/');
-                return "unittest:///" + normalizedPath;
-            },
-            uriToFileName: (uri: string): any => {
-                return normalizePath(uri.replace(/^unittest:\/\/\//, '/'));
-            },
         };
 
         const source = '#include "a.lsl"';
@@ -1234,8 +1141,8 @@ local y = 3.14`;
     });
 
     test('parseLineMappingsFromContent - should handle multiple source files', () => {
-        const mainFile = normalizePath('/test/main.lsl');
-        const includeFile = normalizePath('/test/include/math.lsl');
+        const mainFile = filePathToStringUri('/test/main.lsl');
+        const includeFile = filePathToStringUri('/test/include/math.lsl');
 
         const content = `// @line 1 "${mainFile}"
 integer x = 1;

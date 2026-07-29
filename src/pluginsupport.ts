@@ -3,8 +3,7 @@
  * Copyright (C) 2025, Linden Research, Inc.
  */
 import * as vscode from "vscode";
-import { HostInterface } from "./interfaces/hostinterface";
-import { NormalizedPath, normalizeJoinPath, normalizePath } from "./interfaces/hostinterface"; // migrated path abstractions
+import { HostInterface, StringUri, filePathToStringUri, resolveUri } from "./interfaces/hostinterface";
 import { LuaTypeDefinitions } from "./shared/luadefsinterface";
 import { LuauDefsGenerator } from "./shared/luadefsgenerator";
 import { DocsJsonGenerator } from "./shared/docsjsongenerator";
@@ -43,7 +42,7 @@ export class SelenePlugin extends BasePlugin {
         }
 
         const basename = `slua_${version}`;
-        let configPath: NormalizedPath;
+        let configPath: StringUri;
         configPath = await this.host.config.getWorkspaceConfigPath();
 
         // Use the new generator
@@ -67,18 +66,18 @@ export class SelenePlugin extends BasePlugin {
     // Language syntax export for Selene support
     // =======================================
     private static async saveSLuaSeleneConfig(
-        configPath: NormalizedPath,
+        configPath: StringUri,
         filename: string,
         yamlContent: string,
         host: HostInterface,
     ): Promise<boolean> {
-        const fullpath = normalizeJoinPath(configPath, filename);
+        const fullpath = resolveUri(configPath, filename);
         if (host.writeFile) {
             await host.writeFile(fullpath, yamlContent);
             return true;
         }
         // Fallback to VS Code API
-        await vscode.workspace.fs.writeFile(vscode.Uri.file(fullpath), Buffer.from(yamlContent, "utf8"));
+        await vscode.workspace.fs.writeFile(vscode.Uri.parse(fullpath as string), Buffer.from(yamlContent, "utf8"));
         return true;
     }
 
@@ -120,16 +119,16 @@ export class SelenePlugin extends BasePlugin {
     }
 
     private static async updateSeleneConfig(
-        configPath: NormalizedPath,
+        configPath: StringUri,
         basename: string,
         host: HostInterface,
     ): Promise<boolean> {
-        let folders: NormalizedPath[] = [];
+        let folders: StringUri[] = [];
         if (host.listWorkspaceFolders) {
             folders = await host.listWorkspaceFolders();
         } else {
             const ws = vscode.workspace.workspaceFolders;
-            if (ws) folders = ws.map(f => normalizePath(f.uri.fsPath));
+            if (ws) folders = ws.map(f => filePathToStringUri(f.uri.fsPath));
         }
         if (folders.length === 0) {
             console.warn("No workspace folder found - cannot update selene.toml");
@@ -137,11 +136,11 @@ export class SelenePlugin extends BasePlugin {
         }
         let saved = false;
         for (const root of folders) {
-            const tomlPath = normalizeJoinPath(root, "selene.toml");
+            const tomlPath = resolveUri(root, "selene.toml");
             let seleneToml: any = {};
             seleneToml = (await host?.readTOML(tomlPath)) || {};
-            const fullConfig = normalizeJoinPath(configPath, `${basename}`);
-            const relativeConfig = vscode.workspace.asRelativePath(fullConfig);
+            const fullConfig = resolveUri(configPath, `${basename}`);
+            const relativeConfig = vscode.workspace.asRelativePath(vscode.Uri.parse(fullConfig as string));
             seleneToml.std = "luau+" + relativeConfig;
             saved = await host.writeTOML(tomlPath, seleneToml);
         }
@@ -177,7 +176,7 @@ export class LuaLSPPlugin extends BasePlugin {
         let configs = this.buildLuauLSPConfig(defs);
 
         // Determine config path via host first
-        let configPath: NormalizedPath;
+        let configPath: StringUri;
         configPath = await this.host.config.getWorkspaceConfigPath();
 
         const defsFiles:{[k:string]:string} = {};
@@ -237,23 +236,23 @@ export class LuaLSPPlugin extends BasePlugin {
     }
 
     private async saveLuauLSPDefs(
-        configPath: NormalizedPath,
+        configPath: StringUri,
         version: any,
         defs: string,
-    ): Promise<NormalizedPath> {
+    ): Promise<string> {
         const basename = `slua_${version}.d.luau`;
-        const fullPath = normalizeJoinPath(configPath, basename);
+        const fullPath = resolveUri(configPath, basename);
         if (this.host.writeFile) {
             await this.host.writeFile(fullPath, defs);
         } else {
-            await vscode.workspace.fs.writeFile(vscode.Uri.file(fullPath), Buffer.from(defs, "utf8"));
+            await vscode.workspace.fs.writeFile(vscode.Uri.parse(fullPath as string), Buffer.from(defs, "utf8"));
         }
-        return fullPath;
+        return vscode.Uri.parse(fullPath as string).fsPath;
     }
 
     private async saveLuauLSPConstantDefs(
-        configPath: NormalizedPath
-    ) : Promise<NormalizedPath> {
+        configPath: StringUri
+    ) : Promise<string> {
         const basename = `slua_constants.d.luau`;
         const constants = [
             ["__LINE__", "number"],
@@ -271,28 +270,28 @@ export class LuaLSPPlugin extends BasePlugin {
             acc.push(`declare ${cur[0]} : ${cur[1]}`);
             return acc;
         },[]);
-        const fullPath = normalizeJoinPath(configPath, basename);
+        const fullPath = resolveUri(configPath, basename);
         if (this.host.writeFile) {
             await this.host.writeFile(fullPath, slua_constants.join("\n"));
         } else {
-            await vscode.workspace.fs.writeFile(vscode.Uri.file(fullPath), Buffer.from(slua_constants.join("\n"), "utf8"));
+            await vscode.workspace.fs.writeFile(vscode.Uri.parse(fullPath as string), Buffer.from(slua_constants.join("\n"), "utf8"));
         }
-        return fullPath;
+        return vscode.Uri.parse(fullPath as string).fsPath;
     }
 
     private async saveLuauLSPDocs(
-        configPath: NormalizedPath,
+        configPath: StringUri,
         version: any,
         docs: string,
-    ): Promise<NormalizedPath> {
+    ): Promise<string> {
         const basename = `slua_${version}.docs.json`;
-        const fullPath = normalizeJoinPath(configPath, basename);
+        const fullPath = resolveUri(configPath, basename);
         if (this.host.writeFile) {
             await this.host.writeFile(fullPath, docs);
         } else {
-            await vscode.workspace.fs.writeFile(vscode.Uri.file(fullPath), Buffer.from(docs, "utf8"));
+            await vscode.workspace.fs.writeFile(vscode.Uri.parse(fullPath as string), Buffer.from(docs, "utf8"));
         }
-        return fullPath;
+        return vscode.Uri.parse(fullPath as string).fsPath;
     }
 
     public async configureFromViewerCache(

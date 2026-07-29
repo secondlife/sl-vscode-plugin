@@ -15,63 +15,19 @@ import {
     CustomLanguageLexerConfig,
 } from "../../shared/lexer";
 import { LexingPreprocessor, PreprocessorOptions } from "../../shared/lexingpreprocessor";
-import { normalizePath, HostInterface, NormalizedPath } from "../../interfaces/hostinterface";
-import { FullConfigInterface, ConfigKey } from "../../interfaces/configinterface";
+import { filePathToStringUri, stringUriToFilePath, HostInterface, StringUri } from "../../interfaces/hostinterface";
+import { ConfigKey } from "../../interfaces/configinterface";
+import { MockConfig } from './helpers/mockHost';
 
 /**
- * Mock configuration class for testing
+ * Convert PreprocessorOptions to a ConfigKey map for MockConfig
  */
-class MockConfig implements FullConfigInterface {
-    private configValues: Map<ConfigKey, any> = new Map();
-
-    constructor(optionsOrMap?: PreprocessorOptions | Map<ConfigKey, any>) {
-        if (optionsOrMap) {
-            if (optionsOrMap instanceof Map) {
-                this.configValues = new Map(optionsOrMap);
-            } else {
-                // Set individual config keys instead of PreprocessorOptions object
-                this.configValues.set(ConfigKey.PreprocessorEnable, optionsOrMap.enable);
-                this.configValues.set(ConfigKey.PreprocessorIncludePaths, optionsOrMap.includePaths ?? ['.']);
-                this.configValues.set(ConfigKey.PreprocessorMaxIncludeDepth, optionsOrMap.maxIncludeDepth ?? 5);
-            }
-        }
-    }
-
-    isEnabled(): boolean {
-        return true;
-    }
-
-    getConfig<T>(key: ConfigKey): T | undefined {
-        return this.configValues.get(key) as T | undefined;
-    }
-
-    async setConfig<T>(key: ConfigKey, value: T, scope?: any): Promise<void> {
-        this.configValues.set(key, value);
-    }
-
-    async getWorkspaceConfigPath(): Promise<NormalizedPath> {
-        return normalizePath("");
-    }
-
-    async getGlobalConfigPath(): Promise<NormalizedPath> {
-        return normalizePath("");
-    }
-
-    async getExtensionInstallPath(): Promise<NormalizedPath> {
-        return normalizePath("");
-    }
-
-    getSessionValue<T>(key: ConfigKey): T | undefined {
-        return undefined;
-    }
-
-    setSessionValue<T>(key: ConfigKey, value: T): void {
-        // No-op for tests
-    }
-
-    useLocalConfig(): boolean {
-        return false;
-    }
+function optionsToConfigMap(options: PreprocessorOptions): Map<ConfigKey, any> {
+    const map = new Map<ConfigKey, any>();
+    map.set(ConfigKey.PreprocessorEnable, options.enable);
+    map.set(ConfigKey.PreprocessorIncludePaths, options.includePaths ?? ['.']);
+    map.set(ConfigKey.PreprocessorMaxIncludeDepth, options.maxIncludeDepth ?? 5);
+    return map;
 }
 
 suite("Lexing Preprocessor Test Suite", () => {
@@ -89,56 +45,45 @@ suite("Lexing Preprocessor Test Suite", () => {
         const preprocessorOptions = options || createDefaultOptions();
 
         return new class implements HostInterface {
-            config: FullConfigInterface = new MockConfig(preprocessorOptions);
+            config = new MockConfig(optionsToConfigMap(preprocessorOptions));
 
-            async readFile(path: NormalizedPath): Promise<string | null> {
+            async readFile(path: StringUri): Promise<string | null> {
                 return null;
             }
-            async exists(path: NormalizedPath): Promise<boolean> {
+            async exists(path: StringUri): Promise<boolean> {
                 return false;
             }
             async resolveFile(
                 filename: string,
-                from: NormalizedPath,
+                from: StringUri,
                 extensions?: string[],
                 includePaths?: string[]
-            ): Promise<NormalizedPath | null> {
+            ): Promise<StringUri | null> {
                 return null;
             }
-            async writeFile(p: NormalizedPath, content: string | Uint8Array): Promise<boolean> {
+            async writeFile(p: StringUri, content: string | Uint8Array): Promise<boolean> {
                 return false;
             }
-            async readJSON<T = any>(p: NormalizedPath): Promise<T | null> {
+            async readJSON<T = any>(p: StringUri): Promise<T | null> {
                 return null;
             }
-            async readYAML<T = any>(p: NormalizedPath): Promise<T | null> {
+            async readYAML<T = any>(p: StringUri): Promise<T | null> {
                 return null;
             }
-            async readTOML<T = any>(p: NormalizedPath): Promise<T | null> {
+            async readTOML<T = any>(p: StringUri): Promise<T | null> {
                 return null;
             }
-            async writeJSON(p: NormalizedPath, data: any, pretty?: boolean): Promise<boolean> {
+            async writeJSON(p: StringUri, data: any, pretty?: boolean): Promise<boolean> {
                 return false;
             }
-            async writeYAML(p: NormalizedPath, data: any): Promise<boolean> {
+            async writeYAML(p: StringUri, data: any): Promise<boolean> {
                 return false;
             }
-            async writeTOML(p: NormalizedPath, data: Record<string, any>): Promise<boolean> {
+            async writeTOML(p: StringUri, data: Record<string, any>): Promise<boolean> {
                 return false;
             }
             async existsInSameWorkspace(knownPath: string, desiredPath: string): Promise<boolean> {
                 return false;
-            }
-            fileNameToUri(fileName: NormalizedPath): string {
-                // Strip path to only include directories/filename after "test" directory
-                const testIndex = fileName.indexOf('test');
-                const relativePath = testIndex !== -1 ? fileName.substring(testIndex) : fileName;
-                // Normalize backslashes to forward slashes
-                const normalizedPath = relativePath.replace(/\\/g, '/');
-                return "unittest:///" + normalizedPath;
-            }
-            uriToFileName(uri: string): NormalizedPath {
-                return normalizePath(uri.replace("unittest:///", ""));
             }
         };
     }
@@ -148,63 +93,52 @@ suite("Lexing Preprocessor Test Suite", () => {
      */
     function createMockHostWithFS(
         options: PreprocessorOptions | undefined,
-        readFileFn: (path: NormalizedPath) => Promise<string | null>,
-        existsFn?: (path: NormalizedPath) => Promise<boolean>,
-        resolveFileFn?: (filename: string, from: NormalizedPath, extensions?: string[], includePaths?: string[]) => Promise<NormalizedPath | null>
+        readFileFn: (path: StringUri) => Promise<string | null>,
+        existsFn?: (path: StringUri) => Promise<boolean>,
+        resolveFileFn?: (filename: string, from: StringUri, extensions?: string[], includePaths?: string[]) => Promise<StringUri | null>
     ): HostInterface {
         const opts = options || createDefaultOptions();
 
         return new class implements HostInterface {
-            config: FullConfigInterface = new MockConfig(opts);
+            config = new MockConfig(optionsToConfigMap(opts));
 
-            async readFile(path: NormalizedPath): Promise<string | null> {
+            async readFile(path: StringUri): Promise<string | null> {
                 return readFileFn(path);
             }
-            async exists(path: NormalizedPath): Promise<boolean> {
+            async exists(path: StringUri): Promise<boolean> {
                 return existsFn ? existsFn(path) : false;
             }
             async resolveFile(
                 filename: string,
-                from: NormalizedPath,
+                from: StringUri,
                 extensions?: string[],
                 includePaths?: string[]
-            ): Promise<NormalizedPath | null> {
+            ): Promise<StringUri | null> {
                 return resolveFileFn ? resolveFileFn(filename, from, extensions, includePaths) : null;
             }
-            async writeFile(p: NormalizedPath, content: string | Uint8Array): Promise<boolean> {
+            async writeFile(p: StringUri, content: string | Uint8Array): Promise<boolean> {
                 return false;
             }
-            async readJSON<T = any>(p: NormalizedPath): Promise<T | null> {
+            async readJSON<T = any>(p: StringUri): Promise<T | null> {
                 return null;
             }
-            async readYAML<T = any>(p: NormalizedPath): Promise<T | null> {
+            async readYAML<T = any>(p: StringUri): Promise<T | null> {
                 return null;
             }
-            async readTOML<T = any>(p: NormalizedPath): Promise<T | null> {
+            async readTOML<T = any>(p: StringUri): Promise<T | null> {
                 return null;
             }
-            async writeJSON(p: NormalizedPath, data: any, pretty?: boolean): Promise<boolean> {
+            async writeJSON(p: StringUri, data: any, pretty?: boolean): Promise<boolean> {
                 return false;
             }
-            async writeYAML(p: NormalizedPath, data: any): Promise<boolean> {
+            async writeYAML(p: StringUri, data: any): Promise<boolean> {
                 return false;
             }
-            async writeTOML(p: NormalizedPath, data: Record<string, any>): Promise<boolean> {
+            async writeTOML(p: StringUri, data: Record<string, any>): Promise<boolean> {
                 return false;
             }
             async existsInSameWorkspace(knownPath: string, desiredPath: string): Promise<boolean> {
                 return false;
-            }
-            fileNameToUri(fileName: NormalizedPath): string {
-                // Strip path to only include directories/filename after "test" directory
-                const testIndex = fileName.indexOf('test');
-                const relativePath = testIndex !== -1 ? fileName.substring(testIndex) : fileName;
-                // Normalize backslashes to forward slashes
-                const normalizedPath = relativePath.replace(/\\/g, '/');
-                return "unittest:///" + normalizedPath;
-            }
-            uriToFileName(uri: string): NormalizedPath {
-                return normalizePath(uri.replace("unittest:///", ""));
             }
         };
     }
@@ -226,12 +160,30 @@ suite("Lexing Preprocessor Test Suite", () => {
 
     /**
      * Helper to normalize output for comparison
-     * Removes trailing spaces and collapses multiple blank lines
+     * Removes trailing spaces, collapses multiple blank lines,
+     * and normalizes @line directive URIs to a portable format
      */
     function normalizeOutput(text: string): string {
         return text
             .split('\n')
-            .map(line => line.trimEnd())  // Remove trailing spaces
+            .map(line => {
+                // First, trim trailing spaces
+                let normalized = line.trimEnd();
+                // Normalize @line directive URIs: replace any absolute file:// path
+                // with just the relative portion after "test/workspace/set_1/"
+                // or "out/test/workspace/set_1/" to match expected format
+                const lineMatch = normalized.match(/@line\s+\d+\s+"([^"]+)"/);
+                if (lineMatch) {
+                    const uri = lineMatch[1];
+                    // Extract just the path portion after set_1/
+                    const set1Match = uri.match(/(?:test\/workspace\/set_1\/|out\/test\/workspace\/set_1\/)(.*)$/i);
+                    if (set1Match) {
+                        // Normalize to unittest:///test/workspace/set_1/...
+                        normalized = normalized.replace(lineMatch[1], `unittest:///test/workspace/set_1/${set1Match[1]}`);
+                    }
+                }
+                return normalized;
+            })
             .join('\n')
             .replace(/\n{3,}/g, '\n\n');  // Collapse multiple blank lines to max 2
     }
@@ -1074,7 +1026,7 @@ suite("Lexing Preprocessor Test Suite", () => {
 
         test("should pass through simple code without directives", async () => {
             const source = `integer x = 42;`;
-            const sourceFile = normalizePath("test.lsl");
+            const sourceFile = filePathToStringUri("d:/test/test.lsl");
 
             const preprocessor = new LexingPreprocessor(mockHost, mockHost.config);
             const result = await preprocessor.process(source, sourceFile, lslLanguageConfig);
@@ -1088,7 +1040,7 @@ suite("Lexing Preprocessor Test Suite", () => {
 
         test("should preserve comments", async () => {
             const source = `// Comment\ninteger x; /* block */`;
-            const sourceFile = normalizePath("test.lsl");
+            const sourceFile = filePathToStringUri("d:/test/test.lsl");
 
             const preprocessor = new LexingPreprocessor(mockHost, mockHost.config);
             const result = await preprocessor.process(source, sourceFile, lslLanguageConfig);
@@ -1100,7 +1052,7 @@ suite("Lexing Preprocessor Test Suite", () => {
 
         test("should handle disabled preprocessing", async () => {
             const source = `#include "test.lsl"\ninteger x;`;
-            const sourceFile = normalizePath("test.lsl");
+            const sourceFile = filePathToStringUri("d:/test/test.lsl");
             const disabledOptions = { ...testOptions, enable: false };
             const disabledHost = createMockHost(disabledOptions);
 
@@ -1130,7 +1082,7 @@ default {
             const preprocessor = new LexingPreprocessor(mockHost, mockHost.config);
             const result = await preprocessor.process(
                 source,
-                normalizePath("test.lsl"),
+                filePathToStringUri("d:/test/test.lsl"),
                 lslLanguageConfig
             );
 
@@ -1156,7 +1108,7 @@ default {
             const preprocessor = new LexingPreprocessor(mockHost, mockHost.config);
             const result = await preprocessor.process(
                 source,
-                normalizePath(sourceFile),
+                filePathToStringUri(sourceFile),
                 lslLanguageConfig
             );
 
@@ -1227,7 +1179,7 @@ default {
             const preprocessor = new LexingPreprocessor(mockHost, mockHost.config);
             const result = await preprocessor.process(
                 source,
-                normalizePath(sourceFile),
+                filePathToStringUri(sourceFile),
                 lslLanguageConfig
             );
 
@@ -1281,7 +1233,7 @@ default {
 
             const mockHost = createMockHostWithFS(
                 options,
-                async (path: NormalizedPath) => {
+                async (path: StringUri) => {
                     // Simulate a chain of includes that exceeds depth 2
                     if (path.endsWith('file1.lsl')) {
                         return '#include "file2.lsl"\ndefault { state_entry() {} }';
@@ -1292,8 +1244,12 @@ default {
                     }
                     return null;
                 },
-                async (path: NormalizedPath) => path.endsWith('.lsl'),
-                async (filename: string, from: NormalizedPath) => normalizePath(path.join(path.dirname(from), filename))
+                async (p: StringUri) => p.endsWith('.lsl'),
+                async (filename: string, from: StringUri) => {
+                    const fromPath = stringUriToFilePath(from);
+                    if (!fromPath) return null;
+                    return filePathToStringUri(path.join(path.dirname(fromPath), filename));
+                }
             );
 
             const preprocessor = new LexingPreprocessor(mockHost, mockHost.config);
@@ -1301,7 +1257,7 @@ default {
             const source = '#include "file1.lsl"\ndefault { state_entry() {} }';
             const result = await preprocessor.process(
                 source,
-                normalizePath('/test/main.lsl'),
+                filePathToStringUri('/test/main.lsl'),
                 lslLanguageConfig
             );
 
@@ -1321,21 +1277,23 @@ default {
 
             const mockHost = createMockHostWithFS(
                 options,
-                async (path: NormalizedPath): Promise<string | null> => {
-                    if (path.includes('include') && path.endsWith('utils.lsl')) {
+                async (p: StringUri): Promise<string | null> => {
+                    if (p.includes('include') && p.endsWith('utils.lsl')) {
                         return 'integer MAGIC = 42;';
                     }
                     return null;
                 },
-                async (path: NormalizedPath): Promise<boolean> => {
-                    return path.includes('include') && path.endsWith('utils.lsl');
+                async (p: StringUri): Promise<boolean> => {
+                    return p.includes('include') && p.endsWith('utils.lsl');
                 },
-                async (filename: string, from: NormalizedPath, extensions?: string[], includePaths?: string[]): Promise<NormalizedPath | null> => {
+                async (filename: string, from: StringUri, extensions?: string[], includePaths?: string[]): Promise<StringUri | null> => {
                     // Check if includePaths contains './include/'
                     if (includePaths && includePaths.includes('./include/')) {
-                        const dir = path.dirname(from);
+                        const fromPath = stringUriToFilePath(from);
+                        if (!fromPath) return null;
+                        const dir = path.dirname(fromPath);
                         const resolved = path.join(dir, 'include', filename);
-                        return normalizePath(resolved);
+                        return filePathToStringUri(resolved);
                     }
                     return null;
                 }
@@ -1345,7 +1303,7 @@ default {
             const source = '#include "utils.lsl"\ndefault { state_entry() { integer x = MAGIC; } }';
             const result = await preprocessor.process(
                 source,
-                normalizePath('/test/main.lsl'),
+                filePathToStringUri('/test/main.lsl'),
                 lslLanguageConfig
             );
 
@@ -1361,7 +1319,7 @@ default {
             const source = 'default { state_entry() {} }';
             const result = await preprocessor.process(
                 source,
-                normalizePath('/test/main.lsl'),
+                filePathToStringUri('/test/main.lsl'),
                 lslLanguageConfig
             );
 
@@ -1385,7 +1343,7 @@ default { state_entry() {} }`;
 
             const result = await preprocessor.process(
                 source,
-                normalizePath('/test/main.lsl'),
+                filePathToStringUri('/test/main.lsl'),
                 lslLanguageConfig
             );
 
@@ -1408,7 +1366,7 @@ default { state_entry() {} }`;
 
             const result = await preprocessor.process(
                 source,
-                normalizePath('/test/main.lsl'),
+                filePathToStringUri('/test/main.lsl'),
                 lslLanguageConfig
             );
 
@@ -1429,7 +1387,7 @@ default { state_entry() {} }`;
 
             const result = await preprocessor.process(
                 source,
-                normalizePath('/test/main.lsl'),
+                filePathToStringUri('/test/main.lsl'),
                 lslLanguageConfig
             );
 
@@ -1445,14 +1403,18 @@ default { state_entry() {} }`;
 
             const mockHost = createMockHostWithFS(
                 options,
-                async (path: NormalizedPath) => {
-                    if (path.endsWith('file1.lsl')) {
+                async (p: StringUri) => {
+                    if (p.endsWith('file1.lsl')) {
                         return 'integer x = 1;';
                     }
                     return null;
                 },
-                async (path: NormalizedPath) => path.endsWith('.lsl'),
-                async (filename: string, from: NormalizedPath) => normalizePath(path.join(path.dirname(from), filename))
+                async (p: StringUri) => p.endsWith('.lsl'),
+                async (filename: string, from: StringUri) => {
+                    const fromPath = stringUriToFilePath(from);
+                    if (!fromPath) return null;
+                    return filePathToStringUri(path.join(path.dirname(fromPath), filename));
+                }
             );
 
             const preprocessor = new LexingPreprocessor(mockHost, mockHost.config);
@@ -1460,7 +1422,7 @@ default { state_entry() {} }`;
             const source = '#include "file1.lsl"\ndefault { state_entry() {} }';
             const result = await preprocessor.process(
                 source,
-                normalizePath('/test/main.lsl'),
+                filePathToStringUri('/test/main.lsl'),
                 lslLanguageConfig
             );
 
@@ -1476,20 +1438,24 @@ default { state_entry() {} }`;
 
             const mockHost = createMockHostWithFS(
                 options,
-                async (path: NormalizedPath) => {
-                    if (path.endsWith('file1.lsl')) {
+                async (p: StringUri) => {
+                    if (p.endsWith('file1.lsl')) {
                         return '#include "file2.lsl"\ninteger a = 1;';
-                    } else if (path.endsWith('file2.lsl')) {
+                    } else if (p.endsWith('file2.lsl')) {
                         return '#include "file3.lsl"\ninteger b = 2;';
-                    } else if (path.endsWith('file3.lsl')) {
+                    } else if (p.endsWith('file3.lsl')) {
                         return '#include "file4.lsl"\ninteger c = 3;';
-                    } else if (path.endsWith('file4.lsl')) {
+                    } else if (p.endsWith('file4.lsl')) {
                         return 'integer d = 4;';
                     }
                     return null;
                 },
-                async (path: NormalizedPath) => path.endsWith('.lsl'),
-                async (filename: string, from: NormalizedPath) => normalizePath(path.join(path.dirname(from), filename))
+                async (p: StringUri) => p.endsWith('.lsl'),
+                async (filename: string, from: StringUri) => {
+                    const fromPath = stringUriToFilePath(from);
+                    if (!fromPath) return null;
+                    return filePathToStringUri(path.join(path.dirname(fromPath), filename));
+                }
             );
 
             const preprocessor = new LexingPreprocessor(mockHost, mockHost.config);
@@ -1497,7 +1463,7 @@ default { state_entry() {} }`;
             const source = '#include "file1.lsl"\ndefault { state_entry() {} }';
             const result = await preprocessor.process(
                 source,
-                normalizePath('/test/main.lsl'),
+                filePathToStringUri('/test/main.lsl'),
                 lslLanguageConfig
             );
 
@@ -1525,7 +1491,7 @@ default { state_entry() {} }`;
 
             const result = await preprocessor.process(
                 source,
-                normalizePath('/test/main.lsl'),
+                filePathToStringUri('/test/main.lsl'),
                 lslLanguageConfig
             );
 
@@ -1548,7 +1514,7 @@ default { state_entry() {} }`;
 
             const result = await preprocessor.process(
                 source,
-                normalizePath('/test/main.lsl'),
+                filePathToStringUri('/test/main.lsl'),
                 lslLanguageConfig
             );
 
@@ -1578,7 +1544,7 @@ default { state_entry() {} }`;
 
             const result = await preprocessor.process(
                 source,
-                normalizePath('/test/main.lsl'),
+                filePathToStringUri('/test/main.lsl'),
                 lslLanguageConfig
             );
 
@@ -1605,7 +1571,7 @@ default { state_entry() {} }`;
 
         const result = await preprocessor.process(
             source,
-            normalizePath('/test/main.lsl'),
+            filePathToStringUri('/test/main.lsl'),
             lslLanguageConfig
         );
 
@@ -1627,7 +1593,7 @@ default { state_entry() {} }`;
 
         const result = await preprocessor.process(
             source,
-            normalizePath('/test/main.lsl'),
+            filePathToStringUri('/test/main.lsl'),
             lslLanguageConfigWithSwitch
         );
 
@@ -1659,7 +1625,7 @@ jump c7b43f;
 }
 @c7b43f;
 {
-// @line 7 "unittest:///test/main.lsl"
+// @line 7 "file:///test/main.lsl"
     print("Other");
     jump sfcc97;
 }
@@ -1671,7 +1637,7 @@ jump c7b43f;
 
         const result = await preprocessor.process(
             source,
-            normalizePath('/test/main.lsl'),
+            filePathToStringUri('/test/main.lsl'),
             lslLanguageConfigWithSwitch
         );
         console.error("=======================");

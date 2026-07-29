@@ -7,6 +7,32 @@ import { JSONRPCClient } from "./websockclient";
 import { ConfigService } from "./configservice";
 import { ConfigKey } from "./interfaces/configinterface";
 import { showStatusMessage } from "./utils";
+import {
+    ObjectPublishMessage,
+    ObjectUnpublishMessage,
+    ObjectUpdateMessage,
+    ObjectContentGetParams,
+    ObjectContentGetResponse,
+    ObjectContentSaveParams,
+    ObjectContentSaveResponse,
+    ObjectItemCreateParams,
+    ObjectItemCreateResponse,
+    ObjectItemDeleteParams,
+    ObjectItemDeleteResponse,
+    ObjectScriptSetRunningParams,
+    ObjectScriptSetRunningResponse,
+    ObjectScriptResetParams,
+    ObjectScriptResetResponse,
+    ObjectUnpublishParams,
+    ObjectUnpublishResponse,
+    ObjectRequestParams,
+    ObjectRequestResponse,
+    ObjectListResponse,
+    ObjectModifyParams,
+    ObjectModifyResponse,
+    ObjectItemModifyParams,
+    ObjectItemModifyResponse,
+} from "./vscode/objectcontentinterfaces";
 
 //#region Message Formats
 
@@ -39,6 +65,15 @@ export interface SessionDisconnect {
     message: string;
 }
 
+export interface SessionPing {
+    timestamp: number;
+}
+
+export interface SessionPingResponse {
+    timestamp: number;
+    server_time: number;
+}
+
 export interface ScriptSubscribe {
     script_id: string;
     script_name: string;
@@ -64,6 +99,12 @@ export interface SyntaxChange {
 
 export interface SyntaxCacheList {
     files: string[];
+    success: boolean;
+}
+
+export interface ScriptList {
+    temp_dir: string;
+    script_ids: string[];
     success: boolean;
 }
 
@@ -124,6 +165,9 @@ export interface WebSocketHandlers {
     onRuntimeDebug?: (message: RuntimeDebug) => void;
     onRuntimeError?: (message: RuntimeError) => void;
     onConnectionClosed?: () => void;
+    onObjectPublish?: (message: ObjectPublishMessage) => void;
+    onObjectUnpublish?: (message: ObjectUnpublishMessage) => void;
+    onObjectUpdate?: (message: ObjectUpdateMessage) => void;
 }
 
 /**
@@ -142,6 +186,9 @@ export interface ClientInfo {
  */
 export class ViewerEditWSClient extends JSONRPCClient {
     private handlers: WebSocketHandlers = {};
+    private pingTimer: NodeJS.Timeout | undefined;
+    private consecutivePingFailures: number = 0;
+    private static readonly MAX_PING_FAILURES = 2;
 
     constructor(
         context: vscode.ExtensionContext,
@@ -156,6 +203,8 @@ export class ViewerEditWSClient extends JSONRPCClient {
         }
 
         try {
+            // Stop ping timer before disconnecting
+            this.stopPingTimer();
             // Don't wait for disconnect messages during disposal
             // Just close the connection immediately
             this.disconnect();
@@ -186,6 +235,24 @@ export class ViewerEditWSClient extends JSONRPCClient {
         this.on("script.compiled", this.handlers.onCompilationResult);
         this.on("runtime.debug", this.handlers.onRuntimeDebug);
         this.on("runtime.error", this.handlers.onRuntimeError);
+        this.on("object.publish", this.handlers.onObjectPublish);
+        this.on("object.unpublish", this.handlers.onObjectUnpublish);
+        this.on("object.update", this.handlers.onObjectUpdate);
+
+        // Register handler for viewer-initiated pings
+        this.on("session.ping", (params: SessionPing): SessionPingResponse => ({
+            timestamp: params.timestamp,
+            server_time: Date.now()
+        }));
+
+        // Handle connection close - stop ping timer and notify handlers
+        this.onConnectionChange((event) => {
+            if (!event.connected) {
+                console.log("[WebSocket] Connection closed, cleaning up");
+                this.stopPingTimer();
+                this.handlers.onConnectionClosed?.();
+            }
+        });
 
         // Setup connection close handler
         this.setupConnectionCloseHandler();
@@ -224,6 +291,111 @@ export class ViewerEditWSClient extends JSONRPCClient {
         } catch (err: any) {
             console.warn(`Error sending disconnect message: ${err.message}`);
         }
+    }
+
+    /**
+     * Sends a ping to the viewer to check connection health and measure latency.
+     * @returns Promise resolving to the ping response with timing information
+     */
+    public sendPing(): Promise<SessionPingResponse> {
+        return this.call("session.ping", {
+            timestamp: Date.now()
+        });
+    }
+
+    /**
+     * Starts periodic pinging to the viewer.
+     * @param intervalMs - Interval between pings in milliseconds (default: 30000)
+     */
+    public startPingTimer(intervalMs: number = 30000): void {
+        this.stopPingTimer();
+        console.log(`[Ping] Starting ping timer with interval ${intervalMs}ms`);
+        this.pingTimer = setInterval(async () => {
+            if (!this.isConnected() || this.isDisposed()) {
+                console.log("[Ping] Connection closed, stopping timer");
+                this.stopPingTimer();
+                return;
+            }
+            try {
+                console.log("[Ping] Sending ping...");
+                const response = await this.sendPing();
+                const latency = Date.now() - response.timestamp;
+                console.log(`[Ping] Received pong, latency: ${latency}ms`);
+                this.consecutivePingFailures = 0;
+            } catch (error) {
+                this.consecutivePingFailures++;
+                console.warn(`[Ping] Failed (${this.consecutivePingFailures}/${ViewerEditWSClient.MAX_PING_FAILURES}):`, error);
+                if (this.consecutivePingFailures >= ViewerEditWSClient.MAX_PING_FAILURES) {
+                    console.warn(`[Ping] Max failures reached, closing connection`);
+                    this.stopPingTimer();
+                    this.handlers.onConnectionClosed?.();
+                    this.disconnect();
+                }
+            }
+        }, intervalMs);
+    }
+
+    /**
+     * Stops the periodic ping timer.
+     */
+    public stopPingTimer(): void {
+        if (this.pingTimer) {
+            clearInterval(this.pingTimer);
+            this.pingTimer = undefined;
+        }
+        this.consecutivePingFailures = 0;
+    }
+
+    // ============================================
+    // Object Content Calls (Extension → Viewer)
+    // ============================================
+
+    public getObjectContent(params: ObjectContentGetParams): Promise<ObjectContentGetResponse> {
+        return this.call("object.content.get", params);
+    }
+
+    public saveObjectContent(params: ObjectContentSaveParams): Promise<ObjectContentSaveResponse> {
+        return this.call("object.content.save", params);
+    }
+
+    public createObjectItem(params: ObjectItemCreateParams): Promise<ObjectItemCreateResponse> {
+        return this.call("object.item.create", params);
+    }
+
+    public deleteObjectItem(params: ObjectItemDeleteParams): Promise<ObjectItemDeleteResponse> {
+        return this.call("object.item.delete", params);
+    }
+
+    public setScriptRunning(params: ObjectScriptSetRunningParams): Promise<ObjectScriptSetRunningResponse> {
+        return this.call("object.script.set_running", params);
+    }
+
+    public resetScript(params: ObjectScriptResetParams): Promise<ObjectScriptResetResponse> {
+        return this.call("object.script.reset", params);
+    }
+
+    public unpublishObject(params: ObjectUnpublishParams): Promise<ObjectUnpublishResponse> {
+        return this.call("object.unpublish", params);
+    }
+
+    public requestObject(params: ObjectRequestParams): Promise<ObjectRequestResponse> {
+        return this.call("object.request", params);
+    }
+
+    public getObjectList(): Promise<ObjectListResponse> {
+        return this.call("object.list", {});
+    }
+
+    public modifyObject(params: ObjectModifyParams): Promise<ObjectModifyResponse> {
+        return this.call("object.modify", params);
+    }
+
+    public modifyObjectItem(params: ObjectItemModifyParams): Promise<ObjectItemModifyResponse> {
+        return this.call("object.item.modify", params);
+    }
+
+    public getScriptList(): Promise<ScriptList> {
+        return this.call("script.list", {});
     }
 
     private setupConnectionCloseHandler(): void {

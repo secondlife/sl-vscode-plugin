@@ -5,12 +5,12 @@
 
 import * as assert from 'assert';
 import { LineMapper, LineMapping } from '../../shared/linemapper';
-import { normalizePath, NormalizedPath } from '../../interfaces/hostinterface';
+import { filePathToStringUri, StringUri } from '../../interfaces/hostinterface';
 import { expectMapping } from './helpers/expectMapping';
 
 suite('Line Mapping Tests', () => {
     // Helper function to create a mock URI
-    function np(p: string): NormalizedPath { return normalizePath(p); }
+    function np(p: string): StringUri { return filePathToStringUri(p); }
 
     // Helper function to create line mappings for testing
     function createLineMapping(processedLine: number, sourceFile: string, originalLine: number): LineMapping {

@@ -7,14 +7,14 @@ import * as assert from 'assert';
 import { Parser } from '../../shared/parser';
 import { getLanguageConfig, Lexer } from '../../shared/lexer';
 import { DiagnosticCollector, DiagnosticSeverity, ErrorCodes } from '../../shared/diagnostics';
-import { normalizePath, NormalizedPath } from '../../interfaces/hostinterface';
+import { filePathToStringUri, StringUri } from '../../interfaces/hostinterface';
 
 suite('Parser Diagnostics Integration', () => {
-    let sourceFile: NormalizedPath;
+    let sourceFile: StringUri;
     const lslLanguageConfig = getLanguageConfig('lsl');
 
     setup(() => {
-        sourceFile = normalizePath('test.lsl');
+        sourceFile = filePathToStringUri('d:/test/test.lsl');
     });
 
     suite('Conditional Directive Errors', () => {
@@ -168,7 +168,7 @@ code3
 
     suite('Diagnostic Source File Tracking', () => {
         test('should track correct source file in diagnostics', async () => {
-            const testSource = normalizePath('custom.lsl');
+            const testSource = filePathToStringUri('d:/test/custom.lsl');
             const source = `#endif`;
             const diagnostics = new DiagnosticCollector();
             const lexer = new Lexer(source, lslLanguageConfig, testSource, diagnostics);

@@ -25,25 +25,36 @@ import {
 } from "./utils";
 import { ScriptLanguage } from "./shared/languageservice";
 import { CompilationResult, RuntimeDebug, RuntimeError } from "./viewereditwsclient";
-import { normalizePath } from "./interfaces/hostinterface";
+import { StringUri, uriEquals } from "./interfaces/hostinterface";
+import { vscodeUriToStringUri } from "./utils";
 import { SynchService } from "./synchservice";
 import { IncludeInfo } from "./shared/parser";
 import { sha256 } from "js-sha256";
 import { getLanguageConfig, isProccessedLanguage, LanguageLexerConfig } from "./shared/lexer";
 
 //====================================================================
-interface TrackedDocument {
-  id: string;
-  viewerDocument: vscode.TextDocument;
-  watcher?: vscode.FileSystemWatcher;
-  hash?: string;
+interface TrackedLocalFile {
+    kind: 'local';
+    id: string;
+    viewerDocument: vscode.TextDocument;
+    watcher?: vscode.FileSystemWatcher;
+    hash?: string;
 }
+
+interface TrackedVirtualFile {
+    kind: 'virtual';
+    id: string;   // uri.toString() — stable unique key
+    uri: vscode.Uri;
+    hash?: string;
+}
+
+type TrackedFile = TrackedLocalFile | TrackedVirtualFile;
 
 export class ScriptSync implements vscode.Disposable {
     private saveListener: vscode.Disposable | undefined;
     private masterDocument: vscode.TextDocument;
     private language: ScriptLanguage;
-    private fileMappings: TrackedDocument[] = [];
+    private fileMappings: TrackedFile[] = [];
     private macros: MacroProcessor;
     private preprocessor: LexingPreprocessor | undefined;
     private disposed: boolean = false;
@@ -62,7 +73,7 @@ export class ScriptSync implements vscode.Disposable {
         language: ScriptLanguage,
         config: ConfigService,
         scriptId: string,
-        viewerDocument: vscode.TextDocument,
+        viewerDocument: vscode.TextDocument | undefined,
         syncService: SynchService,
     ) {
         this.config = config;
@@ -120,7 +131,7 @@ export class ScriptSync implements vscode.Disposable {
             return false;
         }
 
-        let mapping: TrackedDocument = { id, viewerDocument };
+        let mapping: TrackedLocalFile = { kind: 'local', id, viewerDocument };
 
         mapping.watcher = createFileWatcher(viewerDocument);
         mapping.watcher.onDidDelete((e) => {
@@ -130,8 +141,8 @@ export class ScriptSync implements vscode.Disposable {
         this.fileMappings.push(mapping);
 
         console.log("Subscribeing.");
-        // on initial subscription, we need to generate an inital line mapping
-        if (this.fileMappings.length === 1) {
+        // on initial subscription, we need to generate an initial line mapping
+        if (this.fileMappings.filter(m => m.kind === 'local').length === 1) {
             this.lineMappings = LineMapper.parseLineMappingsFromContent(
                 viewerDocument.getText(),
                 this.language,
@@ -141,13 +152,24 @@ export class ScriptSync implements vscode.Disposable {
         return true;
     }
 
+    public subscribeVirtual(uri: vscode.Uri): boolean {
+        const id = uri.toString();
+        if (this.isTrackingId(id)) {
+            return false; // already tracking
+        }
+        this.fileMappings.push({ kind: 'virtual', id, uri });
+        return true;
+    }
+
     public unsubscribeById(id: string, close?: boolean): number {
         const mapping = this.fileMappings.find((m) => m.id === id);
         if (mapping) {
             this.fileMappings = this.fileMappings.filter((m) => m !== mapping);
             if (close) {
-                closeTextDocument(mapping.viewerDocument);
-                mapping.watcher?.dispose();
+                if (mapping.kind === 'local') {
+                    closeTextDocument(mapping.viewerDocument);
+                    mapping.watcher?.dispose();
+                }
             }
             if(!this.hasFilesToTrack()) {
                 this.syncService.clearEmptySyncs();
@@ -159,12 +181,26 @@ export class ScriptSync implements vscode.Disposable {
     public unsubscribeByFile(viewerFile: string, close?: boolean): number {
         viewerFile = path.normalize(viewerFile);
         const mapping = this.fileMappings.find(
-            (m) => path.normalize(m.viewerDocument.fileName) === viewerFile,
+            (m): m is TrackedLocalFile =>
+                m.kind === 'local' &&
+                path.normalize(m.viewerDocument.fileName) === viewerFile,
         );
         if (mapping) {
             this.unsubscribeById(mapping.id, close);
         }
         return this.fileMappings.length;
+    }
+
+    public unsubscribeVirtualByUri(uri: vscode.Uri, close?: boolean): void {
+        this.unsubscribeById(uri.toString(), close);
+    }
+
+    public evictVirtualMappingsForObject(object_id: string): void {
+        const prefix = `/${object_id}/`;
+        this.fileMappings = this.fileMappings.filter(
+            (m) => m.kind !== 'virtual' ||
+                   (!m.uri.path.startsWith(prefix) && m.uri.path !== `/${object_id}`)
+        );
     }
 
     //#endregion
@@ -175,9 +211,16 @@ export class ScriptSync implements vscode.Disposable {
     }
 
     public isTrackingFile(viewerFile: string): boolean {
+        // TODO: revisit use of fileName for comparison — for remote/virtual workspace
+        // support this should use viewerDocument.uri.toString() instead.
         return this.fileMappings.some(
-            (mapping) => mapping.viewerDocument.fileName === viewerFile,
+            (m): m is TrackedLocalFile =>
+                m.kind === 'local' && m.viewerDocument.fileName === viewerFile,
         );
+    }
+
+    public isTrackingVirtualUri(uri: vscode.Uri): boolean {
+        return this.isTrackingId(uri.toString());
     }
 
     public hasFilesToTrack() : boolean {
@@ -189,7 +232,11 @@ export class ScriptSync implements vscode.Disposable {
     }
 
     public getMasterFilePath(): string {
-        return path.normalize(this.masterDocument.fileName);
+        return this.masterDocument.uri.fsPath;
+    }
+
+    public getMasterUri(): vscode.Uri {
+        return this.masterDocument.uri;
     }
 
     public getLanguage(): string {
@@ -197,28 +244,32 @@ export class ScriptSync implements vscode.Disposable {
     }
 
     public getTrackedIds(): string[] {
-        return this.fileMappings.map((mapping) => mapping.id);
+        // Only return local script IDs — virtual URI strings must not be sent
+        // to the viewer as script.subscribe targets.
+        return this.fileMappings
+            .filter((m): m is TrackedLocalFile => m.kind === 'local')
+            .map((m) => m.id);
     }
     //#endregion
 
     //#region Diagnostics
     public clearDiagnostics(): void {
         this.diagnosticSources.forEach((source) => {
-            this.diagnosticCollection.delete(vscode.Uri.file(source));
+            this.diagnosticCollection.delete(vscode.Uri.parse(source));
         });
         this.diagnosticSources.clear();
     }
 
     public addDiagnostics(diagnosticsMap: { [source: string]: vscode.Diagnostic[] }): void {
         Object.entries(diagnosticsMap).forEach(([filePath, diagnostics]) => {
-            const fileUri = vscode.Uri.file(filePath);
+            const fileUri = vscode.Uri.parse(filePath);
 
             const oldList = this.diagnosticCollection.get(fileUri) || [];
             const newList = [...oldList, ...diagnostics];
 
-            this.diagnosticSources.add(filePath)
+            this.diagnosticSources.add(filePath);
             this.diagnosticCollection.set(fileUri, newList);
-            console.log(`Displayed ${diagnostics.length} errors for ${path.basename(filePath)}`);
+            console.log(`Displayed ${diagnostics.length} errors for ${path.basename(fileUri.fsPath)}`);
         });
 
     }
@@ -244,7 +295,7 @@ export class ScriptSync implements vscode.Disposable {
 
         errors.forEach((error) => {
             let line = error.row;
-            let file = normalizePath(this.masterDocument.uri.fsPath);
+            let file: StringUri = vscodeUriToStringUri(this.masterDocument.uri);
             let document: vscode.TextDocument | undefined = this.masterDocument;
 
             if (this.lineMappings) {
@@ -253,7 +304,7 @@ export class ScriptSync implements vscode.Disposable {
                     line = mapping.line;
                     file = mapping.source;
                     document = vscode.workspace.textDocuments.find(doc =>
-                        normalizePath(doc.uri.fsPath) === mapping.source
+                        uriEquals(vscodeUriToStringUri(doc.uri), mapping.source)
                     );
                 }
             }
@@ -340,7 +391,7 @@ export class ScriptSync implements vscode.Disposable {
         const errorMessage = `Runtime error on object ${message.object_name} (${message.object_id}): ${message.error}`;
 
         let line = message.line;
-        let file = normalizePath(this.masterDocument.uri.fsPath);
+        let file: StringUri = vscodeUriToStringUri(this.masterDocument.uri);
         let document: vscode.TextDocument | undefined = this.masterDocument;
 
         if (this.lineMappings) {
@@ -349,7 +400,7 @@ export class ScriptSync implements vscode.Disposable {
                 line = mapping.line;
                 file = mapping.source;
                 document = vscode.workspace.textDocuments.find(doc =>
-                    normalizePath(doc.uri.fsPath) === mapping.source
+                    uriEquals(vscodeUriToStringUri(doc.uri), mapping.source)
                 );
             }
         }
@@ -373,7 +424,7 @@ export class ScriptSync implements vscode.Disposable {
         );
         diagnostic.source = `Second Life Runtime`;
 
-        const fileUri = vscode.Uri.file(file);
+        const fileUri = vscode.Uri.parse(file as string);
         this.diagnosticSources.add(file);
         this.diagnosticCollection.set(fileUri, [diagnostic]);
 
@@ -407,7 +458,7 @@ export class ScriptSync implements vscode.Disposable {
             const languageConfig = this.getLanguageConfig();
             preprocessorResult = await this.preprocessor.process(
                 originalContent,
-                normalizePath(masterFilePath),
+                vscodeUriToStringUri(this.masterDocument.uri),
                 languageConfig,
             );
 
@@ -463,33 +514,40 @@ export class ScriptSync implements vscode.Disposable {
                 masterFilePath,
                 "utf8",
             );
-            let finalContent = await this.preProcessContent(originalContent);
+            const processedContent = await this.preProcessContent(originalContent);
 
             const sha = sha256.create();
-            sha.update(finalContent);
+            sha.update(processedContent);
             const hash = sha.hex();
 
-            // console.error(finalContent, hash);
-            finalContent = this.prefixWithMetaInformation(finalContent, hash);
+            const prefixedContent = this.prefixWithMetaInformation(processedContent, hash);
 
-            // Walk through all TrackedDocuments and save their finalContents if the hash has changed
+            // Walk through all tracked files and save if hash has changed
             await Promise.all(
                 this.getFileMappingsFilteredByHash(hash)
                     .map((mapping) => {
-                        if(masterFilePath == mapping.viewerDocument.fileName) {
-                            // Do not write to the same file we are processing from
-                            // Allows quick editing of a script externally that hasnt matched
-                            // Without the script extending forever if the preproc is enabled
-                            return Promise.resolve();
-                        }
                         mapping.hash = hash;
-                        return fs.promises.writeFile(
-                            mapping.viewerDocument.fileName,
-                            finalContent,
-                            "utf8",
-                        );
-                    }
-                    ),
+                        if (mapping.kind === 'local') {
+                            if (masterFilePath === mapping.viewerDocument.fileName) {
+                                // Do not write to the same file we are processing from.
+                                // Allows quick editing of a script externally that hasn't matched
+                                // without the script extending forever if the preproc is enabled.
+                                return Promise.resolve();
+                            }
+                            return fs.promises.writeFile(
+                                mapping.viewerDocument.fileName,
+                                prefixedContent,
+                                "utf8",
+                            );
+                        } else {
+                            // Virtual (sl://) — same content as local temp files,
+                            // written via the virtual filesystem provider
+                            return vscode.workspace.fs.writeFile(
+                                mapping.uri,
+                                Buffer.from(prefixedContent, "utf-8"),
+                            );
+                        }
+                    }),
             );
 
         } catch (err: any) {
@@ -530,7 +588,7 @@ export class ScriptSync implements vscode.Disposable {
         return meta.join("\n");
     }
 
-    private getFileMappingsFilteredByHash(hash:string) : TrackedDocument[] {
+    private getFileMappingsFilteredByHash(hash:string) : TrackedFile[] {
         if(!ConfigService.getInstance().getConfig<boolean>(ConfigKey.CompareHashBeforeSync, false)) {
             return this.fileMappings;
         }
@@ -591,7 +649,9 @@ export class ScriptSync implements vscode.Disposable {
 
         try {
             this.diagnosticCollection.dispose();
-            this.fileMappings.forEach(map => map.watcher?.dispose());
+            this.fileMappings.forEach(map => {
+                if (map.kind === 'local') map.watcher?.dispose();
+            });
         } catch (error) {
             // Log but don't throw during disposal
             console.warn("Error during ScriptSync disposal:", error);

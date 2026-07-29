@@ -7,10 +7,35 @@ import * as assert from 'assert';
 import * as path from 'path';
 import * as fs from 'fs';
 import { LexingPreprocessor, PreprocessorOptions } from '../../shared/lexingpreprocessor';
-import { normalizePath, type NormalizedPath, type HostInterface } from '../../interfaces/hostinterface';
+import { filePathToStringUri, stringUriToFilePath, type StringUri, type HostInterface } from '../../interfaces/hostinterface';
 import type { FullConfigInterface } from '../../interfaces/configinterface';
 import { ConfigKey } from '../../interfaces/configinterface';
 import { getLanguageConfig } from '../../shared/lexer';
+
+/**
+ * Normalize paths in preprocessor output for comparison with expected files.
+ * Replaces absolute file:// URIs with relative-style paths that match expected output.
+ * @param content - The preprocessor output content
+ * @param workspaceRoot - The workspace root path
+ * @returns Content with normalized paths
+ */
+function normalizePathsForComparison(content: string, workspaceRoot: string): string {
+    // Convert workspaceRoot to URI format for matching
+    const workspaceUri = filePathToStringUri(workspaceRoot);
+    // Extract the path portion after file:///
+    const workspaceUriPath = workspaceUri.replace(/^file:\/\/\//, '');
+
+    // Replace absolute paths with relative-style paths matching expected output format
+    // The expected files use format like: file:///test/workspace/set_1/...
+    // We need to replace: file:///c:/Users/.../src/test/workspace/set_1/...
+    // with: file:///test/workspace/set_1/...
+
+    const absolutePattern = new RegExp(
+        `file:///${workspaceUriPath.replace(/[.*+?^${}()|[\]\\]/g, '\\$&').replace(/\\\//g, '/')}`,
+        'gi'
+    );
+    return content.replace(absolutePattern, 'file:///test/workspace/set_1');
+}
 
 /**
  * Test config implementation
@@ -40,14 +65,14 @@ class TestConfig implements FullConfigInterface {
         return undefined;
     }
     async setConfig<T>(key: ConfigKey, value: T, scope?: any): Promise<void> {}
-    async getWorkspaceConfigPath(): Promise<NormalizedPath> {
-        return normalizePath("");
+    async getWorkspaceConfigPath(): Promise<StringUri> {
+        return filePathToStringUri("d:/test/config");
     }
-    async getGlobalConfigPath(): Promise<NormalizedPath> {
-        return normalizePath("");
+    async getGlobalConfigPath(): Promise<StringUri> {
+        return filePathToStringUri("d:/test/global");
     }
-    async getExtensionInstallPath(): Promise<NormalizedPath> {
-        return normalizePath("");
+    async getExtensionInstallPath(): Promise<StringUri> {
+        return filePathToStringUri("d:/test/extension");
     }
     getSessionValue<T>(key: ConfigKey): T | undefined {
         return undefined;
@@ -63,25 +88,31 @@ class TestConfig implements FullConfigInterface {
  */
 class DiskTestHost implements HostInterface {
     config: FullConfigInterface;
-    private workspaceRoot: NormalizedPath;
+    private workspaceRoot: string;
+    private workspaceRootUri: StringUri;
 
     constructor(workspaceRoot: string, options: PreprocessorOptions) {
-        this.workspaceRoot = normalizePath(workspaceRoot);
+        this.workspaceRoot = workspaceRoot;
+        this.workspaceRootUri = filePathToStringUri(workspaceRoot);
         this.config = new TestConfig(options);
     }
 
-    async readFile(filePath: NormalizedPath): Promise<string | null> {
+    async readFile(filePath: StringUri): Promise<string | null> {
         try {
-            const content = fs.readFileSync(filePath, 'utf-8');
+            const fsPath = stringUriToFilePath(filePath);
+            if (!fsPath) return null;
+            const content = fs.readFileSync(fsPath, 'utf-8');
             return content;
         } catch (err) {
             return null;
         }
     }
 
-    async exists(filePath: NormalizedPath): Promise<boolean> {
+    async exists(filePath: StringUri): Promise<boolean> {
         try {
-            return fs.existsSync(filePath);
+            const fsPath = stringUriToFilePath(filePath);
+            if (!fsPath) return false;
+            return fs.existsSync(fsPath);
         } catch {
             return false;
         }
@@ -89,20 +120,24 @@ class DiskTestHost implements HostInterface {
 
     async resolveFile(
         filename: string,
-        from: NormalizedPath,
+        from: StringUri,
         extensions?: string[],
         includePaths?: string[]
-    ): Promise<NormalizedPath | null> {
+    ): Promise<StringUri | null> {
         const exts = extensions || ['.lsl'];
         const paths = includePaths || ['./include/', 'include/', '.'];
 
+        // Convert URI to file path for path operations
+        const fromPath = stringUriToFilePath(from);
+        if (!fromPath) return null;
+        const fromDir = path.dirname(fromPath);
+
         // Try relative to the current file first
-        const fromDir = path.dirname(from);
         for (const ext of exts) {
             const withExt = filename.endsWith(ext) ? filename : filename + ext;
-            const absolutePath = normalizePath(path.resolve(fromDir, withExt));
-            if (await this.exists(absolutePath)) {
-                return absolutePath;
+            const absolutePath = path.resolve(fromDir, withExt);
+            if (fs.existsSync(absolutePath)) {
+                return filePathToStringUri(absolutePath);
             }
         }
 
@@ -110,18 +145,18 @@ class DiskTestHost implements HostInterface {
         for (const includePath of paths) {
             let searchDir: string;
             if (includePath.startsWith('./')) {
-                searchDir = path.join(path.dirname(from), includePath.slice(2));
+                searchDir = path.join(fromDir, includePath.slice(2));
             } else if (includePath === '.') {
-                searchDir = path.dirname(from);
+                searchDir = fromDir;
             } else {
                 searchDir = path.join(this.workspaceRoot, includePath);
             }
 
             for (const ext of exts) {
                 const withExt = filename.endsWith(ext) ? filename : filename + ext;
-                const absolutePath = normalizePath(path.resolve(searchDir, withExt));
-                if (await this.exists(absolutePath)) {
-                    return absolutePath;
+                const absolutePath = path.resolve(searchDir, withExt);
+                if (fs.existsSync(absolutePath)) {
+                    return filePathToStringUri(absolutePath);
                 }
             }
         }
@@ -129,11 +164,11 @@ class DiskTestHost implements HostInterface {
         return null;
     }
 
-    async writeFile(p: NormalizedPath, content: string | Uint8Array): Promise<boolean> {
+    async writeFile(p: StringUri, content: string | Uint8Array): Promise<boolean> {
         return false;
     }
 
-    async readJSON<T = any>(p: NormalizedPath): Promise<T | null> {
+    async readJSON<T = any>(p: StringUri): Promise<T | null> {
         return null;
     }
 
@@ -141,38 +176,25 @@ class DiskTestHost implements HostInterface {
         return false;
     }
 
-    async readYAML<T = any>(p: NormalizedPath): Promise<T | null> {
+    async readYAML<T = any>(p: StringUri): Promise<T | null> {
         return null;
     }
 
-    async readTOML<T = any>(p: NormalizedPath): Promise<T | null> {
+    async readTOML<T = any>(p: StringUri): Promise<T | null> {
         return null;
     }
 
-    async writeJSON(p: NormalizedPath, data: any, pretty?: boolean): Promise<boolean> {
+    async writeJSON(p: StringUri, data: any, pretty?: boolean): Promise<boolean> {
         return false;
     }
 
-    async writeYAML(p: NormalizedPath, data: any): Promise<boolean> {
+    async writeYAML(p: StringUri, data: any): Promise<boolean> {
         return false;
     }
 
-    async writeTOML(p: NormalizedPath, data: Record<string, any>): Promise<boolean> {
+    async writeTOML(p: StringUri, data: Record<string, any>): Promise<boolean> {
         return false;
     }
-    fileNameToUri(fileName: NormalizedPath): string {
-        // Strip path to only include directories/filename after "test" directory
-        const testIndex = fileName.indexOf('test');
-        const relativePath = testIndex !== -1 ? fileName.substring(testIndex) : fileName;
-        // Normalize backslashes to forward slashes
-        const normalizedPath = relativePath.replace(/\\/g, '/');
-        return "file:///" + normalizedPath;
-    }
-
-    uriToFileName(uri: string): NormalizedPath {
-        return normalizePath(uri.replace(/^file:\/\/\//, '/'));
-    }
-
 }
 
 suite('LSL Include Directive Tests - Disk-based Integration', () => {
@@ -205,16 +227,20 @@ suite('LSL Include Directive Tests - Disk-based Integration', () => {
     });
 
     test('should process simple include chain (A->B->C) from disk files', async () => {
-        const testFile = normalizePath(path.join(workspaceRoot, 'test_include_chain.lsl'));
+        const testFilePath = path.join(workspaceRoot, 'test_include_chain.lsl');
+        const testFile = filePathToStringUri(testFilePath);
         const expectedFile = path.join(workspaceRoot, 'test_include_chain_expected.lsl');
-        const source = fs.readFileSync(testFile, 'utf-8');
+        const source = fs.readFileSync(testFilePath, 'utf-8');
         const expected = fs.readFileSync(expectedFile, 'utf-8');
         const preprocessor = new LexingPreprocessor(host, host.config);
 
         const result = await preprocessor.process(source, testFile, lslLanguageConfig);
 
+        // Normalize paths for comparison (actual output has absolute URIs, expected has relative)
+        const normalizedContent = normalizePathsForComparison(result.content, workspaceRoot);
+
         // Compare with expected output
-        assert.strictEqual(result.content, expected, 'Output should match expected file');
+        assert.strictEqual(normalizedContent, expected, 'Output should match expected file');
 
         // Verify no errors
         assert.ok(result.success, 'Processing should succeed');
@@ -222,16 +248,20 @@ suite('LSL Include Directive Tests - Disk-based Integration', () => {
     });
 
     test('should handle diamond dependency (A->B,C; B->C) from disk files', async () => {
-        const testFile = normalizePath(path.join(workspaceRoot, 'test_include_diamond.lsl'));
+        const testFilePath = path.join(workspaceRoot, 'test_include_diamond.lsl');
+        const testFile = filePathToStringUri(testFilePath);
         const expectedFile = path.join(workspaceRoot, 'test_include_diamond_expected.lsl');
-        const source = fs.readFileSync(testFile, 'utf-8');
+        const source = fs.readFileSync(testFilePath, 'utf-8');
         const expected = fs.readFileSync(expectedFile, 'utf-8');
         const preprocessor = new LexingPreprocessor(host, host.config);
 
         const result = await preprocessor.process(source, testFile, lslLanguageConfig);
 
+        // Normalize paths for comparison
+        const normalizedContent = normalizePathsForComparison(result.content, workspaceRoot);
+
         // Compare with expected output
-        assert.strictEqual(result.content, expected, 'Output should match expected file');
+        assert.strictEqual(normalizedContent, expected, 'Output should match expected file');
 
         // Count occurrences of the add function - should only appear once due to include guards
         const addFunctionMatches = result.content.match(/float add\(float a, float b\)/g);
@@ -243,16 +273,20 @@ suite('LSL Include Directive Tests - Disk-based Integration', () => {
     });
 
     test('should handle multiple includes with include guards', async () => {
-        const testFile = normalizePath(path.join(workspaceRoot, 'test_include_multiple.lsl'));
+        const testFilePath = path.join(workspaceRoot, 'test_include_multiple.lsl');
+        const testFile = filePathToStringUri(testFilePath);
         const expectedFile = path.join(workspaceRoot, 'test_include_multiple_expected.lsl');
-        const source = fs.readFileSync(testFile, 'utf-8');
+        const source = fs.readFileSync(testFilePath, 'utf-8');
         const expected = fs.readFileSync(expectedFile, 'utf-8');
         const preprocessor = new LexingPreprocessor(host, host.config);
 
         const result = await preprocessor.process(source, testFile, lslLanguageConfig);
 
+        // Normalize paths for comparison
+        const normalizedContent = normalizePathsForComparison(result.content, workspaceRoot);
+
         // Compare with expected output
-        assert.strictEqual(result.content, expected, 'Output should match expected file');
+        assert.strictEqual(normalizedContent, expected, 'Output should match expected file');
 
         // Verify macros were expanded (PI should be replaced with 3.14159265)
         assert.ok(result.content.includes('3.14159265'), 'PI macro should be expanded to its value');
@@ -263,8 +297,9 @@ suite('LSL Include Directive Tests - Disk-based Integration', () => {
     });
 
     test('should generate correct @line directives at column 0', async () => {
-        const testFile = normalizePath(path.join(workspaceRoot, 'test_include_chain.lsl'));
-        const source = fs.readFileSync(testFile, 'utf-8');
+        const testFilePath = path.join(workspaceRoot, 'test_include_chain.lsl');
+        const testFile = filePathToStringUri(testFilePath);
+        const source = fs.readFileSync(testFilePath, 'utf-8');
         const preprocessor = new LexingPreprocessor(host, host.config);
 
         const result = await preprocessor.process(source, testFile, lslLanguageConfig);
@@ -288,8 +323,9 @@ suite('LSL Include Directive Tests - Disk-based Integration', () => {
     });
 
     test('should create accurate line mappings for included files', async () => {
-        const testFile = normalizePath(path.join(workspaceRoot, 'test_include_chain.lsl'));
-        const source = fs.readFileSync(testFile, 'utf-8');
+        const testFilePath = path.join(workspaceRoot, 'test_include_chain.lsl');
+        const testFile = filePathToStringUri(testFilePath);
+        const source = fs.readFileSync(testFilePath, 'utf-8');
         const preprocessor = new LexingPreprocessor(host, host.config);
 
         const result = await preprocessor.process(source, testFile, lslLanguageConfig);
@@ -309,8 +345,9 @@ suite('LSL Include Directive Tests - Disk-based Integration', () => {
     });
 
     test('should respect maxIncludeDepth limit and stop processing on error', async () => {
-        const testFile = normalizePath(path.join(workspaceRoot, 'test_include_chain.lsl'));
-        const source = fs.readFileSync(testFile, 'utf-8');
+        const testFilePath = path.join(workspaceRoot, 'test_include_chain.lsl');
+        const testFile = filePathToStringUri(testFilePath);
+        const source = fs.readFileSync(testFilePath, 'utf-8');
 
         const options = createDefaultOptions();
         options.maxIncludeDepth = 1; // Only allow one level of includes
@@ -334,9 +371,10 @@ suite('LSL Include Directive Tests - Disk-based Integration', () => {
     });
 
     test('test switch case', async () => {
-        const testFile = normalizePath(path.join(workspaceRoot, 'test_switch.lsl'));
+        const testFilePath = path.join(workspaceRoot, 'test_switch.lsl');
+        const testFile = filePathToStringUri(testFilePath);
         const expectedFile = path.join(workspaceRoot, 'test_switch_expected.lsl');
-        const source = fs.readFileSync(testFile, 'utf-8');
+        const source = fs.readFileSync(testFilePath, 'utf-8');
         const expected = fs.readFileSync(expectedFile, 'utf-8');
         const preprocessor = new LexingPreprocessor(host, host.config);
 
@@ -344,8 +382,11 @@ suite('LSL Include Directive Tests - Disk-based Integration', () => {
         const result = await preprocessor.process(source, testFile, lslLanguageConfigWithSwitch);
 
 
+        // Normalize paths for comparison
+        const normalizedContent = normalizePathsForComparison(result.content, workspaceRoot);
+
         // Compare with expected output
-        assert.strictEqual(result.content, expected, 'Output should match expected file');
+        assert.strictEqual(normalizedContent, expected, 'Output should match expected file');
 
         // Verify no errors
         assert.ok(result.success, 'Processing should succeed');

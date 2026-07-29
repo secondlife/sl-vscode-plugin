@@ -14,56 +14,20 @@ import * as assert from 'assert';
 import * as path from 'path';
 import { Parser } from '../../shared/parser';
 import { getLanguageConfig, Lexer } from '../../shared/lexer';
-import { HostInterface, NormalizedPath, normalizePath } from '../../interfaces/hostinterface';
+import { HostInterface, StringUri, filePathToStringUri, stringUriToFilePath } from '../../interfaces/hostinterface';
+import { createMockHostWithFiles } from './helpers/mockHost';
 
 suite('Require Table Tests', () => {
-    const testFile = normalizePath('/test/main.luau');
+    const testFile = filePathToStringUri('/test/main.luau');
     const luauLanguageConfig = getLanguageConfig('luau');
 
-    /**
-     * Create a minimal mock host for testing with in-memory files
-     */
-    function createMockHost(files: Map<NormalizedPath, string>): any {
-        return {
-            config: {} as any,
-            readFile: async (p: NormalizedPath): Promise<string | null> => {
-                return files.get(p) || null;
-            },
-            exists: async (p: NormalizedPath): Promise<boolean> => {
-                return files.has(p);
-            },
-            resolveFile: async (
-                filename: string,
-                from: NormalizedPath,
-                extensions?: string[],
-                includePaths?: string[]
-            ): Promise<NormalizedPath | null> => {
-                // Simple resolution: look in same directory as caller
-                const resolved = normalizePath(path.join(path.dirname(from), filename));
-                return files.has(resolved) ? resolved : null;
-            },
-            writeFile: async (): Promise<boolean> => true,
-            readJSON: async (): Promise<any> => null,
-            writeJSON: async (): Promise<boolean> => true,
-            fileNameToUri: (fileName: NormalizedPath): string => {
-                const testIndex = fileName.indexOf('test');
-                const relativePath = testIndex !== -1 ? fileName.substring(testIndex) : fileName;
-                const normalizedPath = relativePath.replace(/\\/g, '/');
-                return "unittest:///" + normalizedPath;
-            },
-            uriToFileName: (uri: string): NormalizedPath => {
-                return normalizePath(uri.replace(/^unittest:\/\/\//, '/'));
-            },
-        };
-    }
-
     test('should wrap required module in function', async () => {
-        const moduleFile = normalizePath('/test/module.luau');
-        const files = new Map<NormalizedPath, string>();
+        const moduleFile = filePathToStringUri('/test/module.luau');
+        const files = new Map<StringUri, string>();
         files.set(moduleFile, 'local x = 42\nreturn x');
         files.set(testFile, 'local result = require("module.luau")');
 
-        const host = createMockHost(files);
+        const host = createMockHostWithFiles(files);
 
         const lexer = new Lexer('local result = require("module.luau")', luauLanguageConfig);
         const tokens = lexer.tokenize();
@@ -77,12 +41,12 @@ suite('Require Table Tests', () => {
     });
 
     test('should emit require function at file start', async () => {
-        const moduleFile = normalizePath('/test/module.luau');
-        const files = new Map<NormalizedPath, string>();
+        const moduleFile = filePathToStringUri('/test/module.luau');
+        const files = new Map<StringUri, string>();
         files.set(moduleFile, 'local x = 42');
         files.set(testFile, 'local result = require("module.luau")');
 
-        const host = createMockHost(files);
+        const host = createMockHostWithFiles(files);
 
         const lexer = new Lexer('local result = require("module.luau")', luauLanguageConfig);
         const tokens = lexer.tokenize();
@@ -96,12 +60,12 @@ suite('Require Table Tests', () => {
     });
 
     test('should invoke module from table at require point', async () => {
-        const moduleFile = normalizePath('/test/module.luau');
-        const files = new Map<NormalizedPath, string>();
+        const moduleFile = filePathToStringUri('/test/module.luau');
+        const files = new Map<StringUri, string>();
         files.set(moduleFile, 'local x = 42');
         files.set(testFile, 'local result = require("module.luau")');
 
-        const host = createMockHost(files);
+        const host = createMockHostWithFiles(files);
 
         const lexer = new Lexer('local result = require("module.luau")', luauLanguageConfig);
         const tokens = lexer.tokenize();
@@ -114,12 +78,12 @@ suite('Require Table Tests', () => {
     });
 
     test('should use same module ID for duplicate requires', async () => {
-        const moduleFile = normalizePath('/test/module.luau');
-        const files = new Map<NormalizedPath, string>();
+        const moduleFile = filePathToStringUri('/test/module.luau');
+        const files = new Map<StringUri, string>();
         files.set(moduleFile, 'local x = 42');
         files.set(testFile, 'require("module.luau")\nrequire("module.luau")');
 
-        const host = createMockHost(files);
+        const host = createMockHostWithFiles(files);
 
         const source = 'require("module.luau")\nrequire("module.luau")';
         const lexer = new Lexer(source, luauLanguageConfig);
@@ -138,14 +102,14 @@ suite('Require Table Tests', () => {
     });
 
     test('should assign different IDs to different modules', async () => {
-        const module1 = normalizePath('/test/module1.luau');
-        const module2 = normalizePath('/test/module2.luau');
-        const files = new Map<NormalizedPath, string>();
+        const module1 = filePathToStringUri('/test/module1.luau');
+        const module2 = filePathToStringUri('/test/module2.luau');
+        const files = new Map<StringUri, string>();
         files.set(module1, 'local x = 1');
         files.set(module2, 'local y = 2');
         files.set(testFile, 'require("module1.luau")\nrequire("module2.luau")');
 
-        const host = createMockHost(files);
+        const host = createMockHostWithFiles(files);
 
         const source = 'require("module1.luau")\nrequire("module2.luau")';
         const lexer = new Lexer(source, luauLanguageConfig);
@@ -164,12 +128,12 @@ suite('Require Table Tests', () => {
     });
 
     test('should include @line directives in wrapped modules', async () => {
-        const moduleFile = normalizePath('/test/module.luau');
-        const files = new Map<NormalizedPath, string>();
+        const moduleFile = filePathToStringUri('/test/module.luau');
+        const files = new Map<StringUri, string>();
         files.set(moduleFile, 'local x = 42');
         files.set(testFile, 'require("module.luau")');
 
-        const host = createMockHost(files);
+        const host = createMockHostWithFiles(files);
 
         const source = 'require("module.luau")';
         const lexer = new Lexer(source, luauLanguageConfig);
@@ -197,14 +161,14 @@ suite('Require Table Tests', () => {
     });
 
     test('should handle nested requires (require within required module)', async () => {
-        const utilsFile = normalizePath('/test/utils.luau');
-        const moduleFile = normalizePath('/test/module.luau');
-        const files = new Map<NormalizedPath, string>();
+        const utilsFile = filePathToStringUri('/test/utils.luau');
+        const moduleFile = filePathToStringUri('/test/module.luau');
+        const files = new Map<StringUri, string>();
         files.set(utilsFile, 'local function helper() end');
         files.set(moduleFile, 'require("utils.luau")\nlocal x = 42');
         files.set(testFile, 'require("module.luau")');
 
-        const host = createMockHost(files);
+        const host = createMockHostWithFiles(files);
 
         const source = 'require("module.luau")';
         const lexer = new Lexer(source, luauLanguageConfig);
@@ -229,26 +193,31 @@ suite('Require Table Tests', () => {
         function createFileHost(rootDir: string): any {
             return {
                 config: {} as any,
-                readFile: async (filePath: NormalizedPath): Promise<string | null> => {
+                readFile: async (filePath: StringUri): Promise<string | null> => {
                     try {
-                        return fs.readFileSync(filePath, 'utf8');
+                        const fsPath = stringUriToFilePath(filePath);
+                        if (!fsPath) return null;
+                        return fs.readFileSync(fsPath, 'utf8');
                     } catch {
                         return null;
                     }
                 },
-                exists: async (filePath: NormalizedPath): Promise<boolean> => {
-                    return fs.existsSync(filePath);
+                exists: async (filePath: StringUri): Promise<boolean> => {
+                    const fsPath = stringUriToFilePath(filePath);
+                    if (!fsPath) return false;
+                    return fs.existsSync(fsPath);
                 },
                 resolveFile: async (
                     filename: string,
-                    from: NormalizedPath,
+                    from: StringUri,
                     extensions?: string[],
                     includePaths?: string[]
-                ): Promise<NormalizedPath | null> => {
-                    const fromDir = path.dirname(from);
-                    const resolved = normalizePath(path.join(fromDir, filename));
-                    if (fs.existsSync(resolved)) {
-                        return resolved;
+                ): Promise<StringUri | null> => {
+                    const fromPath = stringUriToFilePath(from);
+                    if (!fromPath) return null;
+                    const resolvedPath = path.join(path.dirname(fromPath), filename);
+                    if (fs.existsSync(resolvedPath)) {
+                        return filePathToStringUri(resolvedPath);
                     }
                     return null;
                 },
@@ -259,25 +228,17 @@ suite('Require Table Tests', () => {
                 readTOML: async (): Promise<any> => null,
                 writeYAML: async (): Promise<boolean> => true,
                 writeTOML: async (): Promise<boolean> => true,
-                fileNameToUri: (fileName: NormalizedPath): string => {
-                    const testIndex = fileName.indexOf('test');
-                    const relativePath = testIndex !== -1 ? fileName.substring(testIndex) : fileName;
-                    const normalizedPath = relativePath.replace(/\\/g, '/');
-                    return "unittest:///" + normalizedPath;
-                },
-                uriToFileName: (uri: string): NormalizedPath => {
-                    return normalizePath(uri.replace(/^unittest:\/\/\//, '/'));
-                },
             };
         }
 
         test('should handle nested requires (A->B->C->D) from disk files', async () => {
-            const mainFile = normalizePath(path.join(workspaceRoot, 'nested_a.luau'));
+            const mainPath = path.join(workspaceRoot, 'nested_a.luau');
+            const mainFile = filePathToStringUri(mainPath);
 
             const host = createFileHost(workspaceRoot);
 
             // Read the main file
-            const source = fs.readFileSync(mainFile, 'utf8');
+            const source = fs.readFileSync(mainPath, 'utf8');
             const lexer = new Lexer(source, luauLanguageConfig);
             const tokens = lexer.tokenize();
 
@@ -313,12 +274,13 @@ suite('Require Table Tests', () => {
         });
 
         test('should handle diamond dependency (A->B,D; B->D) from disk files', async () => {
-            const mainFile = normalizePath(path.join(workspaceRoot, 'diamond_a.luau'));
+            const mainPath = path.join(workspaceRoot, 'diamond_a.luau');
+            const mainFile = filePathToStringUri(mainPath);
 
             const host = createFileHost(workspaceRoot);
 
             // Read the main file
-            const source = fs.readFileSync(mainFile, 'utf8');
+            const source = fs.readFileSync(mainPath, 'utf8');
             const lexer = new Lexer(source, luauLanguageConfig);
             const tokens = lexer.tokenize();
 
@@ -348,30 +310,33 @@ suite('Require Table Tests', () => {
 
         test('should handle complex nested diamond (A->B,C; B->D; C->D)', async () => {
             // Create test files for this scenario
-            const files = new Map<NormalizedPath, string>();
+            const files = new Map<StringUri, string>();
 
-            const fileA = normalizePath(path.join(workspaceRoot, 'complex_a.luau'));
-            const fileB = normalizePath(path.join(workspaceRoot, 'complex_b.luau'));
-            const fileC = normalizePath(path.join(workspaceRoot, 'complex_c.luau'));
-            const fileD = normalizePath(path.join(workspaceRoot, 'complex_d.luau'));
+            const fileA = filePathToStringUri(path.join(workspaceRoot, 'complex_a.luau'));
+            const fileB = filePathToStringUri(path.join(workspaceRoot, 'complex_b.luau'));
+            const fileC = filePathToStringUri(path.join(workspaceRoot, 'complex_c.luau'));
+            const fileD = filePathToStringUri(path.join(workspaceRoot, 'complex_d.luau'));
 
             // Create a hybrid host that uses in-memory files
             const memoryHost : HostInterface = {
                 config: {} as any,
-                readFile: async (p: NormalizedPath): Promise<string | null> => {
+                readFile: async (p: StringUri): Promise<string | null> => {
                     return files.get(p) || null;
                 },
-                exists: async (p: NormalizedPath): Promise<boolean> => {
+                exists: async (p: StringUri): Promise<boolean> => {
                     return files.has(p);
                 },
                 resolveFile: async (
                     filename: string,
-                    from: NormalizedPath,
+                    from: StringUri,
                     extensions?: string[],
                     includePaths?: string[]
-                ): Promise<NormalizedPath | null> => {
-                    const fromDir = path.dirname(from);
-                    const resolved = normalizePath(path.join(fromDir, filename));
+                ): Promise<StringUri | null> => {
+                    // Convert URI to path for path operations
+                    const fromPath = stringUriToFilePath(from);
+                    if (!fromPath) return null;
+                    const resolvedPath = path.join(path.dirname(fromPath), filename);
+                    const resolved = filePathToStringUri(resolvedPath);
                     return files.has(resolved) ? resolved : null;
                 },
                 writeFile: async (): Promise<boolean> => true,
@@ -381,18 +346,7 @@ suite('Require Table Tests', () => {
                 readTOML: async (): Promise<any> => null,
                 writeYAML: async (): Promise<boolean> => true,
                 writeTOML: async (): Promise<boolean> => true,
-                existsInSameWorkspace: async (knownPath: string, desiredPath: string): Promise<boolean> => false,
-                fileNameToUri: (fileName: NormalizedPath): string => {
-                    // Strip path to only include directories/filename after "test" directory
-                    const testIndex = fileName.indexOf('test');
-                    const relativePath = testIndex !== -1 ? fileName.substring(testIndex) : fileName;
-                    // Normalize backslashes to forward slashes
-                    const normalizedPath = relativePath.replace(/\\/g, '/');
-                    return "unittest:///" + normalizedPath;
-                },
-                uriToFileName: (uri: string): NormalizedPath => {
-                    return normalizePath(uri.replace("unittest:///", ""));
-                }
+                existsInSameWorkspace: async (knownPath: string, desiredPath: string): Promise<boolean> => false
             };
 
             // Set up the complex diamond

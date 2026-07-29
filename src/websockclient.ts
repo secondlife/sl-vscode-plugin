@@ -64,6 +64,7 @@
 
 import * as vscode from "vscode";
 import WebSocket from "ws";
+import { logDebug } from "./utils";
 
 /**
  * JSON-RPC 2.0 message types
@@ -432,8 +433,7 @@ export class JSONRPCClient extends WebsockClient implements JSONRPCInterface {
     }
   >();
     private nextRequestId: number = 1;
-    //private requestTimeout: number = 30000; // 30 seconds
-    private requestTimeout: number = 300000; // 5 minutes TODO: Debbuging
+    private requestTimeout: number = 30000; // 30 seconds
 
     // Unified handler registration - single map for both notifications and requests
     private methodHandlers = new Map<
@@ -448,13 +448,47 @@ export class JSONRPCClient extends WebsockClient implements JSONRPCInterface {
         super(context, url);
     }
 
+    private logIncomingMessage(message: JSONRPCMessage): void {
+        if (this.isJSONRPCRequest(message)) {
+            logDebug(`[JSON-RPC] <- request method=${message.method} id=${String(message.id)}`);
+            return;
+        }
+
+        if (this.isJSONRPCNotification(message)) {
+            logDebug(`[JSON-RPC] <- notification method=${message.method}`);
+            return;
+        }
+
+        if (this.isJSONRPCResponse(message)) {
+            const status = message.error ? "error" : "result";
+            logDebug(`[JSON-RPC] <- response id=${String(message.id)} status=${status}`);
+        }
+    }
+
+    private logOutgoingMessage(message: JSONRPCMessage): void {
+        if (this.isJSONRPCRequest(message)) {
+            logDebug(`[JSON-RPC] -> request method=${message.method} id=${String(message.id)}`);
+            return;
+        }
+
+        if (this.isJSONRPCNotification(message)) {
+            logDebug(`[JSON-RPC] -> notification method=${message.method}`);
+            return;
+        }
+
+        if (this.isJSONRPCResponse(message)) {
+            const status = message.error ? "error" : "result";
+            logDebug(`[JSON-RPC] -> response id=${String(message.id)} status=${status}`);
+        }
+    }
+
     /**
    * Handles incoming WebSocket messages with JSON-RPC support
    */
     protected handleMessage(data: WebSocket.RawData): void {
         try {
             const message = JSON.parse(data.toString()) as JSONRPCMessage;
-            // console.log("Received JSON-RPC message:", message);
+            this.logIncomingMessage(message);
 
             if (this.isJSONRPCResponse(message)) {
                 this.handleJSONRPCResponse(message);
@@ -674,6 +708,7 @@ export class JSONRPCClient extends WebsockClient implements JSONRPCInterface {
    * Sends a JSON-RPC message
    */
     private sendJSONRPCMessage(message: JSONRPCMessage): boolean {
+        this.logOutgoingMessage(message);
         return this.sendMessage(message);
     }
 

@@ -7,7 +7,7 @@
 import * as assert from 'assert';
 import { IncludeProcessor, IncludeState } from '../../shared/includeprocessor';
 import { DiagnosticCollector, DiagnosticSeverity, ErrorCodes } from '../../shared/diagnostics';
-import { NormalizedPath, HostInterface, normalizePath } from '../../interfaces/hostinterface';
+import { StringUri, HostInterface, filePathToStringUri } from '../../interfaces/hostinterface';
 import { MacroProcessor } from '../../shared/macroprocessor';
 import { ConditionalProcessor } from '../../shared/conditionalprocessor';
 import { IncludeInfo } from '../../shared/parser';
@@ -31,7 +31,7 @@ const quickRequire = (file:string, line:number = 1) : IncludeInfo => {
 }
 
 suite('IncludeProcessor Diagnostics', () => {
-    const testFile = normalizePath("d:/test/main.lsl");
+    const testFile = filePathToStringUri("d:/test/main.lsl");
     let diagnostics: DiagnosticCollector;
     let macros: MacroProcessor;
     let conditionals: ConditionalProcessor;
@@ -48,9 +48,9 @@ suite('IncludeProcessor Diagnostics', () => {
         test('should error when include file does not exist', async () => {
             // Given: A host that cannot find the file
             const host: Partial<HostInterface> = {
-                readFile: async (_path: NormalizedPath) => null,
-                exists: async (_path: NormalizedPath) => false,
-                resolveFile: async (_filename: string, _from: NormalizedPath) => null
+                readFile: async (_path: StringUri) => null,
+                exists: async (_path: StringUri) => false,
+                resolveFile: async (_filename: string, _from: StringUri) => null
             };
 
             const processor = new IncludeProcessor(lslLanguageConfig, host as HostInterface);
@@ -80,14 +80,14 @@ suite('IncludeProcessor Diagnostics', () => {
 
         test('should not error when file exists', async () => {
             // Given: A host that can find the file
-            const includePath = normalizePath("d:/test/lib.lsl");
+            const includePath = filePathToStringUri("d:/test/lib.lsl");
             const host: Partial<HostInterface> = {
-                readFile: async (path: NormalizedPath) => {
+                readFile: async (path: StringUri) => {
                     if (path === includePath) return '// Library code';
                     return null;
                 },
-                exists: async (path: NormalizedPath) => path === includePath,
-                resolveFile: async (filename: string, _from: NormalizedPath) => {
+                exists: async (path: StringUri) => path === includePath,
+                resolveFile: async (filename: string, _from: StringUri) => {
                     if (filename === 'lib.lsl') return includePath;
                     return null;
                 }
@@ -116,11 +116,11 @@ suite('IncludeProcessor Diagnostics', () => {
     suite('INC002: Circular Include', () => {
         test('should error on circular include', async () => {
             // Given: A file that's already in the include stack
-            const circularPath = normalizePath("d:/test/circular.lsl");
+            const circularPath = filePathToStringUri("d:/test/circular.lsl");
             const host: Partial<HostInterface> = {
-                readFile: async (_path: NormalizedPath) => '// Content',
-                exists: async (_path: NormalizedPath) => true,
-                resolveFile: async (_filename: string, _from: NormalizedPath) => circularPath
+                readFile: async (_path: StringUri) => '// Content',
+                exists: async (_path: StringUri) => true,
+                resolveFile: async (_filename: string, _from: StringUri) => circularPath
             };
 
             const processor = new IncludeProcessor(lslLanguageConfig, host as HostInterface);
@@ -151,11 +151,11 @@ suite('IncludeProcessor Diagnostics', () => {
 
         test('should allow include when not circular', async () => {
             // Given: A normal include scenario
-            const includePath = normalizePath("d:/test/normal.lsl");
+            const includePath = filePathToStringUri("d:/test/normal.lsl");
             const host: Partial<HostInterface> = {
-                readFile: async (_path: NormalizedPath) => '// Content',
-                exists: async (_path: NormalizedPath) => true,
-                resolveFile: async (_filename: string, _from: NormalizedPath) => includePath
+                readFile: async (_path: StringUri) => '// Content',
+                exists: async (_path: StringUri) => true,
+                resolveFile: async (_filename: string, _from: StringUri) => includePath
             };
 
             const processor = new IncludeProcessor(lslLanguageConfig, host as HostInterface);
@@ -182,10 +182,10 @@ suite('IncludeProcessor Diagnostics', () => {
         test('should error when max depth exceeded', async () => {
             // Given: Include state at max depth
             const host: Partial<HostInterface> = {
-                readFile: async (_path: NormalizedPath) => '// Content',
-                exists: async (_path: NormalizedPath) => true,
-                resolveFile: async (_filename: string, _from: NormalizedPath) =>
-                    normalizePath("d:/test/deep.lsl")
+                readFile: async (_path: StringUri) => '// Content',
+                exists: async (_path: StringUri) => true,
+                resolveFile: async (_filename: string, _from: StringUri) =>
+                    filePathToStringUri("d:/test/deep.lsl")
             };
 
             const processor = new IncludeProcessor(lslLanguageConfig, host as HostInterface);
@@ -217,11 +217,11 @@ suite('IncludeProcessor Diagnostics', () => {
 
         test('should not error when below max depth', async () => {
             // Given: Include state below max depth
-            const includePath = normalizePath("d:/test/shallow.lsl");
+            const includePath = filePathToStringUri("d:/test/shallow.lsl");
             const host: Partial<HostInterface> = {
-                readFile: async (_path: NormalizedPath) => '// Content',
-                exists: async (_path: NormalizedPath) => true,
-                resolveFile: async (_filename: string, _from: NormalizedPath) => includePath
+                readFile: async (_path: StringUri) => '// Content',
+                exists: async (_path: StringUri) => true,
+                resolveFile: async (_filename: string, _from: StringUri) => includePath
             };
 
             const processor = new IncludeProcessor(lslLanguageConfig, host as HostInterface);
@@ -248,11 +248,11 @@ suite('IncludeProcessor Diagnostics', () => {
     suite('INC005: File Read Error', () => {
         test('should error when file cannot be read', async () => {
             // Given: A host that resolves the file but cannot read it
-            const errorPath = normalizePath("d:/test/unreadable.lsl");
+            const errorPath = filePathToStringUri("d:/test/unreadable.lsl");
             const host: Partial<HostInterface> = {
-                readFile: async (_path: NormalizedPath) => null, // Read fails
-                exists: async (_path: NormalizedPath) => true,
-                resolveFile: async (_filename: string, _from: NormalizedPath) => errorPath
+                readFile: async (_path: StringUri) => null, // Read fails
+                exists: async (_path: StringUri) => true,
+                resolveFile: async (_filename: string, _from: StringUri) => errorPath
             };
 
             const processor = new IncludeProcessor(lslLanguageConfig, host as HostInterface);
@@ -281,11 +281,11 @@ suite('IncludeProcessor Diagnostics', () => {
 
         test('should not error when file is readable', async () => {
             // Given: A host that can read the file
-            const readablePath = normalizePath("d:/test/readable.lsl");
+            const readablePath = filePathToStringUri("d:/test/readable.lsl");
             const host: Partial<HostInterface> = {
-                readFile: async (_path: NormalizedPath) => '// Readable content',
-                exists: async (_path: NormalizedPath) => true,
-                resolveFile: async (_filename: string, _from: NormalizedPath) => readablePath
+                readFile: async (_path: StringUri) => '// Readable content',
+                exists: async (_path: StringUri) => true,
+                resolveFile: async (_filename: string, _from: StringUri) => readablePath
             };
 
             const processor = new IncludeProcessor(lslLanguageConfig, host as HostInterface);
@@ -312,9 +312,9 @@ suite('IncludeProcessor Diagnostics', () => {
         test('should report each error separately', async () => {
             // Given: Multiple include attempts with different errors
             const host: Partial<HostInterface> = {
-                readFile: async (_path: NormalizedPath) => null,
-                exists: async (_path: NormalizedPath) => false,
-                resolveFile: async (_filename: string, _from: NormalizedPath) => null
+                readFile: async (_path: StringUri) => null,
+                exists: async (_path: StringUri) => false,
+                resolveFile: async (_filename: string, _from: StringUri) => null
             };
 
             const processor = new IncludeProcessor(lslLanguageConfig, host as HostInterface);
@@ -337,9 +337,9 @@ suite('IncludeProcessor Diagnostics', () => {
     suite('Documentation Tests', () => {
         test('IncludeProcessor exists and has basic functionality', async () => {
             const host: Partial<HostInterface> = {
-                readFile: async (_path: NormalizedPath) => null,
-                exists: async (_path: NormalizedPath) => false,
-                resolveFile: async (_filename: string, _from: NormalizedPath) => null
+                readFile: async (_path: StringUri) => null,
+                exists: async (_path: StringUri) => false,
+                resolveFile: async (_filename: string, _from: StringUri) => null
             };
 
             const processor = new IncludeProcessor(lslLanguageConfig, host as HostInterface);
@@ -362,12 +362,12 @@ suite('IncludeProcessor Diagnostics', () => {
     suite('Complex Circular Chains', () => {
         test('should detect A→B→C→A circular chain', async () => {
             // Given: Three files in a circular chain
-            const fileA = normalizePath("d:/test/a.lsl");
-            const fileB = normalizePath("d:/test/b.lsl");
-            const fileC = normalizePath("d:/test/c.lsl");
+            const fileA = filePathToStringUri("d:/test/a.lsl");
+            const fileB = filePathToStringUri("d:/test/b.lsl");
+            const fileC = filePathToStringUri("d:/test/c.lsl");
 
             const host: Partial<HostInterface> = {
-                readFile: async (path: NormalizedPath) => {
+                readFile: async (path: StringUri) => {
                     if (path === fileA) return '#include "b.lsl"\nstring a;';
                     if (path === fileB) return '#include "c.lsl"\nstring b;';
                     if (path === fileC) return '#include "a.lsl"\nstring c;';
@@ -410,11 +410,11 @@ suite('IncludeProcessor Diagnostics', () => {
 
         test('should detect A→B→A→C (circular earlier in chain)', async () => {
             // Given: Circular dependency that occurs before reaching end
-            const fileA = normalizePath("d:/test/a.lsl");
-            const fileB = normalizePath("d:/test/b.lsl");
+            const fileA = filePathToStringUri("d:/test/a.lsl");
+            const fileB = filePathToStringUri("d:/test/b.lsl");
 
             const host: Partial<HostInterface> = {
-                readFile: async (path: NormalizedPath) => {
+                readFile: async (path: StringUri) => {
                     if (path === fileA) return '#include "b.lsl"\nstring a;';
                     if (path === fileB) return '#include "a.lsl"\n#include "c.lsl"\nstring b;';
                     return null;
@@ -446,13 +446,13 @@ suite('IncludeProcessor Diagnostics', () => {
 
         test('should allow diamond pattern (A→B, A→C, B→D, C→D)', async () => {
             // Given: Diamond dependency (not circular - D is included twice via different paths)
-            const fileA = normalizePath("d:/test/a.lsl");
-            const fileB = normalizePath("d:/test/b.lsl");
-            const fileC = normalizePath("d:/test/c.lsl");
-            const fileD = normalizePath("d:/test/d.lsl");
+            const fileA = filePathToStringUri("d:/test/a.lsl");
+            const fileB = filePathToStringUri("d:/test/b.lsl");
+            const fileC = filePathToStringUri("d:/test/c.lsl");
+            const fileD = filePathToStringUri("d:/test/d.lsl");
 
             const host: Partial<HostInterface> = {
-                readFile: async (path: NormalizedPath) => {
+                readFile: async (path: StringUri) => {
                     if (path === fileD) return 'string d;';
                     return '// content';
                 },
@@ -503,7 +503,7 @@ suite('IncludeProcessor Diagnostics', () => {
             const host: Partial<HostInterface> = {
                 readFile: async () => '// content',
                 exists: async () => true,
-                resolveFile: async (filename: string) => normalizePath(`d:/test/${filename}`)
+                resolveFile: async (filename: string) => filePathToStringUri(`d:/test/${filename}`)
             };
 
             const processor = new IncludeProcessor(lslLanguageConfig, host as HostInterface);
@@ -534,9 +534,9 @@ suite('IncludeProcessor Diagnostics', () => {
 
         test('should track depth correctly with multiple branches', async () => {
             // Given: Tree structure with different branch depths
-            const fileA = normalizePath("d:/test/a.lsl");
-            const fileB = normalizePath("d:/test/b.lsl");
-            const fileC = normalizePath("d:/test/c.lsl");
+            const fileA = filePathToStringUri("d:/test/a.lsl");
+            const fileB = filePathToStringUri("d:/test/b.lsl");
+            const fileC = filePathToStringUri("d:/test/c.lsl");
 
             let readCount = 0;
             const host: Partial<HostInterface> = {
@@ -580,7 +580,7 @@ suite('IncludeProcessor Diagnostics', () => {
             const host: Partial<HostInterface> = {
                 readFile: async () => '// content',
                 exists: async () => true,
-                resolveFile: async (filename: string) => normalizePath(`d:/test/${filename}`)
+                resolveFile: async (filename: string) => filePathToStringUri(`d:/test/${filename}`)
             };
 
             const processor = new IncludeProcessor(lslLanguageConfig, host as HostInterface);
@@ -602,13 +602,13 @@ suite('IncludeProcessor Diagnostics', () => {
     suite('Mixed Successful and Failed Includes', () => {
         test('should process valid includes after failed include', async () => {
             // Given: Mix of valid and invalid includes
-            const validFile = normalizePath("d:/test/valid.lsl");
+            const validFile = filePathToStringUri("d:/test/valid.lsl");
             const host: Partial<HostInterface> = {
-                readFile: async (path: NormalizedPath) => {
+                readFile: async (path: StringUri) => {
                     if (path === validFile) return '// valid content';
                     return null;
                 },
-                exists: async (path: NormalizedPath) => path === validFile,
+                exists: async (path: StringUri) => path === validFile,
                 resolveFile: async (filename: string) => {
                     if (filename === 'valid.lsl') return validFile;
                     return null; // missing.lsl won't resolve
@@ -636,11 +636,11 @@ suite('IncludeProcessor Diagnostics', () => {
 
         test('should collect different error types in single parse', async () => {
             // Given: Scenario with multiple error types
-            const circularFile = normalizePath("d:/test/circular.lsl");
-            const unreadableFile = normalizePath("d:/test/unreadable.lsl");
+            const circularFile = filePathToStringUri("d:/test/circular.lsl");
+            const unreadableFile = filePathToStringUri("d:/test/unreadable.lsl");
 
             const host: Partial<HostInterface> = {
-                readFile: async (path: NormalizedPath) => {
+                readFile: async (path: StringUri) => {
                     if (path === unreadableFile) return null; // Read fails
                     return '// content';
                 },
@@ -649,7 +649,7 @@ suite('IncludeProcessor Diagnostics', () => {
                     if (filename === 'missing.lsl') return null; // Not found
                     if (filename === 'circular.lsl') return circularFile;
                     if (filename === 'unreadable.lsl') return unreadableFile;
-                    return normalizePath(`d:/test/${filename}`);
+                    return filePathToStringUri(`d:/test/${filename}`);
                 }
             };
 
@@ -710,16 +710,16 @@ suite('IncludeProcessor Diagnostics', () => {
 
         test('should handle partial success in nested includes', async () => {
             // Given: Nested include where inner include fails
-            const outerFile = normalizePath("d:/test/outer.lsl");
-            const middleFile = normalizePath("d:/test/middle.lsl");
+            const outerFile = filePathToStringUri("d:/test/outer.lsl");
+            const middleFile = filePathToStringUri("d:/test/middle.lsl");
 
             const host: Partial<HostInterface> = {
-                readFile: async (path: NormalizedPath) => {
+                readFile: async (path: StringUri) => {
                     if (path === outerFile) return '// outer content';
                     if (path === middleFile) return '// middle content';
                     return null;
                 },
-                exists: async (path: NormalizedPath) =>
+                exists: async (path: StringUri) =>
                     path === outerFile || path === middleFile,
                 resolveFile: async (filename: string) => {
                     if (filename === 'outer.lsl') return outerFile;

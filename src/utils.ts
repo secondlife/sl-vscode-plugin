@@ -6,7 +6,7 @@ import * as vscode from "vscode";
 import path from "path";
 import { ConfigService } from "./configservice";
 import { ConfigKey, FullConfigInterface } from "./interfaces/configinterface";
-import { fileExists, HostInterface, NormalizedPath, normalizePath } from "./interfaces/hostinterface";
+import { fileExists, HostInterface, StringUri, filePathToStringUri, stringUriToFilePath } from "./interfaces/hostinterface";
 import { writeJSONFile, readJSONFile, writeYAMLFile, writeTOMLFile, readYAMLFile, readTOMLFile } from "./shared/sharedutils";
 
 // Generic utilities for sl-vscode-plugin
@@ -34,6 +34,17 @@ export function logInfo(message: string): void {
     const channel = getOutputChannel();
     const timestamp = new Date().toISOString();
     channel.appendLine(`[${timestamp}] INFO: ${message}`);
+}
+
+/**
+ * Log a debug message to the output channel (only when debug logging is enabled)
+ */
+export function logDebug(message: string): void {
+    // TODO: Check a debug setting to conditionally log
+    // For now, always log debug messages
+    const channel = getOutputChannel();
+    const timestamp = new Date().toISOString();
+    channel.appendLine(`[${timestamp}] DEBUG: ${message}`);
 }
 
 /**
@@ -115,10 +126,9 @@ export function showErrorMessage(
 
 //=============================================================================
 //#region Workspace Editor Utilities
-export function closeEditor(documentFile: string): void {
-    documentFile = path.normalize(documentFile);
+export function closeEditor(documentUri: vscode.Uri): void {
     const document = vscode.workspace.textDocuments.find(
-        (doc) => path.normalize(doc.fileName) === documentFile,
+        (doc) => doc.uri.toString() === documentUri.toString(),
     );
     if (document) {
         vscode.window.showTextDocument(document).then((_editor) => {
@@ -130,7 +140,7 @@ export function closeEditor(documentFile: string): void {
 export async function closeTextDocument(
     document: vscode.TextDocument,
 ): Promise<void> {
-    const normalizedPath = path.normalize(document.fileName);
+    const docUriString = document.uri.toString();
 
     // First try to find and close via tab groups
     const tabGroups = vscode.window.tabGroups.all;
@@ -139,7 +149,7 @@ export async function closeTextDocument(
         for (const tab of tabGroup.tabs) {
             if (
                 tab.input instanceof vscode.TabInputText &&
-        path.normalize(tab.input.uri.fsPath) === normalizedPath
+        tab.input.uri.toString() === docUriString
             ) {
                 await vscode.window.tabGroups.close(tab);
                 found = true;
@@ -182,8 +192,50 @@ export async function uriExists(filePath: vscode.Uri): Promise<boolean> {
     }
 }
 
-export function uriToNormalizedPath(uri: vscode.Uri): NormalizedPath {
-    return normalizePath(uri.fsPath);
+export function vscodeUriToStringUri(uri: vscode.Uri): StringUri {
+    // Prefer workspace:// URIs for files inside a workspace folder
+    const folder = vscode.workspace.getWorkspaceFolder(uri);
+    if (folder) {
+        const relativePath = path.relative(folder.uri.fsPath, uri.fsPath).split(path.sep).join('/');
+        return `workspace:///${folder.name}/${relativePath}` as StringUri;
+    }
+    return filePathToStringUri(uri.fsPath);
+}
+
+export function stringUriToVscodeUri(uri: StringUri): vscode.Uri {
+    // Handle workspace:// scheme
+    if (uri.startsWith('workspace:///')) {
+        const withoutScheme = uri.substring('workspace:///'.length);
+        const slashIndex = withoutScheme.indexOf('/');
+
+        if (slashIndex === -1) {
+            throw new Error(`Invalid workspace URI: ${uri}`);
+        }
+
+        const folderName = withoutScheme.substring(0, slashIndex);
+        const relativePath = withoutScheme.substring(slashIndex + 1);
+
+        const workspaceFolders = vscode.workspace.workspaceFolders;
+        if (!workspaceFolders || workspaceFolders.length === 0) {
+            throw new Error(`No workspace open for URI: ${uri}`);
+        }
+
+        const folder = workspaceFolders.find(f => f.name === folderName);
+        if (!folder) {
+            throw new Error(`Workspace folder not found: ${folderName}`);
+        }
+
+        return vscode.Uri.joinPath(folder.uri, relativePath);
+    }
+
+    // Handle file:// URIs
+    const filePath = stringUriToFilePath(uri);
+    if (filePath) {
+        return vscode.Uri.file(filePath);
+    }
+
+    // Fallback: parse as generic URI
+    return vscode.Uri.parse(uri);
 }
 
 export function errorLevelToSeverity(level: string): vscode.DiagnosticSeverity {
@@ -215,9 +267,30 @@ export class VSCodeHost implements HostInterface {
         this.config = svc;
     }
 
-    async writeFile(filename: NormalizedPath, content: string | Uint8Array): Promise<boolean> {
+    /**
+     * Convert an absolute filesystem path to a StringUri.
+     * Returns workspace:// URI for files inside a workspace folder,
+     * falling back to file:// for paths outside all workspace roots.
+     * This ensures @line directives never reveal true filesystem paths.
+     */
+    private absPathToStringUri(absPath: string): StringUri {
+        const norm = path.normalize(absPath);
+        const isWin = process.platform === "win32";
+        const normCmp = isWin ? norm.toLowerCase() : norm;
+        for (const folder of vscode.workspace.workspaceFolders || []) {
+            const folderPath = path.normalize(folder.uri.fsPath);
+            const folderCmp = isWin ? folderPath.toLowerCase() : folderPath;
+            if (normCmp.startsWith(folderCmp + path.sep)) {
+                const relativePath = path.relative(folderPath, norm).split(path.sep).join('/');
+                return `workspace:///${folder.name}/${relativePath}` as StringUri;
+            }
+        }
+        return filePathToStringUri(norm);
+    }
+
+    async writeFile(filename: StringUri, content: string | Uint8Array): Promise<boolean> {
         try {
-            const uri = vscode.Uri.file(filename);
+            const uri = stringUriToVscodeUri(filename);
             const data = typeof content === "string" ? Buffer.from(content, "utf8") : content;
             await vscode.workspace.fs.writeFile(uri, data);
             return true;
@@ -226,47 +299,71 @@ export class VSCodeHost implements HostInterface {
         }
     }
 
-    async readJSON<T = any>(p: NormalizedPath, _unsafe?: boolean): Promise<T | null> {
-        return (await readJSONFile(p)) as T | null;
+    async readJSON<T = any>(p: StringUri, _unsafe?: boolean): Promise<T | null> {
+        const filePath = stringUriToFilePath(p);
+        if (!filePath) return null;
+        return (await readJSONFile(filePath)) as T | null;
     }
 
-    async writeJSON(p: NormalizedPath, data: any, _pretty: boolean = true): Promise<boolean> {
-        return writeJSONFile(data, p);
+    async writeJSON(p: StringUri, data: any, _pretty: boolean = true): Promise<boolean> {
+        const filePath = stringUriToFilePath(p);
+        if (!filePath) return false;
+        return writeJSONFile(data, filePath);
     }
 
-    async writeYAML(p: NormalizedPath, data: any): Promise<boolean> {
-        return writeYAMLFile(data, p);
+    async writeYAML(p: StringUri, data: any): Promise<boolean> {
+        const filePath = stringUriToFilePath(p);
+        if (!filePath) return false;
+        return writeYAMLFile(data, filePath);
     }
 
-    async writeTOML(p: NormalizedPath, data: Record<string, any>): Promise<boolean> {
-        return writeTOMLFile(data, p);
+    async writeTOML(p: StringUri, data: Record<string, any>): Promise<boolean> {
+        const filePath = stringUriToFilePath(p);
+        if (!filePath) return false;
+        return writeTOMLFile(data, filePath);
     }
 
-    async readYAML<T = any>(p: NormalizedPath, _unsafe?: boolean): Promise<T | null> {
-        return (await readYAMLFile(p)) as T | null;
+    async readYAML<T = any>(p: StringUri, _unsafe?: boolean): Promise<T | null> {
+        const filePath = stringUriToFilePath(p);
+        if (!filePath) return null;
+        return (await readYAMLFile(filePath)) as T | null;
     }
 
-    async readTOML<T = any>(p: NormalizedPath, _unsafe?: boolean): Promise<T | null> {
-        return (await readTOMLFile(p)) as T | null;
+    async readTOML<T = any>(p: StringUri, _unsafe?: boolean): Promise<T | null> {
+        const filePath = stringUriToFilePath(p);
+        if (!filePath) return null;
+        return (await readTOMLFile(filePath)) as T | null;
     }
 
-    async existsInSameWorkspace(knownPath: string, desiredPath: string): Promise<boolean> {
-        const knownUri = vscode.Uri.file(normalizePath(knownPath));
-        const workspaceDir = vscode.workspace.getWorkspaceFolder(knownUri);
+    async existsInSameWorkspace(knownUri: StringUri, desiredPath: string): Promise<boolean> {
+        const vscodeKnownUri = stringUriToVscodeUri(knownUri);
+        const workspaceDir = vscode.workspace.getWorkspaceFolder(vscodeKnownUri);
         if(!workspaceDir) return false;
-        const desiredUri = vscode.Uri.file(normalizePath(workspaceDir.uri.fsPath + path.sep + desiredPath));
+        const desiredUri = vscode.Uri.file(path.normalize(workspaceDir.uri.fsPath + path.sep + desiredPath));
         const dWorkspaceDir = vscode.workspace.getWorkspaceFolder(desiredUri);
         if(!dWorkspaceDir) return false;
         return dWorkspaceDir.uri.fsPath == workspaceDir.uri.fsPath;
     }
 
-    async exists(filename: NormalizedPath, unsafe?: boolean): Promise<boolean> {
+    async exists(filename: StringUri, unsafe?: boolean): Promise<boolean> {
+        // Handle both file:// and workspace:// URIs
+        let filePath = stringUriToFilePath(filename);
+        if (!filePath && filename.startsWith('workspace:///')) {
+            try {
+                const vscodeUri = stringUriToVscodeUri(filename);
+                filePath = vscodeUri.fsPath;
+            } catch {
+                return false;
+            }
+        }
+        if (!filePath) return false;
+
         if (unsafe) {
-            return await fileExists(filename);
+            return await fileExists(filePath);
         }
 
         try {
-            const uri = vscode.Uri.file(filename);
+            const uri = stringUriToVscodeUri(filename);
             const folder = vscode.workspace.getWorkspaceFolder(uri);
             if (!folder) {
                 return false; // Outside workspace
@@ -278,25 +375,40 @@ export class VSCodeHost implements HostInterface {
         }
     }
 
-    async readFile(filepath: NormalizedPath, unsafe?: boolean): Promise<string | null> {
+    async readFile(filepath: StringUri, unsafe?: boolean): Promise<string | null> {
         if (!(await this.exists(filepath, unsafe))) {
             return null;
         }
-        const uri = vscode.Uri.file(filepath);
+        const uri = stringUriToVscodeUri(filepath);
         const document = await vscode.workspace.openTextDocument(uri);
         return document.getText();
     }
 
     async resolveFile(
         filename: string,
-        from: NormalizedPath,
+        from: StringUri,
         extensions: string[],
         includePaths?: string[],
         unsafe: boolean = false,
-    ): Promise<NormalizedPath | null> {
-        // Normalize base parameters
-        const normalizedFrom = path.normalize(from);
-        const fromDir = path.dirname(normalizedFrom);
+    ): Promise<StringUri | null> {
+        // Convert from StringUri to file path
+        // Handle both file:// and workspace:// URIs
+        let fromPath = stringUriToFilePath(from);
+        if (!fromPath) {
+            // Try workspace:// URI - convert via vscode.Uri to get fsPath
+            if (from.startsWith('workspace:///')) {
+                try {
+                    const vscodeUri = stringUriToVscodeUri(from);
+                    fromPath = vscodeUri.fsPath;
+                } catch {
+                    return null;
+                }
+            } else {
+                return null;
+            }
+        }
+
+        const fromDir = path.dirname(fromPath);
         const hasExt = path.extname(filename).length > 0;
         const candidateExtensions = hasExt ? [""] : extensions.map(e => e.startsWith('.') ? e : `.${e}`);
 
@@ -379,7 +491,7 @@ export class VSCodeHost implements HostInterface {
                 const fullPath = ext === "" ? baseCandidate : baseCandidate + ext;
                 const found = await tryCandidate(fullPath);
                 if (found) {
-                    return normalizePath(found);
+                    return this.absPathToStringUri(found);
                 }
             }
         }
@@ -424,7 +536,7 @@ export class VSCodeHost implements HostInterface {
                         if (matches.length > 0) {
                             const candidate = path.normalize(matches[0].fsPath);
                             if (await tryCandidate(candidate)) {
-                                return normalizePath(candidate);
+                                return this.absPathToStringUri(candidate);
                             }
                         }
                     } catch { /* ignore */ }
@@ -435,79 +547,9 @@ export class VSCodeHost implements HostInterface {
         return null;
     }
 
-    public fileNameToUri(fileName: NormalizedPath): string {
-        const workspaceFolders = vscode.workspace.workspaceFolders;
-        if (!workspaceFolders || workspaceFolders.length === 0) {
-            // No workspace - return absolute file:// URL
-            return vscode.Uri.file(fileName).toString();
-        }
-
-        const relatives = [];
-
-        // Find which workspace folder contains this file
-        for (const folder of workspaceFolders) {
-            const folderPath = folder.uri.fsPath;
-            if (fileName.startsWith(folderPath)) {
-                // File is inside this workspace folder - make it workspace-relative
-                const relativePath = path.relative(folderPath, fileName);
-                // Use forward slashes for URI consistency
-                const normalizedRelative = relativePath.split(path.sep).join('/');
-                // Include folder name in URI to identify which workspace root
-                return `workspace:///${folder.name}/${normalizedRelative}`;
-            } else {
-                const relativePath = path.relative(folderPath, fileName);
-                if(relativePath.startsWith('..')) {
-                    relatives.push(`workspace:///${folder.name}/${relativePath}`);
-                }
-            }
-        }
-        if(relatives.length > 0) {
-            relatives.sort((a,b) => a.length - b.length);
-            return relatives[0];
-        }
-
-        // return `workspace:///` + vscode.workspace.asRelativePath(fileName);
-
-        // File is outside all workspace folders - return absolute file:// URL
-        return vscode.Uri.file(fileName).toString();
-    }
-
-    uriToFileName(uri: string): NormalizedPath {
-        // Handle workspace:// scheme
-        if (uri.startsWith('workspace:///')) {
-            const withoutScheme = uri.substring('workspace:///'.length);
-            const slashIndex = withoutScheme.indexOf('/');
-
-            if (slashIndex === -1) {
-                throw new Error(`Invalid workspace URI: ${uri}`);
-            }
-
-            const folderName = withoutScheme.substring(0, slashIndex);
-            const relativePath = withoutScheme.substring(slashIndex + 1);
-
-            const workspaceFolders = vscode.workspace.workspaceFolders;
-            if (!workspaceFolders || workspaceFolders.length === 0) {
-                throw new Error(`No workspace open for URI: ${uri}`);
-            }
-
-            // Find the specific workspace folder by name
-            const folder = workspaceFolders.find(f => f.name === folderName);
-            if (!folder) {
-                throw new Error(`Workspace folder not found: ${folderName}`);
-            }
-
-            const absolutePath = path.join(folder.uri.fsPath, relativePath);
-            // console.log(`uriToFileName: '${uri}' becomes '${absolutePath}'`);
-            return normalizePath(absolutePath);
-        }
-        // console.log(`uriToFileName: ${uri}`)
-        // Handle standard file:// URLs
-        return normalizePath(vscode.Uri.parse(uri).fsPath);
-    }
-
     // Optional capability implementations ------------------------------------
-    async listWorkspaceFolders(): Promise<NormalizedPath[]> {
-        return (vscode.workspace.workspaceFolders || []).map(f => normalizePath(f.uri.fsPath));
+    async listWorkspaceFolders(): Promise<StringUri[]> {
+        return (vscode.workspace.workspaceFolders || []).map(f => filePathToStringUri(f.uri.fsPath));
     }
 
     isExtensionAvailable(id: string): boolean {

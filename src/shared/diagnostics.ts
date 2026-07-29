@@ -4,7 +4,7 @@
  * Copyright (C) 2025, Linden Research, Inc.
  */
 
-import { NormalizedPath } from "../interfaces/hostinterface";
+import { StringUri } from "../interfaces/hostinterface";
 
 //#region Diagnostic Types
 
@@ -26,7 +26,7 @@ export interface DiagnosticRelatedInfo {
     line: number;
     column: number;
     length: number;
-    sourceFile: NormalizedPath;
+    sourceFile: StringUri;
 }
 
 /**
@@ -38,7 +38,7 @@ export interface PreprocessorDiagnostic {
     line: number;
     column: number;
     length: number;
-    sourceFile: NormalizedPath;
+    sourceFile: StringUri;
     code?: string;  // Optional error code (e.g., "PP001")
     relatedInfo?: DiagnosticRelatedInfo[];
 }
@@ -50,7 +50,7 @@ export interface DiagnosticLocation {
     line: number;
     column: number;
     length: number;
-    sourceFile: NormalizedPath;
+    sourceFile: StringUri;
 }
 
 export class DiagnosticError extends Error {

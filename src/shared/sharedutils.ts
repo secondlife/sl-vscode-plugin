@@ -30,7 +30,7 @@
 import * as fs from "fs";
 import * as yaml from "js-yaml";
 import * as TOML from "@iarna/toml";
-import { NormalizedPath, fileExists } from "../interfaces/hostinterface"; // migrated path abstractions
+import { fileExists } from "../interfaces/hostinterface";
 
 //=============================================================================
 //#region General Utilities
@@ -69,7 +69,7 @@ export function fromJSON(jsonString: string): any | null {
 
 export async function writeJSONFile(
     obj: any,
-    filePath: NormalizedPath
+    filePath: string
 ): Promise<boolean> {
     try {
         const jsonContent = toJSON(obj);
@@ -86,7 +86,7 @@ export async function writeJSONFile(
     }
 }
 
-export async function readJSONFile(filePath: NormalizedPath): Promise<any | null> {
+export async function readJSONFile(filePath: string): Promise<any | null> {
 
     if (!(await fileExists(filePath))) {
         // File doesn't exist or can't be accessed
@@ -131,7 +131,7 @@ export function fromYAML(yamlString: string): any | null {
 
 export async function writeYAMLFile(
     obj: any,
-    filePath: NormalizedPath,
+    filePath: string,
     options?: yaml.DumpOptions,
 ): Promise<boolean> {
     try {
@@ -149,7 +149,7 @@ export async function writeYAMLFile(
     }
 }
 
-export async function readYAMLFile(filePath: NormalizedPath): Promise<any | null> {
+export async function readYAMLFile(filePath: string): Promise<any | null> {
     if (!(await fileExists(filePath))) {
         // File doesn't exist or can't be accessed
         return null;
@@ -188,7 +188,7 @@ export function fromTOML(tomlString: string): any | null {
 
 export async function writeTOMLFile(
     obj: any,
-    filePath: NormalizedPath,
+    filePath: string,
 ): Promise<boolean> {
     try {
         const tomlContent = toTOML(obj);
@@ -204,7 +204,7 @@ export async function writeTOMLFile(
     }
 }
 
-export async function readTOMLFile(filePath: NormalizedPath): Promise<any | null> {
+export async function readTOMLFile(filePath: string): Promise<any | null> {
     if (!(await fileExists(filePath))) {
         // File doesn't exist or can't be accessed
         return null;
