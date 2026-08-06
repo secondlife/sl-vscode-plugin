@@ -112,10 +112,20 @@ export class LanguageService implements DisposableLike {
         force?: boolean,
         syntaxCacheSupported?: boolean,
     ): Promise<boolean> {
+        // Try GitHub first if enabled (most reliable, no viewer dependency)
+        if (this.host.config.getConfig(ConfigKey.UseGitHubDefinitions, true)) {
+            const githubOk = await this.configureSyntaxFromGitHub(syntaxId);
+            if (githubOk) {
+                return true;
+            }
+        }
+
+        // Fallback to viewer cache if available
         if (syntaxCacheSupported && socket) {
             return await this.configureSyntaxFromViewerCache(syntaxId, socket);
         }
 
+        // Last resort: fetch from viewer and generate locally
         const syntax = await this.repository.getSyntax(syntaxId, {
             force,
             socket,
@@ -143,6 +153,30 @@ export class LanguageService implements DisposableLike {
                 await ConfigService.getInstance().setConfig<string>(ConfigKey.LastSyntaxID, syntaxId, { target: "global" });
             }
         }
+        return true;
+    }
+
+    private async configureSyntaxFromGitHub(syntaxId: string): Promise<boolean> {
+        const selene = new SelenePlugin(this.host);
+        const seleneYml = await this.repository.fetchFromGitHub("secondlife_selene.yml");
+        if (typeof seleneYml === "string") {
+            await selene.configureFromViewerCache(syntaxId, seleneYml);
+        } else {
+            console.warn("github_fetch: secondlife_selene.yml missing or invalid, skipping Selene configuration");
+        }
+
+        const luauLSP = new LuaLSPPlugin(this.host);
+        const dLuau = await this.repository.fetchFromGitHub("secondlife.d.luau");
+        const docs = await this.repository.fetchFromGitHub("secondlife.docs.json");
+        if (typeof dLuau === "string" && typeof docs === "string") {
+            await luauLSP.configureFromViewerCache(syntaxId, dLuau, docs);
+        } else {
+            console.warn("github_fetch: secondlife.d.luau or secondlife.docs.json missing or invalid, skipping Luau-LSP configuration");
+            return false;
+        }
+
+        this.languageVersion = syntaxId;
+        await ConfigService.getInstance().setConfig<string>(ConfigKey.LastSyntaxID, syntaxId, { target: "global" });
         return true;
     }
 

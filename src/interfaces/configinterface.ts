@@ -30,6 +30,7 @@ export enum ConfigKey {
   PreprocessorConstantsInSLua = 'preprocessor.constantsInSLua',
   PreprocessorLSLSwitchStatements = 'preprocessor.lsl.switchStatements',
   LastSyntaxID = 'syntax.lastID',
+  UseGitHubDefinitions = 'syntax.useGitHubDefinitions',
   AskIfViewerScriptMismatchesMaster = 'sync.askIfViewerScriptMismatchesMaster',
   CompareHashBeforeSync = 'sync.compareHashBeforeSync',
   KeepViewerFileOpen = 'sync.keepViewerFileOpen',

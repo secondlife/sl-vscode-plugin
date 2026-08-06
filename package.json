@@ -256,6 +256,11 @@
             "default": true,
             "description": "If false, do not update Luau-LSP and Selene configurations unless the Force Language Update is done"
           },
+          "slVscodeEdit.syntax.useGitHubDefinitions": {
+            "type": "boolean",
+            "default": true,
+            "description": "Fetch LSL definition files from GitHub instead of the Second Life viewer"
+          },
           "slVscodeEdit.ui.statusTimeoutSeconds": {
             "type": "number",
             "default": 3,

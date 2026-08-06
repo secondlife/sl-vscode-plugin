@@ -10,6 +10,8 @@ import { LSLKeywords } from "./lslkeywords";
 import { LuaTypeDefinitions } from "./luadefsinterface";
 import { sortObjectKeysRecursive } from '../utils';
 
+const GitHubRawBase = "https://raw.githubusercontent.com/secondlife/lsl-definitions/main/generated";
+
 export interface LanguageInfo {
     id: string;
     lsl?: LSLKeywords;
@@ -152,6 +154,21 @@ export class LanguageRepository {
             return null;
         } catch (error) {
             console.error(`Error calling language.syntax.get for ${filename}:`, error);
+            return null;
+        }
+    }
+
+    public async fetchFromGitHub(filename: string): Promise<string | null> {
+        const url = `${GitHubRawBase}/${filename}`;
+        try {
+            const response = await fetch(url);
+            if (!response.ok) {
+                console.warn(`GitHub fetch failed for ${filename}: HTTP ${response.status}`);
+                return null;
+            }
+            return await response.text();
+        } catch (error) {
+            console.error(`Error fetching ${filename} from GitHub:`, error);
             return null;
         }
     }
