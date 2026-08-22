@@ -16,15 +16,35 @@ import { writeJSONFile, readJSONFile, writeYAMLFile, writeTOMLFile, readYAMLFile
 //#region Output Channel
 
 let outputChannel: vscode.OutputChannel | undefined;
+let runtimeOutputChannel: vscode.OutputChannel | undefined;
+
+export function getRuntimeOutputChannel(): vscode.OutputChannel {
+    if (!runtimeOutputChannel) {
+        runtimeOutputChannel = vscode.window.createOutputChannel("Second Life");
+    }
+    return runtimeOutputChannel;
+}
 
 /**
- * Get or create the output channel for Second Life extension logging
+ * Get or create the output channel for Second Life plugin logging.
  */
 export function getOutputChannel(): vscode.OutputChannel {
     if (!outputChannel) {
-        outputChannel = vscode.window.createOutputChannel("Second Life Scripting");
+        outputChannel = vscode.window.createOutputChannel("Second Life Plugin Log");
     }
     return outputChannel;
+}
+
+export function logRuntimeInfo(message: string): void {
+    const channel = getRuntimeOutputChannel();
+    const timestamp = new Date().toLocaleTimeString();
+    channel.appendLine(`[${timestamp}] ${message}`);
+}
+
+export function logRuntimeError(message: string): void {
+    const channel = getRuntimeOutputChannel();
+    const timestamp = new Date().toLocaleTimeString();
+    channel.appendLine(`[${timestamp}] ${message}`);
 }
 
 /**

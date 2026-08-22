@@ -25,7 +25,7 @@ This document describes all the message interfaces defined for WebSocket communi
   - [ScriptUnsubscribe](#scriptunsubscribe)
   - [ScriptList](#scriptlist)
 - [Compilation Interfaces](#compilation-interfaces)
-  - [CompilationError](#compilationerror)
+  - [Diagnostic](#diagnostic)
   - [CompilationResult](#compilationresult)
 - [Runtime Event Interfaces](#runtime-event-interfaces)
   - [RuntimeDebug](#runtimedebug)
@@ -46,6 +46,9 @@ This document describes all the message interfaces defined for WebSocket communi
   - [ObjectRequest](#objectrequest)
   - [ObjectModify](#objectmodify)
   - [ObjectItemModify](#objectitemmodify)
+- [Command Interfaces](#command-interfaces)
+  - [CommandExecute](#commandexecute)
+  - [CommandList](#commandlist)
 
 ## Usage Flow
 
@@ -196,6 +199,10 @@ WebSocket connects → session.handshake → session.ok
 | `object.modify` (response)      | Viewer → Extension | Response     | `ObjectModifyResponse`         |
 | `object.item.modify`            | Extension → Viewer | Call         | `ObjectItemModifyParams`       |
 | `object.item.modify` (response) | Viewer → Extension | Response     | `ObjectItemModifyResponse`     |
+| `command.execute`               | Bidirectional      | Call         | `CommandExecuteParams`         |
+| `command.execute` (response)    | Bidirectional      | Response     | `CommandExecuteResponse`       |
+| `command.list`                  | Bidirectional      | Call         | _(no params)_                  |
+| `command.list` (response)       | Bidirectional      | Response     | `CommandListResponse`          |
 
 ## Session Management Interfaces
 
@@ -235,6 +242,7 @@ interface SessionHandshake {
   - `live_sync`: Viewer supports live script synchronisation with the external editor
   - `compilation`: Viewer will forward compilation results via `script.compiled`
   - `syntax_cache`: Viewer supports `language.syntax.cache` and `language.syntax.get` for retrieving syntax definition files
+  - `commands`: Both sides support `command.execute` and `command.list`
 
 ### SessionHandshakeResponse
 
@@ -593,12 +601,12 @@ interface ScriptList {
 
 ## Compilation Interfaces
 
-### CompilationError
+### Diagnostic
 
 Individual compilation error record.
 
 ```typescript
-interface CompilationError {
+interface Diagnostic {
   row: number;
   column: number;
   level: string;
@@ -623,10 +631,11 @@ Result of a compilation operation in the viewer.
 
 ```typescript
 interface CompilationResult {
+  /** Deprecated: retained during migration to item-based routing. */
   script_id: string;
   success: boolean;
   running: boolean;
-  errors?: CompilationError[];
+  diagnostics?: Diagnostic[];
 }
 ```
 
@@ -635,7 +644,7 @@ interface CompilationResult {
 - `script_id`: Unique identifier for the script that was compiled
 - `success`: Whether the compilation was successful
 - `running`: Whether the compiled script is currently running
-- `errors` (optional): Array of compilation errors if any occurred
+- `diagnostics` (optional): Array of `Diagnostic` records if any occurred
 
 ## Runtime Event Interfaces
 
@@ -647,10 +656,15 @@ Debug message notification sent by the viewer during script execution.
 
 ```typescript
 interface RuntimeDebug {
-  script_id: string;
+  /** Deprecated: use item.item_id when available. */
+  script_id?: string;
   object_id: string;
+  prim_id?: string;
+  item_id?: string;
   object_name: string;
   message: string;
+  channel?: "debug" | "owner_say";
+  item?: ItemRef;
 }
 ```
 
@@ -669,13 +683,27 @@ Runtime error notification sent by the viewer when a script encounters an error 
 
 ```typescript
 interface RuntimeError {
+  /** Deprecated: use item.item_id when available. */
   script_id: string;
   object_id: string;
+  prim_id?: string;
+  item_id?: string;
   object_name: string;
   message: string;
   error: string;
   line: number;
+  column?: number;
   stack?: string[];
+  channel?: "debug" | "owner_say";
+  item?: ItemRef;
+}
+
+interface ItemRef {
+  root_id: string;
+  prim_id?: string;
+  item_id?: string;
+  name?: string;
+  language?: "lsl" | "luau";
 }
 ```
 
@@ -685,8 +713,8 @@ interface RuntimeError {
 - `object_id`: Unique identifier for the object containing the script
 - `object_name`: Human-readable name of the object
 - `message`: The full raw chat text of the runtime error message as received from the simulator
-- `error`: Extracted error description. Currently always an empty string — runtime error extraction from the simulator's multi-message format is not yet fully implemented.
-- `line`: Line number where the error occurred. Currently always `0` for the same reason.
+- `error`: Extracted runtime error description. This remains a top-level compatibility field while the protocol stays on version `1.0`.
+- `line`: Line number where the error occurred when the runtime format can be parsed; otherwise `0`.
 - `stack` (optional): Stack trace lines if they could be extracted from the error message
 
 ## Handler and Configuration Interfaces
@@ -798,6 +826,7 @@ interface PublishedObject {
   region?: string;
   owner_id?: string;
   permissions?: ObjectPermissions;
+  can_save_back?: boolean;      // Whether Save Back to Contents is currently available for this object
   inventory: ObjectInventoryItem[];      // Root prim's scripts and notecards
   linked_objects?: LinkedObject[];       // Child prims
 }
@@ -828,6 +857,7 @@ interface ObjectPublishMessage {
 **Fields:**
 
 - `object`: The full object tree being explored, including root prim inventory and all linked prim inventories.
+  - `can_save_back` (optional): Capability hint for UI actions. When `true`, the object currently supports the `viewer.object.save_back_to_contents` command.
 
 ---
 
@@ -964,7 +994,7 @@ interface ObjectContentSaveResponse {
   prim_id?: string;
   item_id?: string;
   compiled?: boolean;
-  errors?: string[];
+  diagnostics?: Diagnostic[];
   message?: string;
 }
 ```
@@ -977,7 +1007,7 @@ interface ObjectContentSaveResponse {
 - `vm` (optional): Scripts only compile target. Accepted values are `"mono"`, `"lsl2"`, `"luau"`. When `"luau"` is specified for an LSL script (as opposed to a native Luau script), the viewer automatically selects the correct LSL-on-Luau compile path. If omitted, inferred from item metadata or content analysis.
 - `success`: Whether the upload/save operation succeeded.
 - `compiled` (optional): Scripts only. `true` when compilation succeeded, `false` when source saved but compile failed.
-- `errors` (optional): Scripts only. Compiler diagnostics when `compiled` is `false`.
+- `diagnostics` (optional): Scripts only. Compiler diagnostics when `compiled` is `false`.
 - `message` (optional): Error description on failure.
 
 ---
@@ -1197,3 +1227,158 @@ interface ObjectItemModifyResponse {
 - An `object.update` notification will fire after successful modification.
 - Owner permissions cannot be modified directly — only `next_owner` can be changed.
 - If the item is renamed, the virtual filesystem path will change and the extension must handle the rename appropriately.
+
+---
+
+## Command Interfaces
+
+These interfaces provide a general-purpose, bidirectional command channel. Either side may invoke a named command on the other side and receive a structured result. The feature is optional and must be negotiated via the `commands` flag in the session handshake.
+
+### CommandExecute
+
+**JSON-RPC Method:** `command.execute` (call, bidirectional)
+
+Invokes a named command on the receiving side. Commands are identified by a namespaced string and carry an optional freeform parameter map.
+
+```typescript
+interface CommandExecuteParams {
+  command: string;                       // namespaced command id, e.g. "viewer.teleport"
+  params?: Record<string, unknown>;      // command-specific arguments
+}
+
+interface CommandExecuteResponse {
+  success: boolean;
+  result?: unknown;                      // optional command-specific return value
+  error_code?: number;
+  message?: string;
+}
+```
+
+**Fields:**
+
+- `command`: Namespaced command identifier. The prefix before the first `.` identifies the side that owns and executes the command:
+  - `viewer.*` — commands executed by the viewer (e.g. `viewer.teleport`, `viewer.script.recompile_all`)
+  - `editor.*` — commands executed by the extension (e.g. `editor.open_file`, `editor.show_message`)
+- `params` (optional): Command-specific argument map. Structure varies by command.
+- `success`: Whether the command was found and executed without error.
+- `result` (optional): Command-specific return value. Only present when `success` is `true` and the command produces output.
+- `error_code` (optional): Numeric failure code. Only present when `success` is `false`:
+  - `1` — Unknown command
+  - `2` — Invalid or missing parameters
+  - `3` — Not permitted
+  - `4` — Execution error
+- `message` (optional): Human-readable error description. Only present when `success` is `false`.
+
+**Capability gate:** A side MUST NOT send `command.execute` unless the peer advertised `commands: true` in the handshake. A receiver that receives the call without having negotiated the feature MUST respond with `success: false, error_code: 1`.
+
+**Example — extension asks viewer to teleport:**
+
+```json
+{
+  "jsonrpc": "2.0",
+  "method": "command.execute",
+  "id": 7,
+  "params": {
+    "command": "viewer.teleport",
+    "params": { "object_id": "550e8400-e29b-41d4-a716-446655440000" }
+  }
+}
+```
+
+```json
+{
+  "jsonrpc": "2.0",
+  "id": 7,
+  "result": { "success": true }
+}
+```
+
+**Example — extension asks viewer to save object back to contents:**
+
+```json
+{
+  "jsonrpc": "2.0",
+  "method": "command.execute",
+  "id": 9,
+  "params": {
+    "command": "viewer.object.save_back_to_contents",
+    "params": { "object_id": "550e8400-e29b-41d4-a716-446655440000" }
+  }
+}
+```
+
+```json
+{
+  "jsonrpc": "2.0",
+  "id": 9,
+  "result": { "success": true, "result": { "object_id": "550e8400-e29b-41d4-a716-446655440000" } }
+}
+```
+
+**Example — viewer asks extension to show a message:**
+
+```json
+{
+  "jsonrpc": "2.0",
+  "method": "command.execute",
+  "id": 8,
+  "params": {
+    "command": "editor.show_message",
+    "params": { "message": "Script reset complete", "level": "info" }
+  }
+}
+```
+
+---
+
+### CommandList
+
+**JSON-RPC Method:** `command.list` (call, bidirectional)
+
+Requests the list of commands the receiving side supports. Intended for tooling and autocomplete; implementations may omit this method and return an error response if discovery is not needed.
+
+This method takes no parameters.
+
+**Response:**
+
+```typescript
+interface CommandListResponse {
+  commands: CommandInfo[];
+}
+
+interface CommandInfo {
+  command: string;
+  description?: string;
+  params?: Record<string, CommandParamInfo>;
+}
+
+interface CommandParamInfo {
+  type: "string" | "number" | "boolean" | "object" | "array";
+  required?: boolean;
+  description?: string;
+}
+```
+
+**Response Fields:**
+
+- `commands`: Array of commands the responder supports. Each entry describes one command.
+  - `command`: The namespaced command identifier.
+  - `description` (optional): Human-readable description of what the command does.
+  - `params` (optional): Map of parameter names to their type descriptors.
+
+**Known viewer commands:**
+
+| Command | Required params | Description |
+|---------|----------------|-------------|
+| `viewer.teleport` | `object_id: string` | Teleport agent to an in-world object. |
+| `viewer.script.recompile_all` | `object_id: string` | Recompile all scripts in an object. |
+| `viewer.script.reset_all` | `object_id: string` | Reset all scripts in an object. |
+| `viewer.camera.focus` | `object_id: string` | Move camera focus to an in-world object. |
+| `viewer.object.save_back_to_contents` | `object_id: string` | Save an in-world object back to source object contents. |
+
+**Known extension commands:**
+
+| Command | Required params | Description |
+|---------|----------------|-------------|
+| `editor.open_file` | `path: string` | Open a file in the editor. Optional `line: number`. |
+| `editor.show_message` | `message: string` | Show a notification. Optional `level: "info" \| "warn" \| "error"`. |

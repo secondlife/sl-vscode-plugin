@@ -6,3 +6,10 @@ node_modules
 *.code-workspace
 .vscode/settings.json
 .vscode/lsl-lsp-server.log
+.autobuild/
+/data/secondlife_selene.yml
+/data/lsl_keywords.xml
+/data/lua_keywords.xml
+/data/secondlife.d.luau
+/data/secondlife.docs.json
+.resources

@@ -29,9 +29,9 @@ back to main file`;
         const mappings = LineMapper.parseLineMappingsFromContent(content, "lsl", createMockHost());
 
         expectMappings(mappings, [
-            [4, 0, np('/path/to/main.lsl')],
-            [7, 5, np('/path/to/include.lsl')],
-            [10, 10, np('/path/to/main.lsl')]
+            [5, 0, np('/path/to/main.lsl')],
+            [8, 5, np('/path/to/include.lsl')],
+            [11, 10, np('/path/to/main.lsl')]
         ]);
     });
 
@@ -52,9 +52,9 @@ local result = helper()`;
         const mappings = LineMapper.parseLineMappingsFromContent(content, "luau", createMockHost());
 
         expectMappings(mappings, [
-            [4, 0, np('/path/to/main.luau')],
-            [7, 3, np('/path/to/helper.luau')],
-            [11, 7, np('/path/to/main.luau')]
+            [5, 0, np('/path/to/main.luau')],
+            [8, 3, np('/path/to/helper.luau')],
+            [12, 7, np('/path/to/main.luau')]
         ]);
     });
 
@@ -82,8 +82,8 @@ code here`;
 
         // Should only parse the valid directives
         expectMappings(mappings, [
-            [2, 5, np('/path/to/file.lsl')],
-            [7, 20, np('/valid/again.lsl')]
+            [3, 5, np('/path/to/file.lsl')],
+            [8, 20, np('/valid/again.lsl')]
         ]);
     });
 
@@ -97,8 +97,8 @@ code here`;
 
         // Parsing is case-sensitive, only '// @line' matches exactly (not '@LINE' or '@Line')
         expectMappings(mappings, [
-            [1, 1, np('/path/to/file.lsl')],
-            [3, 10, np('/tabs/file.lsl')]
+            [2, 1, np('/path/to/file.lsl')],
+            [4, 10, np('/tabs/file.lsl')]
         ]);
     });
 
@@ -109,7 +109,7 @@ some code`;
         const mappings = LineMapper.parseLineMappingsFromContent(content, "lsl", createMockHost());
 
         expectMappings(mappings, [
-            [1, 1, np('/path/to/file.lsl')]
+            [2, 1, np('/path/to/file.lsl')]
         ]);
     });
 });

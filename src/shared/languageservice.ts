@@ -4,10 +4,7 @@
  */
 //import { Preprocessor } from "./preprocessservice";
 import { JSONRPCInterface } from "../websockclient";
-import { LanguageTransformer } from "./languagetransformer";
-import { LanguageRepository } from "./languagerepository";
 import {
-    StringUri,
     resolveUri,
     HostInterface,
     TextDocLike,
@@ -16,6 +13,11 @@ import {
 import { ConfigKey } from "../interfaces/configinterface";
 import { SelenePlugin, LuaLSPPlugin } from "../pluginsupport";
 import { ConfigService } from "../configservice";
+import {
+    SyntaxCacheFile,
+    SyntaxCacheGetRequest,
+    SyntaxCacheList,
+} from "../viewereditwsclient";
 
 // TODO: migrate to ConfigInterface injection
 export type ScriptLanguage = "lsl" | "luau" | "txt";
@@ -30,14 +32,13 @@ export type ScriptLanguage = "lsl" | "luau" | "txt";
 export class LanguageService implements DisposableLike {
     private languageVersion: string = "0";
     private readonly host: HostInterface;
-    private readonly repository: LanguageRepository;
+    private syntaxCacheFiles: string[] = [];
     private disposed = false;
 
     private static instance: LanguageService | undefined;
 
     private constructor(host: HostInterface) {
         this.host = host;
-        this.repository = new LanguageRepository(host);
     }
 
     /**
@@ -115,33 +116,60 @@ export class LanguageService implements DisposableLike {
         if (syntaxCacheSupported && socket) {
             return await this.configureSyntaxFromViewerCache(syntaxId, socket);
         }
+        return await this.configureSyntaxFromStagedArtifacts(syntaxId);
+    }
 
-        const syntax = await this.repository.getSyntax(syntaxId, {
-            force,
-            socket,
-            syntaxCacheSupported,
-        });
+    private async configureSyntaxFromStagedArtifacts(syntaxId: string): Promise<boolean> {
+        const dataRoot = resolveUri(
+            await this.host.config.getExtensionInstallPath(),
+            "data",
+        );
 
-        if (!syntax) {
-            console.warn(`No language syntax found for version ${syntaxId}`);
+        const requiredFiles = [
+            "lsl_keywords.xml",
+            "lua_keywords.xml",
+            "secondlife.d.luau",
+            "secondlife.docs.json",
+            "secondlife_selene.yml",
+        ];
+
+        for (const fileName of requiredFiles) {
+            const exists = await this.host.exists(resolveUri(dataRoot, fileName), true);
+            if (!exists) {
+                console.warn(`staged syntax artifact missing: ${fileName}`);
+                return false;
+            }
+        }
+
+        const selenePath = resolveUri(dataRoot, "secondlife_selene.yml");
+        const dLuauPath = resolveUri(dataRoot, "secondlife.d.luau");
+        const docsPath = resolveUri(dataRoot, "secondlife.docs.json");
+
+        const seleneYml = await this.host.readFile(selenePath, true);
+        const dLuau = await this.host.readFile(dLuauPath, true);
+        const docsJson = await this.host.readFile(docsPath, true);
+        if (
+            typeof seleneYml !== "string" ||
+            typeof dLuau !== "string" ||
+            typeof docsJson !== "string"
+        ) {
+            console.warn("failed to read staged syntax artifacts from data/");
             return false;
         }
 
-        if (syntax.slua)
-        {
-            // Configure optional plugins via host
-            const selene = new SelenePlugin(this.host);
-            await selene.configurePlugin(syntaxId, syntax.slua);
+        const selene = new SelenePlugin(this.host);
+        await selene.configureFromViewerCache(syntaxId, seleneYml);
 
-            const luauLSP = new LuaLSPPlugin(this.host);
-            await luauLSP.configurePlugin(syntaxId, syntax.slua);
-        }
+        const luauLSP = new LuaLSPPlugin(this.host);
+        await luauLSP.configureFromViewerCache(
+            syntaxId,
+            dLuau,
+            docsJson,
+        );
 
-        if (syntax) {
-            this.languageVersion = syntax.id;
-            if (syntaxId !== "default") {
-                await ConfigService.getInstance().setConfig<string>(ConfigKey.LastSyntaxID, syntaxId, { target: "global" });
-            }
+        this.languageVersion = syntaxId;
+        if (syntaxId !== "default") {
+            await ConfigService.getInstance().setConfig<string>(ConfigKey.LastSyntaxID, syntaxId, { target: "global" });
         }
         return true;
     }
@@ -150,11 +178,11 @@ export class LanguageService implements DisposableLike {
         syntaxId: string,
         socket: JSONRPCInterface,
     ): Promise<boolean> {
-        const cacheFiles = this.repository.syntaxCacheFiles;
+        const cacheFiles = this.syntaxCacheFiles;
 
         const selene = new SelenePlugin(this.host);
         if (cacheFiles.includes("secondlife_selene.yml")) {
-            const content = await this.repository.requestSyntaxCacheFile(socket, "secondlife_selene.yml");
+            const content = await this.requestSyntaxCacheFile(socket, "secondlife_selene.yml");
             if (typeof content === "string") {
                 await selene.configureFromViewerCache(syntaxId, content);
             } else {
@@ -168,8 +196,8 @@ export class LanguageService implements DisposableLike {
         const hasDLuau = cacheFiles.includes("secondlife.d.luau");
         const hasDocs = cacheFiles.includes("secondlife.docs.json");
         if (hasDLuau && hasDocs) {
-            const dLuau = await this.repository.requestSyntaxCacheFile(socket, "secondlife.d.luau");
-            const docs = await this.repository.requestSyntaxCacheFile(socket, "secondlife.docs.json");
+            const dLuau = await this.requestSyntaxCacheFile(socket, "secondlife.d.luau");
+            const docs = await this.requestSyntaxCacheFile(socket, "secondlife.docs.json");
             if (typeof dLuau === "string" && typeof docs === "string") {
                 await luauLSP.configureFromViewerCache(syntaxId, dLuau, docs);
             } else {
@@ -185,11 +213,29 @@ export class LanguageService implements DisposableLike {
     }
 
     public async requestSyntaxId(socket: JSONRPCInterface): Promise<string | null> {
-        return await this.repository.requestLanguageSyntaxId(socket);
+        try {
+            const result = await socket.call("language.syntax.id");
+            return result["id"];
+        } catch (error) {
+            console.error("Error calling language.syntax.id:", error);
+            return null;
+        }
     }
 
     public async requestSyntaxCacheList(socket: JSONRPCInterface): Promise<string[] | null> {
-        return await this.repository.requestSyntaxCacheList(socket);
+        try {
+            const result = await socket.call("language.syntax.cache") as SyntaxCacheList;
+            if (result && result.success === true && Array.isArray(result.files)) {
+                this.syntaxCacheFiles = result.files;
+                return this.syntaxCacheFiles;
+            }
+            this.syntaxCacheFiles = [];
+            return null;
+        } catch (error) {
+            console.error("Error calling language.syntax.cache:", error);
+            this.syntaxCacheFiles = [];
+            return null;
+        }
     }
 
     public async requestSyntaxCacheFile(
@@ -197,31 +243,48 @@ export class LanguageService implements DisposableLike {
         filename: string,
         asJson?: boolean,
     ): Promise<string | object | null> {
-        return await this.repository.requestSyntaxCacheFile(socket, filename, asJson);
-    }
-    //#endregion
-
-    //#region Language definition massaging
-    public static translateLSLFunctionNameToLua(lslFunctionName: string): string {
-        return LanguageTransformer.translateLSLFunctionNameToLua(lslFunctionName);
-    }
-    //#endregion
-
-    //#region Language ID Caching utils
-    public async getCachedSyntaxFileName(syntaxId: string): Promise<StringUri> {
-        let base: StringUri;
-        if (!syntaxId || syntaxId === "default") {
-            base = resolveUri(await this.host.config.getExtensionInstallPath(), "data");
-        } else {
-            base = await this.host.config.getGlobalConfigPath();
+        const params: SyntaxCacheGetRequest = {
+            filename,
+            ...(asJson !== undefined ? { as_json: asJson } : {}),
+        };
+        try {
+            const result = await socket.call("language.syntax.get", params) as SyntaxCacheFile;
+            if (result && result.success === true && result.content !== undefined) {
+                return result.content;
+            }
+            return null;
+        } catch (error) {
+            console.error("Error calling language.syntax.get for " + filename + ":", error);
+            return null;
         }
-        return resolveUri(base, `syntax_def_${syntaxId}.json`);
     }
 
-    public async hasCachedSyntaxFile(syntaxId: string): Promise<boolean> {
-        const filePath = await this.getCachedSyntaxFileName(syntaxId);
-        return await this.host.exists(filePath);
-    }
+    public async hasCachedViewerSyntaxFiles(syntaxId: string): Promise<boolean> {
+        if (!syntaxId || syntaxId === "default") {
+            return true;
+        }
 
+        const configPath = await this.host.config.getWorkspaceConfigPath();
+        const requiredFiles: string[] = [];
+
+        if (SelenePlugin.isEnabledHost(this.host)) {
+            requiredFiles.push(`slua_${syntaxId}.yml`);
+        }
+
+        if (LuaLSPPlugin.isEnabledHost(this.host)) {
+            requiredFiles.push(`slua_${syntaxId}.d.luau`);
+            requiredFiles.push(`slua_${syntaxId}.docs.json`);
+        }
+
+        for (const fileName of requiredFiles) {
+            const exists = await this.host.exists(resolveUri(configPath, fileName));
+            if (!exists) {
+                return false;
+            }
+        }
+
+        return true;
+    }
     //#endregion
+
 }

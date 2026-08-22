@@ -6,6 +6,7 @@ export default [
   js.configs.recommended,
   {
     files: ['src/**/*.ts'],
+    ignores: ['src/webview/**/*.ts'],
     languageOptions: {
       parser: tsParser,
       parserOptions: {
@@ -70,6 +71,51 @@ export default [
       'no-useless-catch': 'warn',
       'no-unreachable': 'warn',
       'no-case-declarations': 'warn',
+    },
+  },
+  {
+    files: ['src/webview/**/*.ts'],
+    languageOptions: {
+      parser: tsParser,
+      parserOptions: {
+        ecmaVersion: 2022,
+        sourceType: 'module',
+        project: './tsconfig.webview.json',
+      },
+      globals: {
+        // Browser globals
+        document: 'readonly',
+        window: 'readonly',
+        navigator: 'readonly',
+        console: 'readonly',
+        setTimeout: 'readonly',
+        clearTimeout: 'readonly',
+        setInterval: 'readonly',
+        clearInterval: 'readonly',
+        HTMLElement: 'readonly',
+        Element: 'readonly',
+        Event: 'readonly',
+        MouseEvent: 'readonly',
+        KeyboardEvent: 'readonly',
+        MutationObserver: 'readonly',
+        structuredClone: 'readonly',
+      },
+    },
+    plugins: {
+      '@typescript-eslint': tsPlugin,
+    },
+    rules: {
+      ...tsPlugin.configs.recommended.rules,
+      '@typescript-eslint/no-unused-vars': ['warn', { argsIgnorePattern: '^_' }],
+      '@typescript-eslint/no-explicit-any': 'off',
+      '@typescript-eslint/explicit-function-return-type': 'off',
+      '@typescript-eslint/explicit-module-boundary-types': 'off',
+      '@typescript-eslint/no-non-null-assertion': 'off',
+      '@typescript-eslint/no-empty-object-type': 'off',
+      '@typescript-eslint/no-unused-expressions': 'warn',
+      'no-console': 'off',
+      'no-undef': 'warn',
+      'no-unreachable': 'warn',
     },
   },
   {

@@ -2,7 +2,7 @@
   "name": "sl-vscode-plugin",
   "displayName": "Second Life VSCode Plugin",
   "description": "Binding extension for external LSL and SLua editing from the Second Life viewer.",
-  "version": "1.0.5",
+  "version": "1.0.6",
   "publisher": "lindenlab",
   "icon": "sl-logo-vscode.png",
   "extensionDependencies": [],
@@ -38,8 +38,11 @@
     "views": {
       "explorer": [
         {
+          "type": "webview",
           "id": "slInworldExplorer",
-          "name": "Second Life (Inworld)"
+          "icon": "icons/sllogo.svg",
+          "name": "Second Life",
+          "when": "config.slVscodeEdit.enabled"
         }
       ]
     },
@@ -380,9 +383,15 @@
     ]
   },
   "scripts": {
-    "vscode:prepublish": "npm run compile",
-    "compile": "tsc -p . && npm run copy-test-data",
+    "vscode:prepublish": "npm run definitions:validate && npm run compile",
+    "definitions:fetch": "node scripts/definitions-fetch.js",
+    "definitions:stage": "node scripts/definitions-stage.js",
+    "definitions:sync": "npm run definitions:fetch && npm run definitions:stage",
+    "definitions:validate": "node scripts/definitions-validate.js",
+    "bootstrap:deps": "npm ci && npm run definitions:sync",
+    "compile": "tsc -p . && tsc -p tsconfig.webview.json && npm run copy-webview-assets && npm run copy-test-data",
     "copy-test-data": "node scripts/copy-test-data.js",
+    "copy-webview-assets": "node scripts/copy-webview-assets.js",
     "watch": "tsc -watch -p ./",
     "pretest": "npm run compile",
     "lint": "eslint src",
@@ -398,10 +407,11 @@
     "@types/mocha": "^10.0.10",
     "@types/node": "22.x",
     "@types/vscode": "^1.85.0",
-    "@typescript-eslint/eslint-plugin": "^8.42.0",
-    "@typescript-eslint/parser": "^8.42.0",
-    "@vscode/test-cli": "^0.0.11",
+    "@typescript-eslint/eslint-plugin": "^8.65.0",
+    "@typescript-eslint/parser": "^8.65.0",
+    "@vscode/test-cli": "^0.0.15",
     "@vscode/test-electron": "^2.5.2",
+    "adm-zip": "^0.6.0",
     "eslint": "^9.34.0",
     "glob": "^11.1.0",
     "mocha": "^11.7.6",
@@ -410,9 +420,25 @@
   "dependencies": {
     "@iarna/toml": "^2.2.5",
     "@types/ws": "^8.18.1",
+    "@vscode/codicons": "^0.0.36",
     "js-sha256": "^0.11.1",
-    "js-yaml": "^4.1.1",
+    "js-yaml": "^4.3.1",
     "vscode-languageclient": "^9.0.1",
-    "ws": "^8.18.3"
+    "ws": "^8.21.0"
+  },
+  "linden_resources": {
+    "lsl_definitions": {
+      "source": {
+        "hash": "41d992fcde8a18fc9acf6dbdcb4a304e5c38486c",
+        "hash_algorithm": "sha1",
+        "url": "https://github.com/secondlife/lsl-definitions/releases/download/v0.6.12/lsl-definitions.zip"
+      },
+      "license": "MIT",
+      "license_file": "LICENSES/lsl_definitions.txt",
+      "copyright": "Copyright (c) 2026, Linden Research, Inc.",
+      "version": "0.6.12",
+      "name": "lsl_definitions",
+      "description": "LSL definitions"
+    }
   }
 }

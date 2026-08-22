@@ -4,10 +4,6 @@
  */
 import * as vscode from "vscode";
 import { HostInterface, StringUri, filePathToStringUri, resolveUri } from "./interfaces/hostinterface";
-import { LuaTypeDefinitions } from "./shared/luadefsinterface";
-import { LuauDefsGenerator } from "./shared/luadefsgenerator";
-import { DocsJsonGenerator } from "./shared/docsjsongenerator";
-import { SeleneYamlGenerator } from "./shared/seleneyamlgenerator";
 import { ConfigKey } from "./interfaces/configinterface";
 
 //=============================================================================
@@ -16,10 +12,6 @@ abstract class BasePlugin {
     constructor(host: HostInterface) {
         this.host = host;
     }
-    public abstract configurePlugin(
-        version: any,
-        defs: LuaTypeDefinitions,
-    ): Promise<boolean>;
 }
 
 //#region Selene Plugin Support
@@ -30,36 +22,6 @@ export class SelenePlugin extends BasePlugin {
 
     public static isEnabledHost(host: HostInterface): boolean {
         return host.isExtensionAvailable ? host.isExtensionAvailable("Kampfkarren.selene-vscode") : !!vscode.extensions.getExtension("Kampfkarren.selene-vscode");
-    }
-
-    public async configurePlugin(
-        version: any,
-        defs: LuaTypeDefinitions,
-    ): Promise<boolean> {
-        if (!SelenePlugin.isEnabledHost(this.host)) {
-            console.warn("Selene plugin not active - skipping configuration");
-            return false;
-        }
-
-        const basename = `slua_${version}`;
-        let configPath: StringUri;
-        configPath = await this.host.config.getWorkspaceConfigPath();
-
-        // Use the new generator
-        const yamlContent = this.buildSeleneConfig(version, defs);
-
-        let saved = await SelenePlugin.saveSLuaSeleneConfig(
-            configPath,
-            basename + `.yml`,
-            yamlContent,
-            this.host,
-        );
-
-        if (saved) {
-            await SelenePlugin.updateSeleneConfig(configPath, basename, this.host);
-        }
-
-        return saved;
     }
 
     // =======================================
@@ -107,17 +69,6 @@ export class SelenePlugin extends BasePlugin {
         return saved;
     }
 
-    private buildSeleneConfig(version: any, defs: LuaTypeDefinitions): string {
-        const generator = new SeleneYamlGenerator();
-        const config = {
-            base: 'luau',
-            luaVersions: ['luau', 'lua51'],
-            name: 'SLua LSL language support',
-            version: version
-        };
-        return generator.generate(defs, config);
-    }
-
     private static async updateSeleneConfig(
         configPath: StringUri,
         basename: string,
@@ -140,7 +91,7 @@ export class SelenePlugin extends BasePlugin {
             let seleneToml: any = {};
             seleneToml = (await host?.readTOML(tomlPath)) || {};
             const fullConfig = resolveUri(configPath, `${basename}`);
-            const relativeConfig = vscode.workspace.asRelativePath(vscode.Uri.parse(fullConfig as string));
+            const relativeConfig = vscode.workspace.asRelativePath(vscode.Uri.parse(fullConfig as string), false);
             seleneToml.std = "luau+" + relativeConfig;
             saved = await host.writeTOML(tomlPath, seleneToml);
         }
@@ -161,45 +112,6 @@ export class LuaLSPPlugin extends BasePlugin {
 
     public static isEnabledHost(host: HostInterface): boolean {
         return host.isExtensionAvailable ? host.isExtensionAvailable("johnnymorganz.luau-lsp") : !!vscode.extensions.getExtension("johnnymorganz.luau-lsp");
-    }
-
-    public async configurePlugin(
-        version: any,
-        defs: LuaTypeDefinitions,
-    ): Promise<boolean> {
-        if (!LuaLSPPlugin.isEnabledHost(this.host)) {
-            console.warn("Lua LSP plugin not active - skipping configuration");
-            return false;
-        }
-
-        // Implementation for configuring the Lua LSP plugin
-        let configs = this.buildLuauLSPConfig(defs);
-
-        // Determine config path via host first
-        let configPath: StringUri;
-        configPath = await this.host.config.getWorkspaceConfigPath();
-
-        const defsFiles:{[k:string]:string} = {};
-
-        defsFiles["sl-slua"] = await this.saveLuauLSPDefs(
-            configPath,
-            version,
-            configs[0],
-        );
-        console.error("SLUA PRE PROC CONSTANTS",this.host.config.getConfig(ConfigKey.PreprocessorConstantsInSLua, false));
-        if(this.host.config.getConfig(ConfigKey.PreprocessorConstantsInSLua, false)) {
-            defsFiles["sl-slua-consts"] = await this.saveLuauLSPConstantDefs(
-                configPath
-            );
-        }
-        const docsFileName = await this.saveLuauLSPDocs(
-            configPath,
-            version,
-            configs[1],
-        );
-
-        await this.restartLuauLSP(defsFiles, docsFileName, this.host);
-        return true;
     }
 
     private async restartLuauLSP(
@@ -247,7 +159,8 @@ export class LuaLSPPlugin extends BasePlugin {
         } else {
             await vscode.workspace.fs.writeFile(vscode.Uri.parse(fullPath as string), Buffer.from(defs, "utf8"));
         }
-        return vscode.Uri.parse(fullPath as string).fsPath;
+        const path = vscode.Uri.parse(fullPath as string);
+        return vscode.workspace.asRelativePath(path, false);
     }
 
     private async saveLuauLSPConstantDefs(
@@ -276,7 +189,9 @@ export class LuaLSPPlugin extends BasePlugin {
         } else {
             await vscode.workspace.fs.writeFile(vscode.Uri.parse(fullPath as string), Buffer.from(slua_constants.join("\n"), "utf8"));
         }
-        return vscode.Uri.parse(fullPath as string).fsPath;
+
+        const path = vscode.Uri.parse(fullPath as string);
+        return vscode.workspace.asRelativePath(path, false);
     }
 
     private async saveLuauLSPDocs(
@@ -291,7 +206,8 @@ export class LuaLSPPlugin extends BasePlugin {
         } else {
             await vscode.workspace.fs.writeFile(vscode.Uri.parse(fullPath as string), Buffer.from(docs, "utf8"));
         }
-        return vscode.Uri.parse(fullPath as string).fsPath;
+        const path = vscode.Uri.parse(fullPath as string);
+        return vscode.workspace.asRelativePath(path, false);
     }
 
     public async configureFromViewerCache(
@@ -323,17 +239,5 @@ export class LuaLSPPlugin extends BasePlugin {
         return true;
     }
 
-    public buildLuauLSPConfig(
-        defs: LuaTypeDefinitions,
-    ): [string, string] {
-        // Use the new generators
-        const defsGenerator = new LuauDefsGenerator();
-        const docsGenerator = new DocsJsonGenerator();
-
-        const luauDefs = defsGenerator.generate(defs);
-        const docsDefs = docsGenerator.generate(defs);
-
-        return [luauDefs, docsDefs];
-    }
 }
 //#endregion Lua LSP Plugin Support

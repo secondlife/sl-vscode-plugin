@@ -8,11 +8,13 @@ import { LanguageService } from "./shared/languageservice";
 import { ObjectContentService } from "./vscode/objectcontentservice";
 import { ObjectContentProvider, SL_SCHEME, displayName } from "./vscode/objectcontentprovider";
 import { ObjectContentDecorator } from "./vscode/ObjectContentDecorator";
-import { ObjectExplorerProvider, ExplorerNode } from "./vscode/objectexplorerprovider";
+import { ExplorerNode } from "./vscode/objectexplorerprovider";
+import { ObjectExplorerWebviewProvider } from "./vscode/objectexplorerwebview";
 import { ConfigService, configPrefix } from "./configservice";
 import {
     VSCodeHost,
     getOutputChannel,
+    getRuntimeOutputChannel,
     showOutputChannel,
     logInfo,
     logDebug,
@@ -81,6 +83,9 @@ export function activate(context: vscode.ExtensionContext): void {
     const objectContentProvider = new ObjectContentProvider(
         objectContentService,
         () => synchService.getWebSocket(),
+        (rootId, primId, itemId, diagnostics) =>
+            synchService.findSyncByItemRef(rootId, primId, itemId)
+                ?.handleSaveDiagnostics(diagnostics),
     );
     context.subscriptions.push(
         vscode.workspace.registerFileSystemProvider(SL_SCHEME, objectContentProvider, {
@@ -101,22 +106,19 @@ export function activate(context: vscode.ExtensionContext): void {
         objectContentDecorator,
     );
 
-    // Register the "Second Life" tree view in Explorer
-    const objectExplorerProvider = new ObjectExplorerProvider(
-        context.extensionPath,
+    // Register the "Second Life" webview in Explorer
+    const objectExplorerWebview = new ObjectExplorerWebviewProvider(
+        context.extensionUri,
         () => synchService.isConnected(),
-        synchService.onDidChangeConnectionState
+        synchService.onDidChangeConnectionState,
+        () => synchService.getWebSocket(),
     );
-    const objectTreeView = vscode.window.createTreeView("slInworldExplorer", {
-        treeDataProvider: objectExplorerProvider,
-    });
-
-    // Set initial title
-    objectTreeView.title = synchService.isConnected()
-        ? "Second Life (connected)"
-        : "Second Life (disconnected)";
-
-    context.subscriptions.push(objectTreeView, objectExplorerProvider);
+    context.subscriptions.push(
+        vscode.window.registerWebviewViewProvider(ObjectExplorerWebviewProvider.viewType, objectExplorerWebview),
+        objectExplorerWebview,
+        synchService.onDidReceiveViewerCommands((commands) =>
+            objectExplorerWebview.sendViewerCommands(commands))
+    );
 
     // Command to open sl:// items from the tree view
     context.subscriptions.push(
@@ -304,13 +306,10 @@ export function activate(context: vscode.ExtensionContext): void {
         })
     );
 
-    // Track connection state for UI visibility and tree title
+    // Track connection state for UI visibility
     context.subscriptions.push(
         synchService.onDidChangeConnectionState((connected) => {
             vscode.commands.executeCommand("setContext", "slVscodeEdit:connected", connected);
-            objectTreeView.title = connected
-                ? "Second Life (connected)"
-                : "Second Life (disconnected)";
         })
     );
     // Set initial connection state
@@ -373,8 +372,9 @@ export function activate(context: vscode.ExtensionContext): void {
         })
     );
 
-    // Register output channel for disposal
+    // Register output channels for disposal so they appear in the VS Code Output panel.
     context.subscriptions.push(getOutputChannel());
+    context.subscriptions.push(getRuntimeOutputChannel());
 
     if (!hasWorkspace()) {
         showErrorMessage("Second Life Scripting Extension: No workspace is opened.\nPlease open a folder in VSCode to enable full functionality.");

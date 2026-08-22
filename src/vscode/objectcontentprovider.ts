@@ -15,6 +15,8 @@ import {
     ObjectItemCreateParams,
     ScriptVM,
 } from "./objectcontentinterfaces";
+import type { Diagnostic } from "../viewereditwsclient";
+import { ScriptLanguage } from "../shared/languageservice";
 
 // ============================================
 // Constants
@@ -261,12 +263,42 @@ export function linkedPrimUri(root_id: string, link_id: string): vscode.Uri {
     return vscode.Uri.from({ scheme: SL_SCHEME, authority: SL_AUTHORITY, path: `/${root_id}/${link_id}` });
 }
 
-/** Build a URI for a file (item in root or linked prim) */
-export function itemUri(root_id: string, prim_id: string, item_id: string): vscode.Uri {
-    if (prim_id === root_id) {
-        return vscode.Uri.from({ scheme: SL_SCHEME, authority: SL_AUTHORITY, path: `/${root_id}/${item_id}` });
+export function scriptUri(
+    root_id: string,
+    prim_id: string | null,
+    item_id: string,
+    readable_name?: string,
+): vscode.Uri {
+    const segments = [root_id];
+
+    if (prim_id) {
+        segments.push(prim_id);
     }
-    return vscode.Uri.from({ scheme: SL_SCHEME, authority: SL_AUTHORITY, path: `/${root_id}/${prim_id}/${item_id}` });
+
+    segments.push(item_id);
+
+    if (readable_name) {
+        segments.push(readable_name);
+    }
+
+    return vscode.Uri.from({
+        scheme: SL_SCHEME,
+        authority: SL_AUTHORITY,
+        path: `/${segments.join("/")}`,
+    });
+}
+
+/** Build a URI for a file (item in root or linked prim) */
+export function itemUri(
+    root_id: string,
+    prim_id: string,
+    item_id: string,
+): vscode.Uri {
+    return scriptUri(
+        root_id,
+        prim_id === root_id ? null : prim_id,
+        item_id,
+    );
 }
 
 // ============================================
@@ -276,12 +308,17 @@ export function itemUri(root_id: string, prim_id: string, item_id: string): vsco
 /** Map item subtype to the appropriate file extension for display */
 function extensionForItem(item: ObjectInventoryItem): string {
     if (item.type === "notecard") return ""; // no synthetic extension; user-supplied extension stays in the name
-    return item.subtype === 1 ? ".luau" : ".lsl";
+    return `.${languageForItem(item)}`;
 }
 
 /** Returns the display filename (name + synthetic extension) */
 export function displayName(item: ObjectInventoryItem): string {
     return item.name + extensionForItem(item);
+}
+
+export function languageForItem(item: ObjectInventoryItem) : ScriptLanguage {
+    if(item.type == "notecard") return "txt";
+    return item.subtype === 1 ? "luau" : "lsl";
 }
 
 /**
@@ -349,6 +386,12 @@ export class ObjectContentProvider implements vscode.FileSystemProvider, vscode.
     constructor(
         private readonly service: ObjectContentService,
         private readonly getClient: () => ViewerEditWSClient | undefined,
+        private readonly addSaveDiagnostics: (
+            rootId: string,
+            primId: string,
+            itemId: string,
+            diagnostics: Diagnostic[],
+        ) => void,
     ) {
         // Forward content invalidations to VS Code as Changed events
         this.disposables.push(
@@ -373,6 +416,10 @@ export class ObjectContentProvider implements vscode.FileSystemProvider, vscode.
                 setTimeout(() => {
                     this._onDidChangeFile.fire([{ type: vscode.FileChangeType.Changed, uri }]);
                 }, 0);
+            }),
+
+            service.onDidChangeScriptVm(({ object_id, prim_id, item_id, vm }) => {
+                void this._saveOnVmChange(object_id, prim_id, item_id, vm);
             }),
 
             // Forward tree changes (added/removed objects) as directory changes
@@ -459,6 +506,34 @@ export class ObjectContentProvider implements vscode.FileSystemProvider, vscode.
 
             this._onDidChangeFile,
         );
+    }
+
+    private async _saveOnVmChange(object_id: string, prim_id: string, item_id: string, vm: string): Promise<void> {
+        const client = this.getClient();
+        if (!client) { return; }
+        try {
+            let content: string;
+            const cached = this.service.getCachedContent(object_id, item_id);
+            if (cached) {
+                content = Buffer.from(cached.content).toString("utf-8");
+            } else {
+                const fetched = await client.getObjectContent({ prim_id, item_id });
+                if (!fetched.success) { return; }
+                content = fetched.encoding === "base64"
+                    ? Buffer.from(fetched.content, "base64").toString("utf-8")
+                    : fetched.content;
+            }
+            const item = this.service.getItem(object_id, prim_id, item_id);
+            await client.saveObjectContent({
+                prim_id,
+                item_id,
+                content,
+                vm: vm as ObjectContentSaveVM,
+                running: item?.running,
+            });
+        } catch {
+            // Viewer will report save/compile errors
+        }
     }
 
     dispose(): void {
@@ -655,12 +730,23 @@ export class ObjectContentProvider implements vscode.FileSystemProvider, vscode.
                     }
 
                     if (result.compiled === false) {
-                        const diagnostics = (result.errors ?? []).slice(0, 5).join("\n");
-                        const details = diagnostics.length > 0
-                            ? `\n${diagnostics}`
+                        const diagnostics = result.diagnostics ?? [];
+                        this.addSaveDiagnostics(
+                            root_id,
+                            prim_id,
+                            parsed.item_id,
+                            diagnostics,
+                        );
+
+                        const details = diagnostics
+                            .slice(0, 5)
+                            .map((diagnostic: Diagnostic) => diagnostic.message)
+                            .join("\n");
+                        const formattedDetails = details.length > 0
+                            ? `\n${details}`
                             : "";
                         void vscode.window.showWarningMessage(
-                            `Second Life: Saved, but compilation failed.${details}`
+                            `Second Life: Saved, but compilation failed.${formattedDetails}`
                         );
                     }
 

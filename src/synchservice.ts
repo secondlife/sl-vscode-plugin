@@ -34,22 +34,46 @@ import {
     showWarningMessage,
     logDebug,
     logInfo,
+    logWarning,
+    logRuntimeInfo,
+    logRuntimeError,
     VSCodeHost,
     closeTextDocument,
+    vscodeUriToStringUri,
 } from "./utils";
 import { maybe } from "./shared/sharedutils"; // TODO: migrate needed utilities from sharedutils if required
+import { CommandRegistry } from "./commandregistry";
+import {
+    CommandExecuteParams,
+    CommandExecuteResponse,
+    CommandListResponse,
+} from "./viewereditwsclient";
 import { ScriptLanguage, LanguageService } from "./shared/languageservice";
-import { ScriptSync } from "./scriptsync";
+import { ScriptIdentity, ScriptSync } from "./scriptsync";
 import { getLanguageConfig } from "./shared/lexer";
 import { HostInterface } from "./interfaces/hostinterface";
 import { SyncedFileDecorator } from "./vscode/SyncedFileDecorator";
-import { ObjectContentService } from "./vscode/objectcontentservice";
-import { SL_SCHEME, SL_AUTHORITY, displayName, itemUri } from "./vscode/objectcontentprovider";
+import { ObjectContentChangeEvent, ObjectContentService, ObjectTreeChangeEvent } from "./vscode/objectcontentservice";
+import { ObjectPinStore } from "./vscode/objectpinstore";
+import { SL_SCHEME, SL_AUTHORITY, displayName, itemUri, languageForItem } from "./vscode/objectcontentprovider";
 
 /** PERM_MODIFY bit from viewer LLPermissions */
 const PERM_MODIFY = 0x4000;
 
-type ParsedTempFile = { scriptName: string; scriptId: string; extension: string, language: ScriptLanguage, item?: ObjectInventoryItem };
+type ParsedTempFile = {
+    scriptName: string;
+    scriptId: string;
+    extension: string;
+    language: ScriptLanguage;
+    item?: ObjectInventoryItem;
+    rootId?: string;
+    primId?: string | null;
+    itemId?: string;
+};
+
+function isUuidSegment(segment: string): boolean {
+    return /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(segment);
+}
 
 export class SynchService implements vscode.Disposable {
     // Tracks all active sync relationships, keyed by master file uri.toString()
@@ -59,9 +83,11 @@ export class SynchService implements vscode.Disposable {
     private websocket: ViewerEditWSClient | undefined;
     private handshakeResolve?: (value: boolean, message?: string) => void;
     private handshakePromise?: Promise<{ success: boolean; message: string }>;
+    private sessionConnected: boolean = false;
     private lastActiveChange: number = 0;
     private activeSync: ScriptSync | undefined;
     private host: HostInterface;
+    private readonly commandRegistry = new CommandRegistry();
     private initialGenerationDone: boolean = false;
     private pendingLaunchObjectId?: string;
     private pendingLaunchScriptId?: string;
@@ -71,6 +97,7 @@ export class SynchService implements vscode.Disposable {
     public viewerLanguages?: string[];
     public viewerFeatures?: { [feature: string]: boolean };
     public syntaxCacheSupported: boolean = false;
+    public commandsSupported: boolean = false;
     public syntaxId?: string;
     public agentId?: string;
     public agentName?: string;
@@ -79,6 +106,8 @@ export class SynchService implements vscode.Disposable {
 
     private _onDidChangeConnectionState = new vscode.EventEmitter<boolean>();
     readonly onDidChangeConnectionState = this._onDidChangeConnectionState.event;
+    private _onDidReceiveViewerCommands = new vscode.EventEmitter<string[]>();
+    readonly onDidReceiveViewerCommands = this._onDidReceiveViewerCommands.event;
 
     private disposables: vscode.Disposable[] = [];
 
@@ -159,10 +188,21 @@ export class SynchService implements vscode.Disposable {
             this.initializeSyntax();
         });
 
-        // TODO: Figure out why restart isn't working on the luau-lsp server
-        // TODO: Bug when prepping language syntax on download
-        // const syntaxInit = this.initializeSyntax();
-        // showStatusMessage("Initializing syntax...", syntaxInit);
+        const onViewerDidChangeContent = ObjectContentService.getInstance().onDidChangeContent(
+            (e: ObjectContentChangeEvent) => {
+                this.onViewerDidChangeContent(e);
+            }
+        );
+
+        const onViewerDidChangeObjects = ObjectContentService.getInstance().onDidChangeObjects(
+            (e: ObjectTreeChangeEvent) => {
+                this.onViewerDidChangeObjects(e);
+            }
+        )
+
+        this.initialGenerationDone = true;
+        const syntaxInit = this.initializeSyntax();
+        showStatusMessage("Initializing syntax...", syntaxInit);
 
         this.disposables.push(onDidOpenListener);
         // this.disposables.push(onDidCloseListener);
@@ -172,6 +212,8 @@ export class SynchService implements vscode.Disposable {
         this.disposables.push(onDidChangeWindowState);
         this.disposables.push(onDidChangeActiveTextEditor);
         this.disposables.push(vscode.window.registerFileDecorationProvider(this.syncedFileDecorator));
+        this.disposables.push(onViewerDidChangeContent);
+        this.disposables.push(onViewerDidChangeObjects);
 
         const launchDoc = vscode.window.activeTextEditor?.document
 
@@ -356,7 +398,26 @@ export class SynchService implements vscode.Disposable {
         }
         const masterEditor = await SynchService.openMasterScript(masterUri);
         const sync = await this.getOrCreateSync(masterEditor.document, parsed.language);
-        sync.subscribeVirtual(slDocument.uri);
+        // openTextDocument guarantees readFile has completed for virtual fs documents
+        const loadedDoc = await vscode.workspace.openTextDocument(slDocument.uri);
+        if (!parsed.rootId || !parsed.itemId) {
+            logInfo(
+                `[setupSyncForSlUri] Missing canonical identity for "${slDocument.uri.toString()}"`,
+            );
+            return;
+        }
+
+        const identity: ScriptIdentity = {
+            rootId: parsed.rootId,
+            primId: parsed.primId ?? null,
+            itemId: parsed.itemId,
+        };
+        sync.subscribeVirtual(
+            slDocument.uri,
+            loadedDoc.getText(),
+            identity,
+            parsed.item,
+        );
         SynchService.checkAndUpdateMasterDocumentInBackground(masterEditor, slDocument);
         this.syncedFileDecorator.refresh(masterEditor.document.uri);
         logInfo(
@@ -398,15 +459,8 @@ export class SynchService implements vscode.Disposable {
             }
         }
 
-        if (this.activeSyncs.size === 0) {
-            // There is nothing being tracked, close the websocket connection
-            if (this.websocket) {
-                if (this.websocket.isConnected()) {
-                    this.websocket.disconnect();
-                }
-                this.websocket.dispose();
-                this.websocket = undefined;
-            }
+        if (this.activeSyncs.size === 0 && this.sessionConnected) {
+            // Keep the viewer session alive for object explorer usage even without script syncs.
         }
         vscode.commands.executeCommand(
             "setContext",
@@ -442,10 +496,24 @@ export class SynchService implements vscode.Disposable {
                 logDebug(`[object.update] object_name=${msg.object_name}`);
                 ObjectContentService.getInstance().handleUpdate(msg);
             },
+            onCommandExecute: (params: CommandExecuteParams): Promise<CommandExecuteResponse> =>
+                this.commandRegistry.execute(params),
+            onCommandList: (): CommandListResponse => this.commandRegistry.list(),
         };
 
-        if (this.websocket && this.websocket.isConnected()) {
+        if (this.sessionConnected) {
             return true;
+        }
+
+        if (this.handshakePromise) {
+            const pending = await this.handshakePromise;
+            return pending.success;
+        }
+
+        if (this.websocket && this.websocket.isConnected()) {
+            this.websocket.disconnect();
+            this.websocket.dispose();
+            this.websocket = undefined;
         }
 
         const handshake: Promise<{ success: boolean; message?: string }> =
@@ -491,6 +559,7 @@ export class SynchService implements vscode.Disposable {
         this.syntaxId = message.syntax_id;
         this.viewerFeatures = message.features;
         this.syntaxCacheSupported = message.features?.["syntax_cache"] === true;
+        this.commandsSupported = message.features?.["commands"] === true;
 
         let challengeResponse: string | undefined = undefined;
         if (message.challenge) {
@@ -517,9 +586,11 @@ export class SynchService implements vscode.Disposable {
             features: {
                 live_sync: true,
                 error_reporting: true,
+                unified_diagnostics: true,
                 debugging: false,
                 breakpoints: false,
                 object_publish: true,
+                commands: true,
             },
         };
         return response;
@@ -536,30 +607,43 @@ export class SynchService implements vscode.Disposable {
 
         const service = LanguageService.getInstance();
         await this.refreshSyntaxCacheListIfSupported(service);
-        if (!this.checkLanguageVersion()) {
-            const socket = this.getWebSocket();
-            if (socket && this.syntaxId) {
-                const promise = service.changeSyntaxVersion(
-                    this.syntaxId,
-                    socket,
-                    false,
-                    this.syntaxCacheSupported,
-                );
-                showStatusMessage("Updating to latest language definitions...", promise);
-            }
+
+        if (this.commandsSupported) {
+            this.websocket?.listCommands().then(response => {
+                console.log("[Commands] Viewer supports commands:", response.commands.map(c => c.command));
+                this._onDidReceiveViewerCommands.fire(response.commands.map(c => c.command));
+            }).catch(err => {
+                console.warn("[Commands] Failed to list viewer commands:", err);
+            });
+        }
+        const socket = this.getWebSocket();
+        const languageMatches = this.checkLanguageVersion() === true;
+        let hasViewerSyntaxFiles = true;
+        if (this.syntaxCacheSupported && this.syntaxId) {
+            hasViewerSyntaxFiles = await service.hasCachedViewerSyntaxFiles(this.syntaxId);
+        }
+        if ((!languageMatches || !hasViewerSyntaxFiles) && socket && this.syntaxId) {
+            const promise = service.changeSyntaxVersion(
+                this.syntaxId,
+                socket,
+                false,
+                this.syntaxCacheSupported,
+            );
+            showStatusMessage("Updating to latest language definitions...", promise);
         }
 
         if (this.handshakeResolve) {
             this.handshakeResolve(true, "Connected");
         }
 
-        this._onDidChangeConnectionState.fire(true);
+        this.setSessionConnected(true);
 
         // Start periodic ping timer for connection health monitoring
         this.websocket?.startPingTimer();
 
         await this.handleLaunchParams();
         await this.syncPublishedObjects();
+        await this.restorePinnedObjects();
     }
 
     private onDisconnect(params: SessionDisconnect): void {
@@ -570,6 +654,7 @@ export class SynchService implements vscode.Disposable {
         showStatusMessage(
             `Second Life viewer disconnected: ${message} (reason ${reason})`,
         );
+        this.setSessionConnected(false);
     }
 
     private onConnectionClosed(): void {
@@ -581,7 +666,7 @@ export class SynchService implements vscode.Disposable {
             this.handshakeResolve(false, "Connection closed");
         }
 
-        this._onDidChangeConnectionState.fire(false);
+        this.setSessionConnected(false);
         // Collapse explorer folders instead of removing tracked objects
         vscode.commands.executeCommand("workbench.files.action.collapseExplorerFolders");
     }
@@ -599,7 +684,11 @@ export class SynchService implements vscode.Disposable {
             this.syntaxId = params.id;
             const service = LanguageService.getInstance();
             await this.refreshSyntaxCacheListIfSupported(service);
-            if (!this.checkLanguageVersion()) {
+            let hasViewerSyntaxFiles = true;
+            if (this.syntaxCacheSupported) {
+                hasViewerSyntaxFiles = await service.hasCachedViewerSyntaxFiles(params.id);
+            }
+            if (!this.checkLanguageVersion() || !hasViewerSyntaxFiles) {
                 const socket = this.getWebSocket();
                 if (socket) {
                     const promise = service.changeSyntaxVersion(
@@ -636,26 +725,68 @@ export class SynchService implements vscode.Disposable {
         }
     }
 
+    public findSyncByIdentity(identity: ScriptIdentity): ScriptSync | undefined {
+        return [...this.activeSyncs.values()]
+            .find((sync) => sync.isTrackingIdentity(identity));
+    }
+
+    public findSyncByItemRef(
+        rootId: string,
+        primId: string,
+        itemId: string,
+    ): ScriptSync | undefined {
+        return this.findSyncByIdentity({
+            rootId,
+            primId: primId === rootId ? null : primId,
+            itemId,
+        });
+    }
+
+    private runtimeIdentity(
+        item?: { root_id?: string; prim_id?: string | null; item_id?: string },
+    ): ScriptIdentity | undefined {
+        if (!item?.root_id || !item.item_id) {
+            return undefined;
+        }
+
+        return {
+            rootId: item.root_id,
+            primId: item.prim_id ?? null,
+            itemId: item.item_id,
+        };
+    }
+
     private onRuntimeDebug(message: RuntimeDebug): void {
-        const scriptId = message.script_id;
-        const sync = this.findSyncByScriptId(scriptId);
+        const identity = this.runtimeIdentity(message.item);
+        const sync = identity
+            ? this.findSyncByIdentity(identity)
+            : undefined;
         if (sync) {
             sync.handleRuntimeDebug(message);
         }
         else {
-            console.log(`Runtime:Debug in ${message.object_name}: ${message.message}`);
+            const label = message.channel === "owner_say"
+                ? "OWNER"
+                : "DEBUG";
+            logRuntimeInfo(
+                `${message.object_name} ${label}: ${message.message}`,
+            );
         }
     }
 
     private onRuntimeError(message: RuntimeError): void {
-        const scriptId = message.script_id;
-        const sync = this.findSyncByScriptId(scriptId);
+        const identity = this.runtimeIdentity(message.item);
+        const sync = identity
+            ? this.findSyncByIdentity(identity)
+            : undefined;
 
         if (sync) {
             sync.handleRuntimeError(message);
         }
         else {
-            console.warn(`Runtime:Error in ${message.object_name}:${message.line}: ${message.error}`);
+            logRuntimeError(
+                `${message.object_name} ERROR: ${message.error}`,
+            );
         }
     }
 
@@ -679,6 +810,20 @@ export class SynchService implements vscode.Disposable {
                 .call("script.subscribe", subscribeMsg)
                 .then((response: ScriptSubscribeResponse) => {
                     if (response.success) {
+                        if (response.root_id && response.item_id) {
+                            const identity: ScriptIdentity = {
+                                rootId: response.root_id,
+                                primId:
+                                    response.object_id &&
+                                    response.object_id !== response.root_id
+                                        ? response.object_id
+                                        : null,
+                                itemId: response.item_id,
+                            };
+                            sync.setIdentityForId(id, identity);
+
+                        }
+
                         showStatusMessage(
                             `Subscribed to script ${masterName} for live syncing.`,
                         );
@@ -814,23 +959,61 @@ export class SynchService implements vscode.Disposable {
         }
 
         const root_id = segments[0];
-        const lastSeg = segments[segments.length - 1];
+        const pathSegments = segments.slice(1);
+        const lastSeg = pathSegments[pathSegments.length - 1];
+
+        let prim_id: string | null = null;
+        let item_id: string | undefined;
+
+        if (
+
+            pathSegments.length >= 2 &&
+
+            isUuidSegment(pathSegments[0]) &&
+
+            isUuidSegment(pathSegments[1])
+
+        ) {
+
+            prim_id = pathSegments[0];
+            item_id = pathSegments[1];
+        }
+        else {
+            item_id = pathSegments[0];
+        }
 
         // Always resolve name and type from the inventory record, never from the URI path.
         // The last segment may be a UUID (itemUri) or a display name (Explorer) — both are
         // matched against the service inventory.
-        const item = SynchService.findSlInventoryItem(root_id, lastSeg);
+        const item = SynchService.findSlInventoryItem(
+            root_id,
+            item_id ?? lastSeg,
+        );
         if (!item) return null;
 
         const fullName = displayName(item);           // e.g. "My Script.luau"
         const di = fullName.lastIndexOf('.');
-        if (di < 0) return null;
+        if (di < 0) {
+            if(item.type == "notecard") {
+                return {scriptName: item.name, scriptId: uri.toString(), extension: "txt", language: "txt", item};
+            }
+            return null;
+        }
 
         const scriptName = fullName.slice(0, di);     // "My Script"
         const extension = fullName.slice(di + 1).toLowerCase(); // "luau"
-        const language: ScriptLanguage = extension === 'lsl' ? 'lsl' : 'luau';
+        const language = languageForItem(item);
 
-        return { scriptName, scriptId: uri.toString(), extension, language, item };
+        return {
+            scriptName,
+            scriptId: uri.toString(),
+            extension,
+            language,
+            item,
+            rootId: root_id,
+            primId: prim_id,
+            itemId: item.item_id,
+        };
     }
 
     private static findSlInventoryItem(
@@ -1035,7 +1218,7 @@ export class SynchService implements vscode.Disposable {
     }
 
     public isConnected(): boolean {
-        return this.websocket?.isConnected() ?? false;
+        return this.sessionConnected;
     }
 
     /**
@@ -1054,10 +1237,21 @@ export class SynchService implements vscode.Disposable {
             if (this.websocket.isConnected()) {
                 this.websocket.disconnect();
             }
+            this.setSessionConnected(false);
             this.websocket.dispose();
             this.websocket = undefined;
         }
-        this._onDidChangeConnectionState.fire(false);
+    }
+
+    private setSessionConnected(connected: boolean): void {
+        if (this.sessionConnected === connected) {
+            return;
+        }
+        this.sessionConnected = connected;
+        this._onDidChangeConnectionState.fire(connected);
+        if (!connected) {
+            this.handshakeResolve?.(false, "Disconnected");
+        }
     }
 
     /**
@@ -1122,7 +1316,8 @@ export class SynchService implements vscode.Disposable {
         if (sync) {
             await sync.handleMasterSaved();
         } else {
-            for (const sync of this.findSyncByIncludeFilePath(filePath)) {
+            const includeUri = vscodeUriToStringUri(document.uri);
+            for (const sync of this.findSyncByIncludeFilePath(includeUri)) {
                 await sync.handleMasterSaved();
             }
         }
@@ -1155,6 +1350,34 @@ export class SynchService implements vscode.Disposable {
             // this event, if so we can assume the viewer launched us
             this.lastActiveChange = Date.now();
             this.activeSync = syncs.pop();
+        }
+    }
+
+    private onViewerDidChangeContent(e: ObjectContentChangeEvent): void {
+        const objectcontentservice = ObjectContentService.getInstance();
+        const item = objectcontentservice.getItem(e.object_id,e.prim_id,e.item_id);
+        if(!item)return;
+        const uri = itemUri(e.object_id, e.prim_id, displayName(item));
+        for(const sync of this.activeSyncs.values()) {
+            if(sync.isTrackingVirtualItem(item)) {
+                sync.updateVirtualItem(uri,item);
+            }
+        }
+    }
+
+    private onViewerDidChangeObjects(e: ObjectTreeChangeEvent): void {
+        const objectContentService = ObjectContentService.getInstance();
+        for(const sync of this.activeSyncs.values()) {
+            if(!sync.isTrackingVirtualItemInObject(e.object_id)) continue;
+            const mappings = sync.getTrackedVirtualItemsInObject(e.object_id);
+            for(const mapping of mappings) {
+                if(!mapping.item) continue;
+                const newItem = objectContentService.getItemInObject(e.object_id, undefined, mapping.item.item_id)
+                if(newItem) {
+                    const uri = itemUri(newItem.object_id, newItem.prim_id, displayName(newItem.item));
+                    sync.updateVirtualItem(uri, newItem.item);
+                }
+            }
         }
     }
     //#endregion
@@ -1221,6 +1444,40 @@ export class SynchService implements vscode.Disposable {
                 }
             } catch (err) {
                 logDebug(`[requestWorkspaceObjects] error requesting ${object_id}: ${err}`);
+            }
+        }
+    }
+
+    private async restorePinnedObjects(): Promise<void> {
+        if (!this.websocket?.isConnected()) {
+            return;
+        }
+
+        const service = ObjectContentService.getInstance();
+        const pinStore = ObjectPinStore.getInstance();
+        const pinnedObjectIds = await pinStore.getPinnedObjectIds();
+
+        for (const object_id of pinnedObjectIds) {
+            if (!object_id || service.hasObject(object_id)) {
+                continue;
+            }
+
+            try {
+                const result = await this.websocket.requestObject({ object_id });
+                if (result.object) {
+                    service.handlePublish({ object: result.object });
+                    logDebug(`[restorePinnedObjects] restored ${result.object.object_id} (${result.object.object_name})`);
+                } else if (result.success === false) {
+                    logDebug(
+                        `[restorePinnedObjects] viewer rejected ${object_id}: ${result.message ?? "unknown"}`
+                    );
+                } else {
+                    logDebug(
+                        `[restorePinnedObjects] no object payload returned for ${object_id}`
+                    );
+                }
+            } catch (err) {
+                logDebug(`[restorePinnedObjects] error requesting ${object_id}: ${err}`);
             }
         }
     }

@@ -1,3 +1,5 @@
+import type { Diagnostic } from "../viewereditwsclient";
+
 /**
  * @file objectcontentinterfaces.ts
  * Interfaces for object content publishing feature
@@ -79,6 +81,7 @@ export interface PublishedObject {
     region?: string;             // Region where object exists
     owner_id?: string;           // Owner UUID
     permissions?: ObjectPermissions;
+    can_save_back?: boolean;
     inventory: ObjectInventoryItem[];    // Root prim inventory (scripts and notecards only)
     linked_objects?: LinkedObject[];     // Child prims in linkset
 }
@@ -177,7 +180,7 @@ export interface ObjectContentSaveResponse {
     prim_id?: string;
     item_id?: string;
     compiled?: boolean;        // Scripts only: true if compilation succeeded
-    errors?: string[];         // Scripts only: compiler diagnostics when compiled is false
+    diagnostics?: Diagnostic[]; // Scripts only: compiler diagnostics when compiled is false
     message?: string;
 }
 

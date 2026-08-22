@@ -21,22 +21,33 @@ import {
     errorLevelToSeverity,
     VSCodeHost,
     logInfo,
+    logRuntimeInfo,
+    logRuntimeError,
     logError
 } from "./utils";
 import { ScriptLanguage } from "./shared/languageservice";
-import { CompilationResult, RuntimeDebug, RuntimeError } from "./viewereditwsclient";
-import { StringUri, uriEquals } from "./interfaces/hostinterface";
-import { vscodeUriToStringUri } from "./utils";
+import { CompilationResult, Diagnostic, RuntimeDebug, RuntimeError } from "./viewereditwsclient";
+import { resolveUri, StringUri, uriDirname, uriEquals } from "./interfaces/hostinterface";
+import { stringUriToVscodeUri, vscodeUriToStringUri } from "./utils";
 import { SynchService } from "./synchservice";
 import { IncludeInfo } from "./shared/parser";
 import { sha256 } from "js-sha256";
 import { getLanguageConfig, isProccessedLanguage, LanguageLexerConfig } from "./shared/lexer";
+import { ObjectInventoryItem } from "./vscode/objectcontentinterfaces";
+
 
 //====================================================================
+export interface ScriptIdentity {
+    rootId: string;
+    primId: string | null;
+    itemId: string;
+}
+
 interface TrackedLocalFile {
     kind: 'local';
     id: string;
     viewerDocument: vscode.TextDocument;
+    identity?: ScriptIdentity;
     watcher?: vscode.FileSystemWatcher;
     hash?: string;
 }
@@ -45,7 +56,9 @@ interface TrackedVirtualFile {
     kind: 'virtual';
     id: string;   // uri.toString() — stable unique key
     uri: vscode.Uri;
+    identity: ScriptIdentity;
     hash?: string;
+    item?: ObjectInventoryItem;
 }
 
 type TrackedFile = TrackedLocalFile | TrackedVirtualFile;
@@ -140,7 +153,7 @@ export class ScriptSync implements vscode.Disposable {
 
         this.fileMappings.push(mapping);
 
-        console.log("Subscribeing.");
+        console.log(this.masterDocument.uri.toString(),"subscribing to", id);
         // on initial subscription, we need to generate an initial line mapping
         if (this.fileMappings.filter(m => m.kind === 'local').length === 1) {
             this.lineMappings = LineMapper.parseLineMappingsFromContent(
@@ -152,19 +165,33 @@ export class ScriptSync implements vscode.Disposable {
         return true;
     }
 
-    public subscribeVirtual(uri: vscode.Uri): boolean {
+    public subscribeVirtual(
+        uri: vscode.Uri,
+        viewerContent: string | undefined,
+        identity: ScriptIdentity,
+        item?: ObjectInventoryItem
+    ): boolean {
         const id = uri.toString();
         if (this.isTrackingId(id)) {
             return false; // already tracking
         }
-        this.fileMappings.push({ kind: 'virtual', id, uri });
+        console.log(this.masterDocument.uri.toString(),"subscribing to", id);
+        this.fileMappings.push({
+            kind: 'virtual',
+            id,
+            uri,
+            identity,
+            item,
+        });
+        if (viewerContent) {
+            this.lineMappings = LineMapper.parseLineMappingsFromContent(viewerContent, this.language, new VSCodeHost());
+        }
         return true;
     }
 
     public unsubscribeById(id: string, close?: boolean): number {
-        const mapping = this.fileMappings.find((m) => m.id === id);
+        const mapping = this.unsubscribeInternal(id);
         if (mapping) {
-            this.fileMappings = this.fileMappings.filter((m) => m !== mapping);
             if (close) {
                 if (mapping.kind === 'local') {
                     closeTextDocument(mapping.viewerDocument);
@@ -176,6 +203,15 @@ export class ScriptSync implements vscode.Disposable {
             }
         }
         return this.fileMappings.length;
+    }
+
+    private unsubscribeInternal(id: string) : TrackedFile | undefined
+    {
+        const mapping = this.fileMappings.find((m) => m.id === id);
+        if (!mapping) return;
+        console.error(this.masterDocument.uri.toString(),"unsubscribing from",id);
+        this.fileMappings = this.fileMappings.filter((m) => m !== mapping);
+        return mapping;
     }
 
     public unsubscribeByFile(viewerFile: string, close?: boolean): number {
@@ -193,6 +229,17 @@ export class ScriptSync implements vscode.Disposable {
 
     public unsubscribeVirtualByUri(uri: vscode.Uri, close?: boolean): void {
         this.unsubscribeById(uri.toString(), close);
+    }
+
+    public updateVirtualItem(uri: vscode.Uri, item: ObjectInventoryItem): void {
+        const original = this.fileMappings.find(
+            (m): m is TrackedVirtualFile =>
+                m.kind === 'virtual' && m.item?.item_id === item.item_id,
+        );
+        if(!original) return;
+        const mapping = this.unsubscribeInternal(original.id);
+        if(!mapping) return;
+        this.subscribeVirtual(uri, undefined, original.identity, item);
     }
 
     public evictVirtualMappingsForObject(object_id: string): void {
@@ -219,8 +266,44 @@ export class ScriptSync implements vscode.Disposable {
         );
     }
 
-    public isTrackingVirtualUri(uri: vscode.Uri): boolean {
-        return this.isTrackingId(uri.toString());
+    public isTrackingIdentity(identity: ScriptIdentity): boolean {
+        return this.fileMappings.some((mapping) =>
+            mapping.identity?.rootId === identity.rootId &&
+            mapping.identity.primId === identity.primId &&
+            mapping.identity.itemId === identity.itemId
+        );
+    }
+
+    public isTrackingVirtualItem(item: ObjectInventoryItem): boolean {
+        return this.fileMappings.some(
+            (m): m is TrackedVirtualFile =>
+                m.kind === 'virtual' && m.item?.item_id === item.item_id,
+        );
+    }
+
+    public isTrackingVirtualItemInObject(object_id: string) : boolean {
+        return this.fileMappings.some(
+            (m): m is TrackedVirtualFile =>
+                m.kind === "virtual" && m.id.includes(object_id)
+        );
+    }
+
+    public getTrackedVirtualItemsInObject(object_id: string) : TrackedVirtualFile[] {
+        return this.fileMappings.filter(
+            (m): m is TrackedVirtualFile =>
+                m.kind === "virtual" && m.id.includes(object_id)
+        )
+    }
+
+    public setIdentityForId(id: string, identity: ScriptIdentity): void {
+        const mapping = this.fileMappings.find(
+            (candidate): candidate is TrackedLocalFile =>
+                candidate.kind === 'local' && candidate.id === id
+        );
+        if (mapping)
+        {
+            mapping.identity = identity;
+        }
     }
 
     public hasFilesToTrack() : boolean {
@@ -255,14 +338,16 @@ export class ScriptSync implements vscode.Disposable {
     //#region Diagnostics
     public clearDiagnostics(): void {
         this.diagnosticSources.forEach((source) => {
-            this.diagnosticCollection.delete(vscode.Uri.parse(source));
+            this.diagnosticCollection.delete(
+                this.diagnosticSourceToVscodeUri(source as StringUri),
+            );
         });
         this.diagnosticSources.clear();
     }
 
     public addDiagnostics(diagnosticsMap: { [source: string]: vscode.Diagnostic[] }): void {
         Object.entries(diagnosticsMap).forEach(([filePath, diagnostics]) => {
-            const fileUri = vscode.Uri.parse(filePath);
+            const fileUri = this.diagnosticSourceToVscodeUri(filePath as StringUri);
 
             const oldList = this.diagnosticCollection.get(fileUri) || [];
             const newList = [...oldList, ...diagnostics];
@@ -272,6 +357,22 @@ export class ScriptSync implements vscode.Disposable {
             console.log(`Displayed ${diagnostics.length} errors for ${path.basename(fileUri.fsPath)}`);
         });
 
+    }
+
+    private diagnosticSourceToVscodeUri(source: StringUri): vscode.Uri {
+        if (source === "input-0" || source === "<unknown>") {
+            return this.masterDocument.uri;
+        }
+
+        if (/^[a-zA-Z][a-zA-Z0-9+\-.]*:\/\//.test(source)) {
+            return stringUriToVscodeUri(source);
+        }
+
+        const masterDirectory = uriDirname(
+            vscodeUriToStringUri(this.masterDocument.uri),
+        );
+        const resolvedSource = resolveUri(masterDirectory, source);
+        return stringUriToVscodeUri(resolvedSource);
     }
 
     public async handleCompilationResult(message: CompilationResult): Promise<void> {
@@ -286,7 +387,7 @@ export class ScriptSync implements vscode.Disposable {
             return;
         }
 
-        const errors = message.errors || [];
+        const errors = message.diagnostics || [];
 
         // Walk through the errors returned from the viewer and map them back to a source file.
         const diagnosticList: {
@@ -303,9 +404,14 @@ export class ScriptSync implements vscode.Disposable {
                 if (mapping) {
                     line = mapping.line;
                     file = mapping.source;
-                    document = vscode.workspace.textDocuments.find(doc =>
-                        uriEquals(vscodeUriToStringUri(doc.uri), mapping.source)
-                    );
+                    document = vscode.workspace.textDocuments.find((doc) =>
+                    {
+                        try {
+                            return uriEquals(vscodeUriToStringUri(doc.uri), mapping.source);
+                        } catch {
+                            return false;
+                        }
+                    });
                 }
             }
 
@@ -333,6 +439,63 @@ export class ScriptSync implements vscode.Disposable {
             }
             diagnosticList[file].push(diagnostic);
 
+        });
+
+        this.addDiagnostics(diagnosticList);
+    }
+
+    public handleSaveDiagnostics(diagnostics: Diagnostic[]): void {
+        const diagnosticList: {
+            [source: string]: vscode.Diagnostic[];
+        } = {};
+
+        diagnostics.forEach((error) => {
+            let line = error.row;
+            let file: StringUri = vscodeUriToStringUri(this.masterDocument.uri);
+            let document: vscode.TextDocument | undefined = this.masterDocument;
+
+            if (this.lineMappings) {
+                const mapping = LineMapper.convertAbsoluteLineToSource(
+                    this.lineMappings,
+                    error.row,
+                );
+                if (mapping) {
+                    line = mapping.line;
+                    file = mapping.source;
+                    document = vscode.workspace.textDocuments.find((doc) =>
+                    {
+                        try {
+                            return uriEquals(vscodeUriToStringUri(doc.uri), mapping.source);
+                        } catch {
+                            return false;
+                        }
+                    });
+                }
+            }
+
+            line = Math.max(0, (line || 1) - 1);
+            const column = Math.max(0, (error.column || 1) - 1);
+            const lineText = document?.lineAt(
+                Math.min(line, document.lineCount - 1),
+            ).text;
+            const endColumn = lineText
+                ? (column < lineText.length ? column + 1 : lineText.length)
+                : column + 1;
+
+            const diagnostic = new vscode.Diagnostic(
+                new vscode.Range(
+                    new vscode.Position(line, column),
+                    new vscode.Position(line, endColumn),
+                ),
+                error.message,
+                errorLevelToSeverity(error.level),
+            );
+            diagnostic.source = "Second Life Compile";
+
+            if (!diagnosticList[file]) {
+                diagnosticList[file] = [];
+            }
+            diagnosticList[file].push(diagnostic);
         });
 
         this.addDiagnostics(diagnosticList);
@@ -388,7 +551,11 @@ export class ScriptSync implements vscode.Disposable {
 
     //#region Script Compilation and Runtime
     public async handleRuntimeError(message: RuntimeError): Promise<void> {
-        const errorMessage = `Runtime error on object ${message.object_name} (${message.object_id}): ${message.error}`;
+        const stackMessage = message.stack?.length
+            ? `\n\nStack trace:\n    ${message.stack.join("\n    ")}`
+            : "";
+        const errorMessage =
+            `${message.object_name} ERROR: ${message.error}${stackMessage}`;
 
         let line = message.line;
         let file: StringUri = vscodeUriToStringUri(this.masterDocument.uri);
@@ -428,15 +595,17 @@ export class ScriptSync implements vscode.Disposable {
         this.diagnosticSources.add(file);
         this.diagnosticCollection.set(fileUri, [diagnostic]);
 
-        const errorLog = errorMessage +
-            (message.stack ? `\nStack trace:\n    ${message.stack.join('\n    ')}` : '');
-        logError(errorLog);
+        logRuntimeError(errorMessage);
 
     }
 
     public async handleRuntimeDebug(message: RuntimeDebug): Promise<void> {
-        const debugMessage = `Debug message on object ${message.object_name} (${message.object_id}): ${message.message}`;
-        logInfo(debugMessage);
+        const label = message.channel === "owner_say"
+            ? "OWNER"
+            : "DEBUG";
+        const debugMessage =
+            `${message.object_name} ${label}: ${message.message}`;
+        logRuntimeInfo(debugMessage);
     }
     //#endregion
 

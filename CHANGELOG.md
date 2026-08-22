@@ -5,6 +5,30 @@ All notable changes to the Second Life External Scripting Extension will be docu
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.0.6] - 2026-08-21
+
+## What's Changed
+* chore: prepare release v1.0.5 by @github-actions[bot] in https://github.com/secondlife/sl-vscode-plugin/pull/82
+* Improve the VSCode plugin setup instructions by @tapple in https://github.com/secondlife/sl-vscode-plugin/pull/86
+* Bump the npm_and_yarn group across 1 directory with 4 updates by @dependabot[bot] in https://github.com/secondlife/sl-vscode-plugin/pull/84
+* Next plugin version by @Rider-Linden in https://github.com/secondlife/sl-vscode-plugin/pull/94
+* Bump brace-expansion from 1.1.12 to 1.1.18 in the npm_and_yarn group across 1 directory by @dependabot[bot] in https://github.com/secondlife/sl-vscode-plugin/pull/87
+* Update the Readme with another lsl Extension and refine wording a little by @WolfGangS in https://github.com/secondlife/sl-vscode-plugin/pull/104
+* Make paths for luau-lsp config defintion files relative by @WolfGangS in https://github.com/secondlife/sl-vscode-plugin/pull/102
+* Remove dependancy on autobuild and replace with js script by @WolfGangS in https://github.com/secondlife/sl-vscode-plugin/pull/101
+* Allow notecards without extension in name to still link by @WolfGangS in https://github.com/secondlife/sl-vscode-plugin/pull/105
+* Bump js-yaml from 4.3.0 to 4.3.1 in the npm_and_yarn group across 1 directory by @dependabot[bot] in https://github.com/secondlife/sl-vscode-plugin/pull/100
+* Hide the sl explorer view if plugin is not enabled, and give it it's own icon by @WolfGangS in https://github.com/secondlife/sl-vscode-plugin/pull/103
+* Fix #107 bug with duplicate extensions when renaming an inworld item by @WolfGangS in https://github.com/secondlife/sl-vscode-plugin/pull/108
+* Fix #106 active syncs not switching to new names if script is renamed by @WolfGangS in https://github.com/secondlife/sl-vscode-plugin/pull/110
+* Rider/runtime msging by @Rider-Linden in https://github.com/secondlife/sl-vscode-plugin/pull/112
+* Issue #109: Initialize the language server with SL defs at startup. by @Rider-Linden in https://github.com/secondlife/sl-vscode-plugin/pull/114
+* Start writing some actual documentation. by @Rider-Linden in https://github.com/secondlife/sl-vscode-plugin/pull/116
+
+
+**Full Changelog**: https://github.com/secondlife/sl-vscode-plugin/compare/v1.0.5...v1.0.6
+
+
 ## [1.0.5] - 2026-07-29
 
 ## What's Changed

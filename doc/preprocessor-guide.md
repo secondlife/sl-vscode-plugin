@@ -1,5 +1,6 @@
 # Second Life Script Preprocessor - Complete Guide
 
+
 The Second Life Script Preprocessor is a comprehensive tool that supports advanced preprocessing directives for LSL (Linden Scripting Language) scripts. This preprocessor enables modular programming, code reuse, conditional compilation, and macro expansion to create maintainable and configurable scripts. For SLua (Second Life Lua) scripts, the extension supports `require()` syntax for file inclusion.
 
 ## Table of Contents

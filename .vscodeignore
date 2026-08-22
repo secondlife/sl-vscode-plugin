@@ -2,6 +2,7 @@
 .vscode-test/**
 .github/**
 .*
+.autobuild/**
 src/**
 out/test/**
 data/dev/**
@@ -29,3 +30,4 @@ tsconfig.tsbuildinfo
 package-lock.json
 yarn.lock
 .pnpm-lock.yaml
+.resources/**

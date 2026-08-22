@@ -48,7 +48,9 @@ export class LineMapper {
 
                 const sourceFileString = quotedMatch[1];
                 // console.log(`quoted is: ${sourceFileString} `);
-                const processedLine = i + 1; // Line numbers are 1-based
+                // The directive declares the line number of the line that follows it,
+                // so the mapping anchor is the next physical line, not the directive's own line.
+                const processedLine = i + 2;
 
                 // Store URI directly from the @line directive
                 const sourceFileUri = sourceFileString as StringUri;

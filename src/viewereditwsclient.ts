@@ -85,6 +85,7 @@ export interface ScriptSubscribeResponse {
     success: boolean;
     status: number;
     object_id?: string;
+    root_id?: string;
     item_id?: string;
     message?: string;
 }
@@ -119,7 +120,42 @@ export interface SyntaxCacheFile {
     error?: string;
 }
 
-export interface CompilationError {
+export interface CommandExecuteParams {
+    command: string;
+    params?: Record<string, unknown>;
+}
+
+export interface CommandExecuteResponse {
+    success: boolean;
+    result?: unknown;
+    error_code?: CommandErrorCode;
+    message?: string;
+}
+
+export const enum CommandErrorCode {
+    UnknownCommand  = 1,
+    InvalidParams   = 2,
+    NotPermitted    = 3,
+    ExecutionError  = 4,
+}
+
+export interface CommandParamInfo {
+    type: "string" | "number" | "boolean" | "object" | "array";
+    required?: boolean;
+    description?: string;
+}
+
+export interface CommandInfo {
+    command: string;
+    description?: string;
+    params?: Record<string, CommandParamInfo>;
+}
+
+export interface CommandListResponse {
+    commands: CommandInfo[];
+}
+
+export interface Diagnostic {
     row: number;
     column: number;
     level: string;
@@ -128,27 +164,52 @@ export interface CompilationError {
 }
 
 export interface CompilationResult {
-    script_id: string; // Optional script ID for which the result applies
+    /** @deprecated Retained during migration to item-based routing. */
+
+    script_id: string; // Script ID for which the result applies
+
     success: boolean;
     running: boolean;
-    errors?: CompilationError[];
+    diagnostics?: Diagnostic[];
 }
 
 export interface RuntimeDebug {
-    script_id: string;
     object_id: string;
+    /** @deprecated Use item.prim_id instead. */
+    prim_id?: string;
+    /** @deprecated Use item.item_id instead. */
+    item_id?: string;
     object_name: string;
     message: string;
+    channel?: "debug" | "owner_say";
+    item?: ItemRef;
 }
 
 export interface RuntimeError {
-    script_id: string;
     object_id: string;
+    /** @deprecated Use item.prim_id instead. */
+    prim_id?: string;
+    /** @deprecated Use item.item_id instead. */
+    item_id?: string;
     object_name: string;
     message: string;
+    /** @deprecated Retained for the current runtime-error consumer. */
     error: string;
+    /** @deprecated Use location.line in the unified diagnostic contract. */
     line: number;
+    column?: number;
+    /** @deprecated Use structured stack frames in the unified diagnostic contract. */
     stack?: string[];
+    channel?: "debug" | "owner_say";
+    item?: ItemRef;
+}
+
+export interface ItemRef {
+    root_id: string;
+    prim_id?: string | null;
+    item_id?: string;
+    name?: string;
+    language?: "lsl" | "luau";
 }
 
 /**
@@ -168,6 +229,8 @@ export interface WebSocketHandlers {
     onObjectPublish?: (message: ObjectPublishMessage) => void;
     onObjectUnpublish?: (message: ObjectUnpublishMessage) => void;
     onObjectUpdate?: (message: ObjectUpdateMessage) => void;
+    onCommandExecute?: (params: CommandExecuteParams) => Promise<CommandExecuteResponse>;
+    onCommandList?: () => CommandListResponse;
 }
 
 /**
@@ -181,10 +244,82 @@ export interface ClientInfo {
 
 //#endregion
 
+export interface MessageTransport extends vscode.Disposable {
+    connect(): Promise<{ success: boolean; message?: string }>;
+    disconnect(): void;
+    isConnected(): boolean;
+    getStatus(): { connected: boolean; url: string; reconnectAttempts: number };
+    isDisposed(): boolean;
+    isConnecting(): boolean;
+    onConnectionChange(listener: (event: { connected: boolean; message?: string }) => any): vscode.Disposable;
+    on(method: string, handler: ((params?: any) => any | Promise<any> | void) | undefined): void;
+    call(method: string, params?: any): Promise<any>;
+    notify(method: string, params?: any): boolean;
+}
+
+export type MessageTransportFactory = (
+    context: vscode.ExtensionContext,
+    url: string,
+) => MessageTransport;
+
+class JSONRPCMessageTransport implements MessageTransport {
+    private readonly client: JSONRPCClient;
+
+    constructor(context: vscode.ExtensionContext, url: string) {
+        this.client = new JSONRPCClient(context, url);
+    }
+
+    public connect(): Promise<{ success: boolean; message?: string }> {
+        return this.client.connect();
+    }
+
+    public disconnect(): void {
+        this.client.disconnect();
+    }
+
+    public isConnected(): boolean {
+        return this.client.isConnected();
+    }
+
+    public getStatus(): { connected: boolean; url: string; reconnectAttempts: number } {
+        return this.client.getStatus();
+    }
+
+    public isDisposed(): boolean {
+        return this.client.isDisposed();
+    }
+
+    public isConnecting(): boolean {
+        return Boolean((this.client as any)["isConnecting"]);
+    }
+
+    public onConnectionChange(listener: (event: { connected: boolean; message?: string }) => any): vscode.Disposable {
+        return this.client.onConnectionChange(listener);
+    }
+
+    public on(method: string, handler: ((params?: any) => any | Promise<any> | void) | undefined): void {
+        this.client.on(method, handler);
+    }
+
+    public call(method: string, params?: any): Promise<any> {
+        return this.client.call(method, params);
+    }
+
+    public notify(method: string, params?: any): boolean {
+        return this.client.notify(method, params);
+    }
+
+    public dispose(): void {
+        this.client.dispose();
+    }
+}
+
 /**
  * Service class that handles WebSocket connection and JSON-RPC communication
  */
-export class ViewerEditWSClient extends JSONRPCClient {
+export class ViewerEditWSClient implements vscode.Disposable {
+    private readonly context: vscode.ExtensionContext;
+    private readonly transport: MessageTransport;
     private handlers: WebSocketHandlers = {};
     private pingTimer: NodeJS.Timeout | undefined;
     private consecutivePingFailures: number = 0;
@@ -193,8 +328,38 @@ export class ViewerEditWSClient extends JSONRPCClient {
     constructor(
         context: vscode.ExtensionContext,
         url: string = "ws://localhost:9020",
+        transportFactory: MessageTransportFactory = (ctx, transportUrl) => new JSONRPCMessageTransport(ctx, transportUrl),
     ) {
-        super(context, url);
+        this.context = context;
+        this.transport = transportFactory(context, url);
+    }
+
+    public async connect(): Promise<{ success: boolean; message?: string }> {
+        return this.transport.connect();
+    }
+
+    public disconnect(): void {
+        this.transport.disconnect();
+    }
+
+    public isConnected(): boolean {
+        return this.transport.isConnected();
+    }
+
+    public getStatus(): { connected: boolean; url: string; reconnectAttempts: number } {
+        return this.transport.getStatus();
+    }
+
+    public isDisposed(): boolean {
+        return this.transport.isDisposed();
+    }
+
+    public call(method: string, params?: any): Promise<any> {
+        return this.transport.call(method, params);
+    }
+
+    public notify(method: string, params?: any): boolean {
+        return this.transport.notify(method, params);
     }
 
     public dispose(): void {
@@ -208,7 +373,7 @@ export class ViewerEditWSClient extends JSONRPCClient {
             // Don't wait for disconnect messages during disposal
             // Just close the connection immediately
             this.disconnect();
-            super.dispose();
+            this.transport.dispose();
         } catch (error) {
             // Log but don't throw during disposal
             console.warn("Error during ViewerEditWSClient disposal:", error);
@@ -227,26 +392,40 @@ export class ViewerEditWSClient extends JSONRPCClient {
         this.handlers = handlers;
 
         // Register JSON-RPC handlers
-        this.on("session.handshake", this.handlers.onHandshake);
-        this.on("session.ok", this.handlers.onHandshakeOk);
-        this.on("session.disconnect", this.handlers.onDisconnect);
-        this.on("language.syntax.change", this.handlers.onSyntaxChange);
-        this.on("script.unsubscribe", this.handlers.onUnsubscribe);
-        this.on("script.compiled", this.handlers.onCompilationResult);
-        this.on("runtime.debug", this.handlers.onRuntimeDebug);
-        this.on("runtime.error", this.handlers.onRuntimeError);
-        this.on("object.publish", this.handlers.onObjectPublish);
-        this.on("object.unpublish", this.handlers.onObjectUnpublish);
-        this.on("object.update", this.handlers.onObjectUpdate);
+        this.transport.on("session.handshake", this.handlers.onHandshake);
+        this.transport.on("session.ok", this.handlers.onHandshakeOk);
+        this.transport.on("session.disconnect", this.handlers.onDisconnect);
+        this.transport.on("language.syntax.change", this.handlers.onSyntaxChange);
+        this.transport.on("script.unsubscribe", this.handlers.onUnsubscribe);
+        this.transport.on("script.compiled", this.handlers.onCompilationResult);
+        this.transport.on("runtime.debug", this.handlers.onRuntimeDebug);
+        this.transport.on("runtime.error", this.handlers.onRuntimeError);
+        this.transport.on("object.publish", this.handlers.onObjectPublish);
+        this.transport.on("object.unpublish", this.handlers.onObjectUnpublish);
+        this.transport.on("object.update", this.handlers.onObjectUpdate);
+
+        this.transport.on("command.execute", (params: CommandExecuteParams): Promise<CommandExecuteResponse> => {
+            if (this.handlers.onCommandExecute) {
+                return this.handlers.onCommandExecute(params);
+            }
+            return Promise.resolve({ success: false, error_code: CommandErrorCode.UnknownCommand, message: "Unknown command" });
+        });
+
+        this.transport.on("command.list", (): CommandListResponse => {
+            if (this.handlers.onCommandList) {
+                return this.handlers.onCommandList();
+            }
+            return { commands: [] };
+        });
 
         // Register handler for viewer-initiated pings
-        this.on("session.ping", (params: SessionPing): SessionPingResponse => ({
+        this.transport.on("session.ping", (params: SessionPing): SessionPingResponse => ({
             timestamp: params.timestamp,
             server_time: Date.now()
         }));
 
         // Handle connection close - stop ping timer and notify handlers
-        this.onConnectionChange((event) => {
+        this.transport.onConnectionChange((event) => {
             if (!event.connected) {
                 console.log("[WebSocket] Connection closed, cleaning up");
                 this.stopPingTimer();
@@ -273,7 +452,7 @@ export class ViewerEditWSClient extends JSONRPCClient {
 
         try {
             if (this.isConnected()) {
-                this.notify("session.disconnect", { reason, message });
+                this.transport.notify("session.disconnect", { reason, message });
 
                 setTimeout(
                     () => {
@@ -298,7 +477,7 @@ export class ViewerEditWSClient extends JSONRPCClient {
      * @returns Promise resolving to the ping response with timing information
      */
     public sendPing(): Promise<SessionPingResponse> {
-        return this.call("session.ping", {
+        return this.transport.call("session.ping", {
             timestamp: Date.now()
         });
     }
@@ -351,51 +530,59 @@ export class ViewerEditWSClient extends JSONRPCClient {
     // ============================================
 
     public getObjectContent(params: ObjectContentGetParams): Promise<ObjectContentGetResponse> {
-        return this.call("object.content.get", params);
+        return this.transport.call("object.content.get", params);
     }
 
     public saveObjectContent(params: ObjectContentSaveParams): Promise<ObjectContentSaveResponse> {
-        return this.call("object.content.save", params);
+        return this.transport.call("object.content.save", params);
     }
 
     public createObjectItem(params: ObjectItemCreateParams): Promise<ObjectItemCreateResponse> {
-        return this.call("object.item.create", params);
+        return this.transport.call("object.item.create", params);
     }
 
     public deleteObjectItem(params: ObjectItemDeleteParams): Promise<ObjectItemDeleteResponse> {
-        return this.call("object.item.delete", params);
+        return this.transport.call("object.item.delete", params);
     }
 
     public setScriptRunning(params: ObjectScriptSetRunningParams): Promise<ObjectScriptSetRunningResponse> {
-        return this.call("object.script.set_running", params);
+        return this.transport.call("object.script.set_running", params);
     }
 
     public resetScript(params: ObjectScriptResetParams): Promise<ObjectScriptResetResponse> {
-        return this.call("object.script.reset", params);
+        return this.transport.call("object.script.reset", params);
     }
 
     public unpublishObject(params: ObjectUnpublishParams): Promise<ObjectUnpublishResponse> {
-        return this.call("object.unpublish", params);
+        return this.transport.call("object.unpublish", params);
     }
 
     public requestObject(params: ObjectRequestParams): Promise<ObjectRequestResponse> {
-        return this.call("object.request", params);
+        return this.transport.call("object.request", params);
     }
 
     public getObjectList(): Promise<ObjectListResponse> {
-        return this.call("object.list", {});
+        return this.transport.call("object.list", {});
     }
 
     public modifyObject(params: ObjectModifyParams): Promise<ObjectModifyResponse> {
-        return this.call("object.modify", params);
+        return this.transport.call("object.modify", params);
     }
 
     public modifyObjectItem(params: ObjectItemModifyParams): Promise<ObjectItemModifyResponse> {
-        return this.call("object.item.modify", params);
+        return this.transport.call("object.item.modify", params);
     }
 
     public getScriptList(): Promise<ScriptList> {
-        return this.call("script.list", {});
+        return this.transport.call("script.list", {});
+    }
+
+    public executeCommand(params: CommandExecuteParams): Promise<CommandExecuteResponse> {
+        return this.transport.call("command.execute", params);
+    }
+
+    public listCommands(): Promise<CommandListResponse> {
+        return this.transport.call("command.list", {});
     }
 
     private setupConnectionCloseHandler(): void {
@@ -407,7 +594,7 @@ export class ViewerEditWSClient extends JSONRPCClient {
             }
 
             // Check if connection was closed externally
-            if (!this.isConnected() && !this["isConnecting"]) {
+            if (!this.isConnected() && !this.transport.isConnecting()) {
                 clearInterval(checkConnectionInterval);
                 this.handlers.onConnectionClosed?.();
             }

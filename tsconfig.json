@@ -9,5 +9,5 @@
     "strict": true
   },
   "include": ["src/**/*"],
-  "exclude": ["yaml-example.ts", "test-*.js", "debug-*.js"]
+  "exclude": ["yaml-example.ts", "test-*.js", "debug-*.js", "src/webview/**"]
 }
