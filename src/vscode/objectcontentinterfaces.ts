@@ -62,6 +62,7 @@ export interface LinkedObject {
     link_number: number;       // Link number (2+ = children; root is 1)
     link_name: string;         // Display name of the linked prim
     link_description?: string;
+    permissions?: ObjectPermissions;   // Actual permissions for this linked prim
     inventory: ObjectInventoryItem[];
 }
 

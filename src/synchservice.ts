@@ -760,9 +760,14 @@ export class SynchService implements vscode.Disposable {
 
     private onRuntimeDebug(message: RuntimeDebug): void {
         const identity = this.runtimeIdentity(message.item);
-        const sync = identity
-            ? this.findSyncByIdentity(identity)
-            : undefined;
+        let sync: ScriptSync | undefined;
+        if (identity) {
+            sync = this.findSyncByIdentity(identity);
+        } else if (message.script_id) {
+            sync = this.findSyncByScriptId(message.script_id);
+        } else {
+            sync = undefined;
+        }
         if (sync) {
             sync.handleRuntimeDebug(message);
         }
@@ -778,9 +783,14 @@ export class SynchService implements vscode.Disposable {
 
     private onRuntimeError(message: RuntimeError): void {
         const identity = this.runtimeIdentity(message.item);
-        const sync = identity
-            ? this.findSyncByIdentity(identity)
-            : undefined;
+        let sync: ScriptSync | undefined;
+        if (identity) {
+            sync = this.findSyncByIdentity(identity);
+        } else if (message.script_id) {
+            sync = this.findSyncByScriptId(message.script_id);
+        } else {
+            sync = undefined;
+        }
 
         if (sync) {
             sync.handleRuntimeError(message);

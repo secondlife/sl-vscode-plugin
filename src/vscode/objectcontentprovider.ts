@@ -519,7 +519,8 @@ export class ObjectContentProvider implements vscode.FileSystemProvider, vscode.
             } else {
                 const fetched = await client.getObjectContent({ prim_id, item_id });
                 if (!fetched.success) { return; }
-                content = fetched.encoding === "base64"
+                const encoding = fetched.encoding ?? "utf-8";
+                content = encoding === "base64"
                     ? Buffer.from(fetched.content, "base64").toString("utf-8")
                     : fetched.content;
             }
@@ -666,7 +667,10 @@ export class ObjectContentProvider implements vscode.FileSystemProvider, vscode.
 
         try {
             const response = await client.getObjectContent({ prim_id, item_id: item_id! });
-            const text = response.content ?? "";
+            const encoding = response.encoding ?? "utf-8";
+            const text = encoding === "base64"
+                ? Buffer.from(response.content ?? "", "base64").toString("utf-8")
+                : response.content ?? "";
             const bytes = Buffer.from(text, "utf-8");
             this.service.cacheContent(root_id, item_id!, bytes);
             return bytes;

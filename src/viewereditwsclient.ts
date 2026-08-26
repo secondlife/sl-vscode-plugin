@@ -174,6 +174,7 @@ export interface CompilationResult {
 }
 
 export interface RuntimeDebug {
+    script_id?: string;
     object_id: string;
     /** @deprecated Use item.prim_id instead. */
     prim_id?: string;
@@ -186,6 +187,7 @@ export interface RuntimeDebug {
 }
 
 export interface RuntimeError {
+    script_id?: string;
     object_id: string;
     /** @deprecated Use item.prim_id instead. */
     prim_id?: string;

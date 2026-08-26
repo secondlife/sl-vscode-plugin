@@ -775,7 +775,7 @@ Debug message notification sent by the viewer during script execution.
 
 ```typescript
 interface RuntimeDebug {
-  script_id: string;   // Not currently sent — see note below
+  script_id?: string;  // Present when the viewer can resolve a script subscription id
   object_id: string;
   prim_id: string;
   item_id: string;
@@ -805,7 +805,7 @@ Runtime error notification sent by the viewer when a script encounters an error 
 
 ```typescript
 interface RuntimeError {
-  script_id: string;   // Not currently sent — see note below
+  script_id?: string;  // Present when the viewer can resolve a script subscription id
   object_id: string;
   prim_id: string;
   item_id: string;
@@ -848,8 +848,9 @@ interface ItemRef {
   - `name`: Script name as it appears in the prim's inventory.
   - `language`: The script's source language. Independent of the compile target; the VM is not carried in runtime messages.
 
-**Note on `script_id`:** this field is part of the contract but is **not currently sent** by the
-viewer for either `runtime.debug` or `runtime.error`. Implementation is tracked separately.
+**Note on `script_id`:** this field is optional. It is included when the viewer can resolve the
+originating script inventory item and construct a subscription id from `prim_id` + `item_id`.
+When that resolution is not possible, the field is omitted.
 
 **Delivery:** `runtime.debug` and `runtime.error` are broadcast to all connections. An event is
 emitted when the originating object is published or its script is subscribed.
@@ -953,6 +954,7 @@ interface LinkedObject {
   link_number: number;      // Link number (root=1, children≥2)
   link_name: string;
   link_description?: string;
+  permissions?: ObjectPermissions;   // Actual permissions for this linked prim
   inventory: ObjectInventoryItem[];
 }
 
@@ -968,7 +970,7 @@ interface PublishedObject {
   object_description?: string;
   region?: string;
   owner_id?: string;
-  permissions?: ObjectPermissions;
+  permissions?: ObjectPermissions;   // Actual permissions for this root prim
   can_save_back?: boolean;      // Whether Save Back to Contents is currently available for this object
   inventory: ObjectInventoryItem[];      // Root prim's scripts and notecards
   linked_objects?: LinkedObject[];       // Child prims
@@ -1216,7 +1218,7 @@ interface ObjectContentSaveParams {
   item_id: string;
   content: string;
   vm?: "mono" | "lsl2" | "luau";
-  running?: boolean;  // Scripts only: run state applied after compilation. Defaults to false.
+  running?: boolean;  // Scripts only: run state applied after compilation when supplied.
 }
 
 interface ObjectContentSaveResponse {
@@ -1234,12 +1236,12 @@ interface ObjectContentSaveResponse {
 - `item_id`: UUID of the saved inventory item.
 - `content`: Raw script/notecard source text to store.
 - `vm` (optional): Scripts only compile target. Accepted values are `"mono"`, `"lsl2"`, `"luau"`. When `"luau"` is specified for an LSL script (as opposed to a native Luau script), the viewer automatically selects the correct LSL-on-Luau compile path. If omitted, inferred from item metadata or content analysis.
-- `running` (optional): Scripts only. The run state the viewer applies to the script once the upload and compilation complete. Defaults to `false` when omitted. To preserve a script's current run state across a save, echo the `running` value from the corresponding `ObjectInventoryItem` in the most recent `object.publish` or `object.update`.
+- `running` (optional): Scripts only. When provided, the viewer applies that run state after upload and compilation. When omitted, the viewer preserves the script's current run state and does not force it off.
 - `success`: Whether the upload/save operation succeeded.
 - `compiled` (optional): Scripts only. `true` when compilation succeeded, `false` when source saved but compile failed.
 - `diagnostics` (optional): Scripts only. Compiler diagnostics when `compiled` is `false`.
 
-> **Warning:** Omitting `running` does not leave the script's run state unchanged — it stops the script. A client that saves a running script without sending `running: true` will silently stop it.
+> **Note:** Omitting `running` leaves the script's existing run state unchanged. Only an explicit `true` or `false` changes the post-save state.
 
 **Permissions.** Requires `PERM_MODIFY` on the item and modify permission on the containing prim.
 See [Common preconditions](#common-preconditions) for the shared checks and errors.
@@ -1610,10 +1612,17 @@ The invoked command's own handler may raise further errors — `-32602` for bad 
 `-32003` when the action is not permitted, `-32603` on internal failure. Clients must handle any
 error code, not only the two above.
 
-**Capability gate:** A side MUST NOT send `command.execute` unless the peer advertised
-`commands: true` in the handshake. A receiver that receives the call without having negotiated the
-feature should respond with a JSON-RPC error. **Not currently enforced on receive by the viewer**
-— the gate is applied only when sending. Implementation is tracked separately.
+**Capability gate (directional):**
+
+- A sender MUST NOT call `command.execute` on a peer that did not advertise `commands: true`.
+- A receiver MAY accept `command.execute` whenever it advertised `commands: true`, regardless of
+  whether the sender advertised `commands`.
+- In practice this means:
+  - Extension → Viewer calls are allowed when the viewer advertised `commands: true`.
+  - Viewer → Extension calls are allowed only when the extension advertised `commands: true`.
+
+This treats `commands` as a receiver capability per direction, not as a symmetric "both sides or
+nothing" toggle.
 
 **Example — extension asks viewer to teleport:**
 
@@ -1708,9 +1717,8 @@ interface CommandParamInfo {
 - `commands`: Array of commands the responder supports. Each entry describes one command.
   - `command`: The namespaced command identifier.
   - `description` (optional): Human-readable description of what the command does.
-  - `params` (optional): Map of parameter names to their type descriptors. **Not currently
-    populated** — the viewer returns only `command` and `description`, so parameter discovery
-    does not work. Implementation is tracked separately.
+  - `params` (optional): Map of parameter names to their type descriptors. The viewer populates
+    this field for its registered commands.
 
 **Known viewer commands:**
 
@@ -1719,6 +1727,8 @@ interface CommandParamInfo {
 | `viewer.teleport` | `object_id: string` | Teleport agent to an in-world object. |
 | `viewer.camera.focus` | `object_id: string` | Zoom camera to an in-world object (same behavior as context menu Zoom In). |
 | `viewer.object.save_back_to_contents` | `object_id: string` | Save an in-world object back to source object contents. |
+| `viewer.script.reset_all` | `object_id: string` | Open the viewer's reset queue and reset all scripts in an in-world object. |
+| `viewer.script.recompile_all` | `object_id: string`, `target: "luau" \| "lsl2" \| "mono" \| "auto"` | Open the viewer's compile queue and recompile scripts in an in-world object using the selected target. `luau` automatically selects Luau for native Luau scripts and LSL-Luau for LSL scripts. `auto` uses each script's previously registered VM. |
 
 **Known extension commands:**
 
