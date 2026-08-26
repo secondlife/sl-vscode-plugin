@@ -7,8 +7,6 @@ declare const acquireVsCodeApi: () => {
     setState(state: unknown): void;
 };
 
-export {};
-
 // ============================================
 // Types
 // ============================================
@@ -883,7 +881,7 @@ function showItemMenu(anchor: MenuAnchor, itemEl: HTMLElement): void {
             label: "Select VM",
             submenu: (
                 [
-                    { vm: "lsl2", label: "LSL2" },
+                    { vm: "lsl2", label: "LSL" },
                     { vm: "mono", label: "Mono" },
                     { vm: "luau", label: "Luau" },
                 ] as Array<{ vm: string; label: string }>
@@ -1110,6 +1108,9 @@ function showObjectMenu(anchor: MenuAnchor, objectEl: HTMLElement): void {
 
     const object_id = objectEl.dataset["objectId"]!;
     const objectEntry = state.objects.find((obj) => obj.object_id === object_id);
+    const hasScripts = objectEntry?.inventory.some((item) => item.type === "script") ?? false;
+    const resetAllAvailable = viewerCommands.has("viewer.script.reset_all");
+    const recompileAllAvailable = viewerCommands.has("viewer.script.recompile_all");
     const canSaveBack = objectEntry?.can_save_back === true;
     const saveBackCommandAvailable = viewerCommands.has("viewer.object.save_back_to_contents");
     const saveBackEnabled = saveBackCommandAvailable && canSaveBack;
@@ -1136,6 +1137,46 @@ function showObjectMenu(anchor: MenuAnchor, objectEl: HTMLElement): void {
         },
         { separator: true },
         {
+            label: "Reset All Scripts",
+            disabled: !resetAllAvailable || !hasScripts,
+            action: () => vscode.postMessage({ command: "resetAllScripts", payload: { object_id } }),
+        },
+        {
+            label: "Recompile All",
+            disabled: !recompileAllAvailable || !hasScripts,
+            submenu: [
+                {
+                    label: "Luau",
+                    action: () => vscode.postMessage({
+                        command: "recompileAllScripts",
+                        payload: { object_id, target: "luau" },
+                    }),
+                },
+                {
+                    label: "LSL",
+                    action: () => vscode.postMessage({
+                        command: "recompileAllScripts",
+                        payload: { object_id, target: "lsl2" },
+                    }),
+                },
+                {
+                    label: "Mono",
+                    action: () => vscode.postMessage({
+                        command: "recompileAllScripts",
+                        payload: { object_id, target: "mono" },
+                    }),
+                },
+                {
+                    label: "Current VM",
+                    action: () => vscode.postMessage({
+                        command: "recompileAllScripts",
+                        payload: { object_id, target: "auto" },
+                    }),
+                },
+            ],
+        },
+        { separator: true },
+        {
             label: "Teleport To",
             disabled: !viewerCommands.has("viewer.teleport"),
             action: () => vscode.postMessage({ command: "teleportToObject", payload: { object_id } }),
@@ -1151,6 +1192,11 @@ function showObjectMenu(anchor: MenuAnchor, objectEl: HTMLElement): void {
 function showPrimMenu(anchor: MenuAnchor, primEl: HTMLElement): void {
     const object_id = primEl.dataset["objectId"]!;
     const prim_id = primEl.dataset["primId"]!;
+    const objectEntry = state.objects.find((obj) => obj.object_id === object_id);
+    const primEntry = objectEntry?.linked_objects?.find((obj) => obj.link_id === prim_id);
+    const hasScripts = primEntry?.inventory.some((item) => item.type === "script") ?? false;
+    const resetAllAvailable = viewerCommands.has("viewer.script.reset_all");
+    const recompileAllAvailable = viewerCommands.has("viewer.script.recompile_all");
 
     showMenu(anchor, [
         {
@@ -1160,6 +1206,46 @@ function showPrimMenu(anchor: MenuAnchor, primEl: HTMLElement): void {
         {
             label: "New File...",
             action: () => beginCreateItem(object_id, prim_id),
+        },
+        { separator: true },
+        {
+            label: "Reset All Scripts",
+            disabled: !resetAllAvailable || !hasScripts,
+            action: () => vscode.postMessage({ command: "resetAllScripts", payload: { object_id: prim_id } }),
+        },
+        {
+            label: "Recompile All",
+            disabled: !recompileAllAvailable || !hasScripts,
+            submenu: [
+                {
+                    label: "Luau",
+                    action: () => vscode.postMessage({
+                        command: "recompileAllScripts",
+                        payload: { object_id: prim_id, target: "luau" },
+                    }),
+                },
+                {
+                    label: "LSL",
+                    action: () => vscode.postMessage({
+                        command: "recompileAllScripts",
+                        payload: { object_id: prim_id, target: "lsl2" },
+                    }),
+                },
+                {
+                    label: "Mono",
+                    action: () => vscode.postMessage({
+                        command: "recompileAllScripts",
+                        payload: { object_id: prim_id, target: "mono" },
+                    }),
+                },
+                {
+                    label: "Current VM",
+                    action: () => vscode.postMessage({
+                        command: "recompileAllScripts",
+                        payload: { object_id: prim_id, target: "auto" },
+                    }),
+                },
+            ],
         },
     ]);
 }

@@ -218,6 +218,32 @@ export class ObjectExplorerWebviewProvider implements vscode.WebviewViewProvider
         this._view.webview.postMessage({ type: "viewerCommands", payload: { commands } });
     }
 
+    private async _executeViewerCommand(
+        command: string,
+        params: Record<string, unknown>,
+        failureMessage: string,
+        successMessage?: string,
+    ): Promise<void> {
+        const socket = this.getWebSocket();
+        if (!socket) {
+            vscode.window.showErrorMessage("Not connected to Second Life viewer.");
+            return;
+        }
+
+        try {
+            const response = await socket.executeCommand({ command, params });
+            if (!response.success) {
+                vscode.window.showErrorMessage(response.message ?? failureMessage);
+                return;
+            }
+            if (successMessage) {
+                vscode.window.showInformationMessage(successMessage);
+            }
+        } catch (err) {
+            vscode.window.showErrorMessage(`${failureMessage}: ${err}`);
+        }
+    }
+
     private async _handleMessage(message: { command: string; payload: Record<string, unknown> }): Promise<void> {
         switch (message.command) {
             case "openItem": {
@@ -386,36 +412,53 @@ export class ObjectExplorerWebviewProvider implements vscode.WebviewViewProvider
                 break;
             case "teleportToObject": {
                 const { object_id } = message.payload as { object_id: string };
-                this.getWebSocket()?.executeCommand({ command: "viewer.teleport", params: { object_id } });
+                void this._executeViewerCommand(
+                    "viewer.teleport",
+                    { object_id },
+                    "Failed to teleport to object",
+                );
                 break;
             }
             case "zoomInOnObject": {
                 const { object_id } = message.payload as { object_id: string };
-                this.getWebSocket()?.executeCommand({ command: "viewer.camera.focus", params: { object_id } });
+                void this._executeViewerCommand(
+                    "viewer.camera.focus",
+                    { object_id },
+                    "Failed to zoom to object",
+                );
                 break;
             }
             case "saveBackToObjectContents": {
                 const { object_id } = message.payload as { object_id: string };
-                const socket = this.getWebSocket();
-                if (!socket) {
-                    vscode.window.showErrorMessage("Not connected to Second Life viewer.");
-                    break;
-                }
-
-                try {
-                    const response = await socket.executeCommand({
-                        command: "viewer.object.save_back_to_contents",
-                        params: { object_id },
-                    });
-                    if (!response.success) {
-                        vscode.window.showErrorMessage(response.message ?? "Failed to save object back to contents.");
-                        break;
-                    }
-                    vscode.window.showInformationMessage("Saved object back to contents.");
-                } catch (err) {
-                    vscode.window.showErrorMessage(`Failed to save object back to contents: ${err}`);
-                }
-
+                await this._executeViewerCommand(
+                    "viewer.object.save_back_to_contents",
+                    { object_id },
+                    "Failed to save object back to contents",
+                    "Saved object back to contents.",
+                );
+                break;
+            }
+            case "resetAllScripts": {
+                const { object_id } = message.payload as { object_id: string };
+                await this._executeViewerCommand(
+                    "viewer.script.reset_all",
+                    { object_id },
+                    "Failed to reset scripts",
+                    "Reset queue opened.",
+                );
+                break;
+            }
+            case "recompileAllScripts": {
+                const { object_id, target } = message.payload as {
+                    object_id: string;
+                    target: "luau" | "lsl2" | "mono" | "auto";
+                };
+                await this._executeViewerCommand(
+                    "viewer.script.recompile_all",
+                    { object_id, target },
+                    "Failed to recompile scripts",
+                    "Compile queue opened.",
+                );
                 break;
             }
             case "togglePinObject": {
