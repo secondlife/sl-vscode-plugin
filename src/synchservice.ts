@@ -579,7 +579,7 @@ export class SynchService implements vscode.Disposable {
 
         const response: SessionHandshakeResponse = {
             client_name: ConfigService.getInstance().getConfig<string>(ConfigKey.ClientName) || "sl-vscode-plugin",
-            client_version: "1.0",
+            client_version: this.context.extension.packageJSON.version,
             protocol_version: "1.0",
             ...maybe("challenge_response", challengeResponse),
             ...maybe("script_name", scriptName),

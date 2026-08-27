@@ -65,11 +65,12 @@ export interface SessionDisconnect {
     message: string;
 }
 
-export interface SessionPing {
+export interface SystemPing {
     timestamp: number;
 }
 
-export interface SessionPingResponse {
+export interface SystemPingResponse {
+    pong: string;
     timestamp: number;
     server_time: number;
 }
@@ -420,8 +421,9 @@ export class ViewerEditWSClient implements vscode.Disposable {
             return { commands: [] };
         });
 
-        // Register handler for viewer-initiated pings
-        this.transport.on("session.ping", (params: SessionPing): SessionPingResponse => ({
+        // Register handler for viewer-initiated system pings
+        this.transport.on("system.ping", (params: SystemPing): SystemPingResponse => ({
+            pong: "pong",
             timestamp: params.timestamp,
             server_time: Date.now()
         }));
@@ -478,8 +480,8 @@ export class ViewerEditWSClient implements vscode.Disposable {
      * Sends a ping to the viewer to check connection health and measure latency.
      * @returns Promise resolving to the ping response with timing information
      */
-    public sendPing(): Promise<SessionPingResponse> {
-        return this.transport.call("session.ping", {
+    public sendPing(): Promise<SystemPingResponse> {
+        return this.transport.call("system.ping", {
             timestamp: Date.now()
         });
     }
