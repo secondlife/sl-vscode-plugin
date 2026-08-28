@@ -10,6 +10,12 @@
     "vscode": "^1.85.0"
   },
   "license": "MIT",
+  "workspaces": [
+    "packages/*"
+  ],
+  "imports": {
+    "#sl-ide-ws-client": "./packages/sl-ide-ws-client/dist/index.js"
+  },
   "categories": [
     "Programming Languages",
     "Other"
@@ -394,16 +400,17 @@
     "definitions:sync": "npm run definitions:fetch && npm run definitions:stage",
     "definitions:validate": "node scripts/definitions-validate.js",
     "bootstrap:deps": "npm ci && npm run definitions:sync",
-    "compile": "tsc -p . && tsc -p tsconfig.webview.json && npm run copy-webview-assets && npm run copy-test-data",
+    "compile:packages": "npm run build --workspace @secondlife/sl-ide-ws-client",
+    "compile": "npm run compile:packages && tsc -p . && tsc -p tsconfig.webview.json && npm run copy-webview-assets && npm run copy-test-data",
     "copy-test-data": "node scripts/copy-test-data.js",
     "copy-webview-assets": "node scripts/copy-webview-assets.js",
     "watch": "tsc -watch -p ./",
     "pretest": "npm run compile",
-    "lint": "eslint src",
-    "lint:fix": "eslint src --fix",
+    "lint": "eslint src packages",
+    "lint:fix": "eslint src packages --fix",
     "test": "node ./out/test/runTest.js",
     "test-unit": "npx mocha \"./out/test/suite/parser.test.js\" \"./out/test/suite/lexingpreprocessor.test.js\" \"./out/test/suite/include-disk-integration.test.js\" --ui tdd --timeout 5000",
-    "test-compile": "tsc -p . --outDir out --skipLibCheck && npm run copy-test-data",
+    "test-compile": "npm run compile:packages && tsc -p . --outDir out --skipLibCheck && npm run copy-test-data",
     "precommit": "npm run lint && npm run test-compile && npm run test-unit"
   },
   "devDependencies": {
@@ -424,12 +431,10 @@
   },
   "dependencies": {
     "@iarna/toml": "^2.2.5",
-    "@types/ws": "^8.18.1",
     "@vscode/codicons": "^0.0.36",
     "js-sha256": "^0.11.1",
     "js-yaml": "^4.3.1",
-    "vscode-languageclient": "^9.0.1",
-    "ws": "^8.21.0"
+    "vscode-languageclient": "^9.0.1"
   },
   "linden_resources": {
     "lsl_definitions": {

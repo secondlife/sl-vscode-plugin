@@ -1,0 +1,38 @@
+{
+  "name": "@secondlife/sl-ide-ws-client",
+  "version": "1.0.0",
+  "private": true,
+  "description": "WebSocket / JSON-RPC client and object content model for the Second Life viewer edit protocol.",
+  "license": "MIT",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "default": "./dist/index.js"
+    },
+    "./protocol": {
+      "types": "./dist/protocol.d.ts",
+      "default": "./dist/protocol.js"
+    },
+    "./object-content": {
+      "types": "./dist/objectcontentinterfaces.d.ts",
+      "default": "./dist/objectcontentinterfaces.js"
+    }
+  },
+  "files": [
+    "dist"
+  ],
+  "scripts": {
+    "build": "tsc -p .",
+    "prepare": "tsc -p ."
+  },
+  "dependencies": {
+    "ws": "^8.21.0"
+  },
+  "devDependencies": {
+    "@types/node": "22.x",
+    "@types/ws": "^8.18.1",
+    "typescript": "^5.9.2"
+  }
+}

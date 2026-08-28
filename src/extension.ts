@@ -5,7 +5,7 @@
 import * as vscode from "vscode";
 import { SynchService } from "./synchservice";
 import { LanguageService } from "./shared/languageservice";
-import { ObjectContentService } from "./vscode/objectcontentservice";
+import { ObjectContentService, ViewerEditWSClient } from "#sl-ide-ws-client";
 import { ObjectContentProvider, SL_SCHEME, displayName } from "./vscode/objectcontentprovider";
 import { ObjectContentDecorator } from "./vscode/ObjectContentDecorator";
 import { ExplorerNode } from "./vscode/objectexplorerprovider";
@@ -23,7 +23,6 @@ import {
     showErrorMessage
 } from "./utils";
 import { ConfigKey } from "./interfaces/configinterface";
-import { ViewerEditWSClient } from "./viewereditwsclient";
 import path from "path";
 
 /**

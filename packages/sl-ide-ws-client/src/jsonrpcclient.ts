@@ -1,70 +1,31 @@
 /**
- * @file websockclient.ts
- * Copyright (C) 2025, Linden Research, Inc.
- */
-/**
- * @ * Example usage of JSON-RPC client:
+ * @file jsonrpcclient.ts
+ * JSON-RPC 2.0 specialization of the base WebSocket client.
+ *
+ * Example usage:
  * ```typescript
- * const client = new JSONRPCClient(context, 'ws://localhost:9020');
- * client.activate();
+ * const client = new JSONRPCClient({ url: "ws://localhost:9020" });
+ * client.connect();
  *
  * // Unified handler registration - works for both notifications and requests
- * client.on('script.updated', (params) => {
- *   console.log('Script updated:', params); // Notification handler
+ * client.on("script.updated", (params) => {
+ *   console.log("Script updated:", params); // Notification handler
  * });
  *
- * client.on('editor.getText', async (params) => {
- *   const document = await vscode.workspace.openTextDocument(params.uri);
- *   return document.getText(); // Request handler (returns value)
- * });                console.error(`Error in request handler for ${request.method}:`, error);
-                this.respondWithJSONRPCError(
-                    requestId,
-                    JSONRPCErrorCodes.INTERNAL_ERROR,
-                    'Internal error',
-                    error instanceof Error ? error.message : String(error)
-                ); // Call a method
- * try {
- *   const result = await client.call('someMethod', { param1: 'value1' });
- *   console.log('Method result:', result);
- * } catch (error) {
- *   console.error('RPC call failed:', error);
- * }
+ * // Call a method
+ * const result = await client.call("someMethod", { param1: "value1" });
  *
  * // Send a notification
- * client.notify('someNotification', { data: 'notification data' });
+ * client.notify("someNotification", { data: "notification data" });
  *
  * // Remove handler
- * client.off('script.updated');
- * ```s
- *
- * WebSocket client implementations for Second Life scripting extension.
- *
- * This file provides two main classes:
- * - WebsockClient: Basic WebSocket client with reconnection logic
- * - JSONRPCClient: JSON-RPC 2.0 specialization for structured communication
- *
- * Example usage of JSON-RPC client:
- * ```typescript
- * const client = new JSONRPCClient(context, 'ws://localhost:9020');
- * client.activate();
- *
- * // Call a method
- * try {
- *   const result = await client.call('someMethod', { param1: 'value1' });
- *   console.log('Method result:', result);
- * } catch (error) {
- *   console.error('RPC call failed:', error);
- * }
- *
- * // Send a notification
- * client.notify('someNotification', { data: 'notification data' });
+ * client.off("script.updated");
  * ```
  *
+ * Copyright (C) 2025, Linden Research, Inc.
  */
-
-import * as vscode from "vscode";
 import WebSocket from "ws";
-import { logDebug } from "./utils";
+import { WebsockClient, WebsockClientOptions } from "./websockclient";
 
 /**
  * JSON-RPC 2.0 message types
@@ -123,305 +84,9 @@ export interface JSONRPCInterface {
     clearHandlers?(): void;
 }
 
-//#region Base websocket client
 /**
- * WebSocket client for Second Life scripting extension
- * Handles communication with external WebSocket servers or Second Life viewer
- */
-export class WebsockClient implements vscode.Disposable {
-    private client: WebSocket | undefined;
-    private disposed = false;
-    private reconnectTimer: NodeJS.Timeout | undefined;
-    private reconnectInterval: number = 5000; // 5 seconds
-    private maxReconnectAttempts: number = 10;
-    private reconnectAttempts: number = 0;
-    private url: string;
-    private isConnecting: boolean = false;
-    protected context: vscode.ExtensionContext;
-    private _onConnectionChange = new vscode.EventEmitter<{
-    connected: boolean;
-    message?: string;
-  }>();
-
-    public readonly onConnectionChange: vscode.Event<{
-    connected: boolean;
-    message?: string;
-  }> = this._onConnectionChange.event;
-
-    constructor(
-        context: vscode.ExtensionContext,
-        url: string = "ws://localhost:9020",
-    ) {
-        this.url = url;
-        this.context = context;
-    }
-
-    public dispose(): void {
-        if (this.disposed) {
-            return;
-        }
-
-        this.disposed = true;
-
-        // Disconnect safely
-        this.disconnect();
-
-        console.log("WebSocket client disposed");
-    }
-
-    public isDisposed(): boolean {
-        return this.disposed;
-    }
-
-    /**
-   * Connects to the WebSocket server
-   */
-    public async connect(): Promise<{ success: boolean; message?: string }> {
-        if (this.isConnecting || this.isConnected()) {
-            return { success: true };
-        }
-
-        this.isConnecting = true;
-        console.log(`Attempting to connect to WebSocket server at ${this.url}`);
-
-        let connectingResolve:
-      | ((success: boolean, message?: string) => void)
-      | undefined;
-
-        let connecting = new Promise<{ success: boolean; message?: string }>(
-            (resolve, _reject) => {
-                connectingResolve = (success: boolean, message?: string): void => {
-                    resolve({ success, message });
-                };
-            },
-        );
-
-        try {
-            this.client = new WebSocket(this.url);
-
-            this.client.on("open", () => {
-                this.isConnecting = false;
-                this.reconnectAttempts = 0;
-                console.log("WebSocket client connected successfully");
-                vscode.window.showInformationMessage("Connected to WebSocket server");
-                this._onConnectionChange.fire({ connected: true });
-                connectingResolve!(true);
-            });
-
-            this.client.on("message", (data: WebSocket.RawData) => {
-                this.handleMessage(data);
-            });
-
-            this.client.on("close", (code: number, reason: Buffer) => {
-                this.isConnecting = false;
-                console.log(
-                    `WebSocket connection closed: ${code} - ${reason.toString()}`,
-                );
-
-                this._onConnectionChange.fire({
-                    connected: false,
-                    message: reason.toString(),
-                });
-                if (connectingResolve) {
-                    connectingResolve(false, reason.toString());
-                }
-                // if (!this.disposed && this.shouldReconnect()) {
-                //     this.scheduleReconnect();
-                // }
-            });
-
-            this.client.on("error", (error: Error) => {
-                this.isConnecting = false;
-                console.error("WebSocket client error:", error);
-
-                if (connectingResolve) {
-                    connectingResolve(false, error.message);
-                }
-            });
-        } catch (error) {
-            this.isConnecting = false;
-            console.error("Failed to create WebSocket connection:", error);
-            if (connectingResolve) {
-                connectingResolve(false, String(error));
-            }
-        }
-
-        return connecting;
-    }
-
-    /**
-   * Handles incoming WebSocket messages
-   */
-    protected handleMessage(data: WebSocket.RawData): void {
-        try {
-            const message = JSON.parse(data.toString());
-            console.log("Received WebSocket message:", message);
-
-            switch (message.command) {
-                case "pong":
-                    this.handlePongMessage(message);
-                    break;
-                default:
-                    console.log("Unknown message type:", message.type);
-            }
-        } catch (error) {
-            console.error("Error parsing WebSocket message:", error);
-        }
-    }
-
-    /**
-   * Handles pong response from server
-   */
-    private handlePongMessage(message: any): void {
-        const latency = Date.now() - message.timestamp;
-        console.log(`WebSocket ping latency: ${latency}ms`);
-    }
-
-    /**
-   * Sends a message to the WebSocket server
-   */
-    public sendMessage(message: any): boolean {
-        if (!this.isConnected()) {
-            console.warn("Cannot send message: WebSocket not connected");
-            return false;
-        }
-
-        try {
-      this.client!.send(JSON.stringify(message));
-      return true;
-        } catch (error) {
-            console.error("Error sending WebSocket message:", error);
-            return false;
-        }
-    }
-
-    /**
-   * Sends a ping message to the server
-   */
-    public ping(): boolean {
-        return this.sendMessage({
-            type: "ping",
-            timestamp: Date.now(),
-        });
-    }
-
-    /**
-   * Checks if the WebSocket is currently connected
-   */
-    public isConnected(): boolean {
-        return (
-            this.client !== undefined && this.client.readyState === WebSocket.OPEN
-        );
-    }
-
-    /**
-   * Gets the current connection status
-   */
-    public getStatus(): {
-    connected: boolean;
-    url: string;
-    reconnectAttempts: number;
-    } {
-        return {
-            connected: this.isConnected(),
-            url: this.url,
-            reconnectAttempts: this.reconnectAttempts,
-        };
-    }
-
-    /**
-   * Determines if reconnection should be attempted
-   */
-    private shouldReconnect(): boolean {
-        return this.reconnectAttempts < this.maxReconnectAttempts;
-    }
-
-    /**
-   * Schedules a reconnection attempt
-   */
-    private scheduleReconnect(): void {
-        if (this.reconnectTimer) {
-            clearTimeout(this.reconnectTimer);
-        }
-
-        this.reconnectAttempts++;
-        console.log(
-            `Scheduling reconnection attempt ${this.reconnectAttempts}/${this.maxReconnectAttempts} in ${this.reconnectInterval}ms`,
-        );
-
-        this.reconnectTimer = setTimeout(() => {
-            if (!this.disposed) {
-                this.connect();
-            }
-        }, this.reconnectInterval);
-    }
-
-    /**
-   * Manually disconnects from the WebSocket server
-   */
-    public disconnect(): void {
-        try {
-            if (this.reconnectTimer) {
-                clearTimeout(this.reconnectTimer);
-                this.reconnectTimer = undefined;
-            }
-
-            if (this.client) {
-                console.log("Disconnecting WebSocket client");
-
-                // Remove all listeners first to prevent handling events during close
-                this.client.removeAllListeners();
-
-                // Close connection immediately without waiting
-                if (
-                    this.client.readyState === WebSocket.OPEN ||
-          this.client.readyState === WebSocket.CONNECTING
-                ) {
-                    try {
-                        this.client.terminate(); // Force close instead of graceful close
-                    } catch (error) {
-                        console.warn("Error during WebSocket terminate:", error);
-                    }
-                }
-
-                this.client = undefined;
-            }
-
-            this.reconnectAttempts = 0;
-            this.isConnecting = false;
-        } catch (error) {
-            console.warn("Error during WebSocket disconnect:", error);
-        }
-    }
-
-    /**
-   * Sets the WebSocket server URL
-   */
-    public setUrl(url: string): void {
-        if (this.url !== url) {
-            this.url = url;
-
-            // If currently connected, disconnect and reconnect with new URL
-            if (this.isConnected()) {
-                this.disconnect();
-                this.connect();
-            }
-        }
-    }
-
-    /**
-   * Gets the current WebSocket server URL
-   */
-    public getUrl(): string {
-        return this.url;
-    }
-}
-//#endregion
-
-//#region JSON-RPC client specialization
-/**
- * JSON-RPC WebSocket client specialization for Second Life scripting extension
- * Implements JSON-RPC 2.0 protocol over WebSocket connection
+ * JSON-RPC WebSocket client specialization for the Second Life viewer edit protocol.
+ * Implements JSON-RPC 2.0 protocol over a WebSocket connection.
  */
 export class JSONRPCClient extends WebsockClient implements JSONRPCInterface {
     private pendingRequests = new Map<
@@ -441,44 +106,41 @@ export class JSONRPCClient extends WebsockClient implements JSONRPCInterface {
     (params?: any) => any | Promise<any> | void
   >();
 
-    constructor(
-        context: vscode.ExtensionContext,
-        url: string = "ws://localhost:9020",
-    ) {
-        super(context, url);
+    constructor(options: WebsockClientOptions = {}) {
+        super(options);
     }
 
     private logIncomingMessage(message: JSONRPCMessage): void {
         if (this.isJSONRPCRequest(message)) {
-            logDebug(`[JSON-RPC] <- request method=${message.method} id=${String(message.id)}`);
+            this.logger?.debug?.(`[JSON-RPC] <- request method=${message.method} id=${String(message.id)}`);
             return;
         }
 
         if (this.isJSONRPCNotification(message)) {
-            logDebug(`[JSON-RPC] <- notification method=${message.method}`);
+            this.logger?.debug?.(`[JSON-RPC] <- notification method=${message.method}`);
             return;
         }
 
         if (this.isJSONRPCResponse(message)) {
             const status = message.error ? "error" : "result";
-            logDebug(`[JSON-RPC] <- response id=${String(message.id)} status=${status}`);
+            this.logger?.debug?.(`[JSON-RPC] <- response id=${String(message.id)} status=${status}`);
         }
     }
 
     private logOutgoingMessage(message: JSONRPCMessage): void {
         if (this.isJSONRPCRequest(message)) {
-            logDebug(`[JSON-RPC] -> request method=${message.method} id=${String(message.id)}`);
+            this.logger?.debug?.(`[JSON-RPC] -> request method=${message.method} id=${String(message.id)}`);
             return;
         }
 
         if (this.isJSONRPCNotification(message)) {
-            logDebug(`[JSON-RPC] -> notification method=${message.method}`);
+            this.logger?.debug?.(`[JSON-RPC] -> notification method=${message.method}`);
             return;
         }
 
         if (this.isJSONRPCResponse(message)) {
             const status = message.error ? "error" : "result";
-            logDebug(`[JSON-RPC] -> response id=${String(message.id)} status=${status}`);
+            this.logger?.debug?.(`[JSON-RPC] -> response id=${String(message.id)} status=${status}`);
         }
     }
 
@@ -567,11 +229,6 @@ export class JSONRPCClient extends WebsockClient implements JSONRPCInterface {
     }
 
     private handleJSONRPCNotification(notification: JSONRPCNotification): void {
-        // console.log(
-        //     `JSON-RPC notification: ${notification.method}`,
-        //     notification.params,
-        // );
-
         // Check for dynamically registered handlers
         const handler = this.methodHandlers.get(notification.method);
         if (handler) {
@@ -602,8 +259,6 @@ export class JSONRPCClient extends WebsockClient implements JSONRPCInterface {
     }
 
     private async handleJSONRPCRequest(request: JSONRPCRequest): Promise<void> {
-        // console.log(`JSON-RPC request: ${request.method}`, request.params);
-
         // For requests, id should not be undefined, but we need to handle it safely
         const requestId = request.id !== undefined ? request.id : null;
 
@@ -617,7 +272,7 @@ export class JSONRPCClient extends WebsockClient implements JSONRPCInterface {
                 console.error(`Error in request handler for ${request.method}:`, error);
                 this.respondWithJSONRPCError(
                     requestId,
-                    -32603,
+                    JSONRPCErrorCodes.INTERNAL_ERROR,
                     "Internal error",
                     error instanceof Error ? error.message : String(error),
                 );
@@ -826,5 +481,3 @@ export class JSONRPCClient extends WebsockClient implements JSONRPCInterface {
         }
     }
 }
-
-//#endregion

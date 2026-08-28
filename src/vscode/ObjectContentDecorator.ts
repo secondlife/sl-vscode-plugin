@@ -15,7 +15,7 @@ import {
     Disposable,
 } from "vscode";
 import { SL_SCHEME } from "./objectcontentprovider";
-import { ObjectContentService } from "./objectcontentservice";
+import { ObjectContentService } from "#sl-ide-ws-client";
 import { logDebug } from "../utils";
 
 /**

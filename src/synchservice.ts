@@ -19,14 +19,12 @@ import {
     SyntaxChange,
     RuntimeDebug,
     RuntimeError,
-} from "./viewereditwsclient";
-import {
     ObjectPublishMessage,
     ObjectUnpublishMessage,
     ObjectUpdateMessage,
     ObjectInventoryItem,
     PublishedObject,
-} from "./vscode/objectcontentinterfaces";
+} from "#sl-ide-ws-client";
 import {
     hasWorkspace,
     showInfoMessage,
@@ -48,13 +46,13 @@ import {
     CommandExecuteParams,
     CommandExecuteResponse,
     CommandListResponse,
-} from "./viewereditwsclient";
+} from "#sl-ide-ws-client";
 import { ScriptLanguage, LanguageService } from "./shared/languageservice";
 import { ScriptIdentity, ScriptSync } from "./scriptsync";
 import { getLanguageConfig } from "./shared/lexer";
 import { HostInterface } from "./interfaces/hostinterface";
 import { SyncedFileDecorator } from "./vscode/SyncedFileDecorator";
-import { ObjectContentChangeEvent, ObjectContentService, ObjectTreeChangeEvent } from "./vscode/objectcontentservice";
+import { ObjectContentChangeEvent, ObjectContentService, ObjectTreeChangeEvent } from "#sl-ide-ws-client";
 import { ObjectPinStore } from "./vscode/objectpinstore";
 import { SL_SCHEME, SL_AUTHORITY, displayName, itemUri, languageForItem } from "./vscode/objectcontentprovider";
 
@@ -523,11 +521,24 @@ export class SynchService implements vscode.Disposable {
 
         const port = portOverride
             ?? this.host.config.getConfig<number>(ConfigKey.NetworkWebsocketPort, 9020);
-        this.websocket = new ViewerEditWSClient(
-            this.context,
-            `ws://localhost:${port}`
-        );
-        this.websocket.setup(handlers);
+        this.websocket = new ViewerEditWSClient({
+            url: `ws://localhost:${port}`,
+            logger: {
+                debug: logDebug,
+                info: logInfo,
+                warn: logWarning,
+            },
+            notify: (message, kind): void => {
+                if (kind === "status") {
+                    showStatusMessage(message);
+                } else {
+                    showInfoMessage(message);
+                }
+            },
+            disconnectDelayMs: (): number =>
+                this.host.config.getConfig<number>(ConfigKey.NetworkDisconnectDelayMs, 1000),
+        });
+        this.context.subscriptions.push(this.websocket.setup(handlers));
         let connected = await this.websocket.connect();
 
         if (!connected.success) {

@@ -5,17 +5,17 @@
  * Copyright (C) 2025, Linden Research, Inc.
  */
 import * as vscode from "vscode";
-import { ObjectContentService } from "./objectcontentservice";
-import { ViewerEditWSClient } from "../viewereditwsclient";
 import {
+    Diagnostic,
     InventoryItemType,
     LinkedObject,
     ObjectContentSaveVM,
+    ObjectContentService,
     ObjectInventoryItem,
     ObjectItemCreateParams,
     ScriptVM,
-} from "./objectcontentinterfaces";
-import type { Diagnostic } from "../viewereditwsclient";
+    ViewerEditWSClient,
+} from "#sl-ide-ws-client";
 import { ScriptLanguage } from "../shared/languageservice";
 
 // ============================================
@@ -319,6 +319,18 @@ export function displayName(item: ObjectInventoryItem): string {
 export function languageForItem(item: ObjectInventoryItem) : ScriptLanguage {
     if(item.type == "notecard") return "txt";
     return item.subtype === 1 ? "luau" : "lsl";
+}
+
+/** Resolve the sl:// URI of an inventory item by locating its containing prim. */
+export function uriForInventoryItem(
+    service: ObjectContentService,
+    item: ObjectInventoryItem,
+): vscode.Uri | undefined {
+    const parents = service.getParentsOfInventoryItem(item.item_id);
+    if (!parents || parents.length < 1) return undefined;
+    const root = parents[0];
+    const prim = parents.length > 1 ? parents[1] : root;
+    return itemUri(root, prim, displayName(item));
 }
 
 /**

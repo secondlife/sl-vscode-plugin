@@ -5,9 +5,11 @@
  * Copyright (C) 2025, Linden Research, Inc.
  */
 import * as vscode from "vscode";
-import { ObjectContentService } from "./objectcontentservice";
-import { PublishedObject } from "./objectcontentinterfaces";
-import { ViewerEditWSClient } from "../viewereditwsclient";
+import {
+    ObjectContentService,
+    PublishedObject,
+    ViewerEditWSClient,
+} from "#sl-ide-ws-client";
 import { ObjectPinStore } from "./objectpinstore";
 import { displayName } from "./objectcontentprovider";
 

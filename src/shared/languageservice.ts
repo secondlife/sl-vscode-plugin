@@ -3,7 +3,12 @@
  * Copyright (C) 2025, Linden Research, Inc.
  */
 //import { Preprocessor } from "./preprocessservice";
-import { JSONRPCInterface } from "../websockclient";
+import {
+    JSONRPCInterface,
+    SyntaxCacheFile,
+    SyntaxCacheGetRequest,
+    SyntaxCacheList,
+} from "#sl-ide-ws-client";
 import {
     resolveUri,
     HostInterface,
@@ -13,11 +18,6 @@ import {
 import { ConfigKey } from "../interfaces/configinterface";
 import { SelenePlugin, LuaLSPPlugin } from "../pluginsupport";
 import { ConfigService } from "../configservice";
-import {
-    SyntaxCacheFile,
-    SyntaxCacheGetRequest,
-    SyntaxCacheList,
-} from "../viewereditwsclient";
 
 // TODO: migrate to ConfigInterface injection
 export type ScriptLanguage = "lsl" | "luau" | "txt";

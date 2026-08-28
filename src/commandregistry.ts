@@ -8,7 +8,7 @@ import {
     CommandExecuteResponse,
     CommandInfo,
     CommandListResponse,
-} from "./viewereditwsclient";
+} from "#sl-ide-ws-client";
 
 type CommandHandler = (params: Record<string, unknown>) => Promise<CommandExecuteResponse>;
 
