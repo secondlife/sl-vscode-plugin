@@ -1,0 +1,22 @@
+{
+    "name": "@secondlife/sl-script-preprocessor",
+    "version": "1.0.0",
+    "private": true,
+    "description": "Secondlife scripting preprocessor for LSL and SLua",
+    "license": "MIT",
+    "main": "./dist/index.js",
+    "types": "./dist/index.d.ts",
+    "files": [
+      "dist"
+    ],
+    "scripts": {
+      "build": "tsc -p .",
+      "prepare": "tsc -p ."
+    },
+    "dependencies": {
+    },
+    "devDependencies": {
+      "@types/node": "22.x",
+      "typescript": "^5.9.2"
+    }
+  }

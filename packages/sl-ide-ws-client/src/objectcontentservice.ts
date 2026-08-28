@@ -3,7 +3,7 @@
  * Singleton service managing published in-world object content.
  * Copyright (C) 2025, Linden Research, Inc.
  */
-import * as vscode from "vscode";
+import { Disposable, Emitter } from "./events";
 import {
     ObjectInventoryItem,
     LinkedObject,
@@ -15,7 +15,6 @@ import {
     InventoryChanges,
     ScriptVM,
 } from "./objectcontentinterfaces";
-import { displayName, itemUri } from "./objectcontentprovider";
 
 // ============================================
 // Event Types
@@ -58,24 +57,24 @@ export interface ScriptVmChangeEvent {
 // Service
 // ============================================
 
-export class ObjectContentService implements vscode.Disposable {
+export class ObjectContentService implements Disposable {
     private static instance: ObjectContentService | undefined;
 
     private objects: Map<string, ObjectEntry> = new Map();
 
-    private _onDidChangeObjects = new vscode.EventEmitter<ObjectTreeChangeEvent>();
+    private _onDidChangeObjects = new Emitter<ObjectTreeChangeEvent>();
     readonly onDidChangeObjects = this._onDidChangeObjects.event;
 
-    private _onDidChangeContent = new vscode.EventEmitter<ObjectContentChangeEvent>();
+    private _onDidChangeContent = new Emitter<ObjectContentChangeEvent>();
     readonly onDidChangeContent = this._onDidChangeContent.event;
 
-    private _onDidChangeRunningState = new vscode.EventEmitter<ScriptRunningChangeEvent>();
+    private _onDidChangeRunningState = new Emitter<ScriptRunningChangeEvent>();
     readonly onDidChangeRunningState = this._onDidChangeRunningState.event;
 
-    private _onDidChangeScriptVm = new vscode.EventEmitter<ScriptVmChangeEvent>();
+    private _onDidChangeScriptVm = new Emitter<ScriptVmChangeEvent>();
     readonly onDidChangeScriptVm = this._onDidChangeScriptVm.event;
 
-    private disposables: vscode.Disposable[] = [];
+    private disposables: Disposable[] = [];
 
     private constructor() {
         this.disposables.push(this._onDidChangeObjects, this._onDidChangeContent, this._onDidChangeRunningState, this._onDidChangeScriptVm);
@@ -392,15 +391,6 @@ export class ObjectContentService implements vscode.Disposable {
             }
         }
         return undefined;
-    }
-
-
-    getUriForInventoryItem(item: ObjectInventoryItem) : vscode.Uri|undefined {
-        const parents = this.getParentsOfInventoryItem(item.item_id);
-        if (!parents || parents.length < 1) return undefined;
-        const root = parents[0];
-        const prim = parents.length > 1 ? parents[1] : root;
-        return itemUri(root, prim, displayName(item));
     }
 
     // ============================================

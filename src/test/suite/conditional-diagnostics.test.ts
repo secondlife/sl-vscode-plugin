@@ -4,11 +4,11 @@
  */
 
 import * as assert from 'assert';
-import { ConditionalProcessor } from '../../shared/conditionalprocessor';
-import { MacroProcessor } from '../../shared/macroprocessor';
-import { getLanguageConfig, Lexer, Token, TokenType } from '../../shared/lexer';
-import { ErrorCodes, DiagnosticSeverity } from '../../shared/diagnostics';
-import { filePathToStringUri } from '../../interfaces/hostinterface';
+import { ConditionalProcessor } from '#sl-script-preprocessor';
+import { MacroProcessor } from '#sl-script-preprocessor';
+import { getLanguageConfig, Lexer, Token, TokenType } from '#sl-script-preprocessor';
+import { ErrorCodes, DiagnosticSeverity } from '#sl-script-preprocessor';
+import { filePathToStringUri } from '#sl-script-preprocessor';
 
 suite('ConditionalProcessor Diagnostics', () => {
     let conditionals: ConditionalProcessor;

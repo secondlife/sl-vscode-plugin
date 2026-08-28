@@ -3,7 +3,7 @@ import * as path from 'path';
 import * as fs from 'fs';
 import { describe, it, before, after } from 'mocha';
 import { NodeHost } from '../../server/nodehost';
-import { filePathToStringUri, StringUri } from '../../interfaces/hostinterface';
+import { filePathToStringUri, StringUri } from '#sl-script-preprocessor';
 import { ConfigKey, FullConfigInterface } from '../../interfaces/configinterface';
 
 // Minimal in-memory + passthrough config implementation for tests
@@ -30,8 +30,7 @@ describe('NodeHost', () => {
 
     before(async () => {
         await fs.promises.mkdir(tmpRoot, { recursive: true });
-        const cfg = new TestConfig(tmpRoot);
-        host = new NodeHost({ roots: [tmpRoot], config: cfg });
+        host = new NodeHost({ roots: [tmpRoot]});
     });
 
     after(async () => {

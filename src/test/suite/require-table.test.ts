@@ -12,9 +12,9 @@
 
 import * as assert from 'assert';
 import * as path from 'path';
-import { Parser } from '../../shared/parser';
-import { getLanguageConfig, Lexer } from '../../shared/lexer';
-import { HostInterface, StringUri, filePathToStringUri, stringUriToFilePath } from '../../interfaces/hostinterface';
+import { Parser } from '#sl-script-preprocessor';
+import { getLanguageConfig, Lexer } from '#sl-script-preprocessor';
+import { HostInterface, StringUri, filePathToStringUri, stringUriToFilePath } from '#sl-script-preprocessor';
 import { createMockHostWithFiles } from './helpers/mockHost';
 
 suite('Require Table Tests', () => {
@@ -319,7 +319,6 @@ suite('Require Table Tests', () => {
 
             // Create a hybrid host that uses in-memory files
             const memoryHost : HostInterface = {
-                config: {} as any,
                 readFile: async (p: StringUri): Promise<string | null> => {
                     return files.get(p) || null;
                 },

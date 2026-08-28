@@ -1,10 +1,9 @@
-import type { Diagnostic } from "../viewereditwsclient";
-
 /**
  * @file objectcontentinterfaces.ts
  * Interfaces for object content publishing feature
  * Copyright (C) 2025, Linden Research, Inc.
  */
+import type { Diagnostic } from "./protocol";
 
 // ============================================
 // Core Data Types

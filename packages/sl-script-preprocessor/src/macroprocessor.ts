@@ -22,9 +22,9 @@
  * ```
  */
 
-import { Token, TokenType } from './lexer';
+import { Token, TokenType } from './token';
 import { DiagnosticCollector, ErrorCodes, DiagnosticSeverity } from './diagnostics';
-import { StringUri } from '../interfaces/hostinterface';
+import { StringUri } from './interfaces';
 
 //#region Macro Definition
 

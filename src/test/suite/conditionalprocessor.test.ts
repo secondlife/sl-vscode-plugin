@@ -4,10 +4,10 @@
  */
 
 import * as assert from 'assert';
-import { ConditionalProcessor } from '../../shared/conditionalprocessor';
-import { MacroProcessor, MacroDefinition } from '../../shared/macroprocessor';
-import { Token, TokenType, Lexer, getLanguageConfig } from '../../shared/lexer';
-import { ScriptLanguage } from '../../shared/languageservice';
+import { ConditionalProcessor } from '#sl-script-preprocessor';
+import { MacroProcessor, MacroDefinition } from '#sl-script-preprocessor';
+import { Token, TokenType, Lexer, getLanguageConfig } from '#sl-script-preprocessor';
+import { ScriptLanguage } from '#sl-script-preprocessor';
 
 suite('ConditionalProcessor (Lexing)', () => {
     let processor: ConditionalProcessor;

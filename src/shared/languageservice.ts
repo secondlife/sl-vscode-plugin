@@ -3,26 +3,30 @@
  * Copyright (C) 2025, Linden Research, Inc.
  */
 //import { Preprocessor } from "./preprocessservice";
-import { JSONRPCInterface } from "../websockclient";
 import {
-    resolveUri,
-    HostInterface,
-    TextDocLike,
-    DisposableLike
-} from "../interfaces/hostinterface";
-import { ConfigKey } from "../interfaces/configinterface";
-import { SelenePlugin, LuaLSPPlugin } from "../pluginsupport";
-import { ConfigService } from "../configservice";
-import {
+    JSONRPCInterface,
     SyntaxCacheFile,
     SyntaxCacheGetRequest,
     SyntaxCacheList,
-} from "../viewereditwsclient";
-
-// TODO: migrate to ConfigInterface injection
-export type ScriptLanguage = "lsl" | "luau" | "txt";
+} from "#sl-ide-ws-client";
+import {
+    resolveUri,
+    HostInterface
+} from "#sl-script-preprocessor";
+import { ConfigKey, FullConfigInterface } from "../interfaces/configinterface";
+import { SelenePlugin, LuaLSPPlugin } from "../pluginsupport";
+import { ConfigService } from "../configservice";
 
 //-----------------------------------------
+
+export interface TextDocLike {
+    languageId: string;
+    fileName: string;
+}
+
+export interface DisposableLike {
+    dispose(): void;
+}
 
 /**
  * Shared services container for LSP servers
@@ -32,13 +36,15 @@ export type ScriptLanguage = "lsl" | "luau" | "txt";
 export class LanguageService implements DisposableLike {
     private languageVersion: string = "0";
     private readonly host: HostInterface;
+    private readonly config: FullConfigInterface;
     private syntaxCacheFiles: string[] = [];
     private disposed = false;
 
     private static instance: LanguageService | undefined;
 
-    private constructor(host: HostInterface) {
+    private constructor(host: HostInterface, config: FullConfigInterface) {
         this.host = host;
+        this.config = config;
     }
 
     /**
@@ -54,7 +60,7 @@ export class LanguageService implements DisposableLike {
                     "LanguageService not initialized. Host is required for first initialization.",
                 );
             }
-            LanguageService.instance = new LanguageService(host);
+            LanguageService.instance = new LanguageService(host, ConfigService.getInstance());
             LanguageService.instance.initialize();
         }
         return LanguageService.instance;
@@ -89,7 +95,7 @@ export class LanguageService implements DisposableLike {
     }
 
     public getLastSyntaxID(): string | undefined {
-        return this.host.config.getConfig<string>(ConfigKey.LastSyntaxID);
+        return this.config.getConfig<string>(ConfigKey.LastSyntaxID);
     }
 
     public setSyntaxID(version: string): void {
@@ -121,7 +127,7 @@ export class LanguageService implements DisposableLike {
 
     private async configureSyntaxFromStagedArtifacts(syntaxId: string): Promise<boolean> {
         const dataRoot = resolveUri(
-            await this.host.config.getExtensionInstallPath(),
+            await this.config.getExtensionInstallPath(),
             "data",
         );
 
@@ -157,10 +163,10 @@ export class LanguageService implements DisposableLike {
             return false;
         }
 
-        const selene = new SelenePlugin(this.host);
+        const selene = new SelenePlugin(this.host, this.config);
         await selene.configureFromViewerCache(syntaxId, seleneYml);
 
-        const luauLSP = new LuaLSPPlugin(this.host);
+        const luauLSP = new LuaLSPPlugin(this.host, this.config);
         await luauLSP.configureFromViewerCache(
             syntaxId,
             dLuau,
@@ -180,7 +186,7 @@ export class LanguageService implements DisposableLike {
     ): Promise<boolean> {
         const cacheFiles = this.syntaxCacheFiles;
 
-        const selene = new SelenePlugin(this.host);
+        const selene = new SelenePlugin(this.host, this.config);
         if (cacheFiles.includes("secondlife_selene.yml")) {
             const content = await this.requestSyntaxCacheFile(socket, "secondlife_selene.yml");
             if (typeof content === "string") {
@@ -192,7 +198,7 @@ export class LanguageService implements DisposableLike {
             console.warn("syntax_cache: secondlife_selene.yml not in viewer cache, skipping Selene configuration");
         }
 
-        const luauLSP = new LuaLSPPlugin(this.host);
+        const luauLSP = new LuaLSPPlugin(this.host, this.config);
         const hasDLuau = cacheFiles.includes("secondlife.d.luau");
         const hasDocs = cacheFiles.includes("secondlife.docs.json");
         if (hasDLuau && hasDocs) {
@@ -264,7 +270,7 @@ export class LanguageService implements DisposableLike {
             return true;
         }
 
-        const configPath = await this.host.config.getWorkspaceConfigPath();
+        const configPath = await this.config.getWorkspaceConfigPath();
         const requiredFiles: string[] = [];
 
         if (SelenePlugin.isEnabledHost(this.host)) {

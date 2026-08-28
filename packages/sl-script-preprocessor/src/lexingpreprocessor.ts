@@ -11,9 +11,7 @@
  * - Macro expansion with proper tokenization
  */
 
-import { ScriptLanguage } from "./languageservice";
-import { StringUri, HostInterface } from "../interfaces/hostinterface";
-import { FullConfigInterface, ConfigKey } from "../interfaces/configinterface";
+import { StringUri, HostInterface, ScriptLanguage, PreprocessorOptions } from "./interfaces";
 import { LanguageLexerConfig, Lexer } from "./lexer";
 import { IncludeInfo, Parser } from "./parser";
 import { MacroProcessor } from "./macroprocessor";
@@ -22,22 +20,6 @@ import { LineMapping } from "./linemapper";
 
 //-------------------------------------------------------------
 //#region Preprocessor Interfaces
-
-export interface OptionFlags {
-    generateWarnings: boolean;
-    generateDecls: boolean;
-    disableInclude?: boolean;
-    disableMacros?: boolean;
-    disableConditionals?: boolean;
-}
-
-export interface PreprocessorOptions {
-    enable: boolean;
-    flags: OptionFlags;
-    includePaths?: string[];
-    maxIncludeDepth?: number; // Maximum nesting depth for #include and require() directives
-    config?: { [key in ConfigKey]?: any };
-}
 
 export interface PreprocessorError {
     message: string;
@@ -86,10 +68,10 @@ export interface DirectiveImplementations {
  */
 export class LexingPreprocessor {
     private fs: HostInterface;
-    private config: FullConfigInterface;
+    private config: PreprocessorOptions;
     private macros?: MacroProcessor;
 
-    constructor(fs: HostInterface, config: FullConfigInterface, macros?: MacroProcessor) {
+    constructor(fs: HostInterface, config: PreprocessorOptions, macros?: MacroProcessor) {
         this.fs = fs;
         this.config = config;
         this.macros = macros;
@@ -126,8 +108,7 @@ export class LexingPreprocessor {
         language: LanguageLexerConfig
     ): Promise<PreprocessorResult> {
         // Check if preprocessing is enabled
-        const enabled = this.config.getConfig<boolean>(ConfigKey.PreprocessorEnable) ?? true;
-        if (!enabled) {
+        if (!this.config.enabled) {
             return {
                 content: source,
                 success: true,
@@ -151,8 +132,8 @@ export class LexingPreprocessor {
             }
 
             // Get configuration values for include processing
-            const maxIncludeDepth = this.config.getConfig<number>(ConfigKey.PreprocessorMaxIncludeDepth) ?? 5;
-            const includePaths = this.config.getConfig<string[]>(ConfigKey.PreprocessorIncludePaths) ?? ['.'];
+            const maxIncludeDepth = this.config.include?.maxDepth ?? 5;
+            const includePaths = this.config.include?.paths ?? ['.'];
 
             // Use provided macros or initialize predefined macros
             const predefinedMacros = this.macros ?? this.initializePredefinedMacros(language.name);
@@ -214,7 +195,7 @@ export class LexingPreprocessor {
             };
 
         } catch (error) {
-            console.error("PREPROC CATCH",error);
+            this.config.logger?.error?.("PREPROC CATCH",error);
             return {
                 content: source,
                 success: false,

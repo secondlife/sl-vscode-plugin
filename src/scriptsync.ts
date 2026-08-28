@@ -6,34 +6,29 @@ import * as vscode from "vscode";
 import * as fs from "fs";
 import * as path from "path";
 import { ConfigService } from "./configservice";
-import { ConfigKey } from "./interfaces/configinterface";
+import { ConfigKey, FullConfigInterface } from "./interfaces/configinterface";
 import {
+    LineMapping, LineMapper,
     LexingPreprocessor,
     PreprocessorResult,
-    PreprocessorError
-} from "./shared/lexingpreprocessor";
-import { MacroProcessor } from './shared/macroprocessor';
-import { LineMapping, LineMapper } from "./shared/linemapper";
+    PreprocessorError,
+    ScriptLanguage,
+    MacroProcessor,
+    resolveUri, StringUri, uriDirname, uriEquals,
+    getLanguageConfig, isProccessedLanguage, LanguageLexerConfig,
+    IncludeInfo,
+    PreprocessorOptions
+} from "#sl-script-preprocessor";
 import {
-    showStatusMessage,
-    createFileWatcher,
-    closeTextDocument,
-    errorLevelToSeverity,
-    VSCodeHost,
-    logInfo,
-    logRuntimeInfo,
-    logRuntimeError,
-    logError
-} from "./utils";
-import { ScriptLanguage } from "./shared/languageservice";
-import { CompilationResult, Diagnostic, RuntimeDebug, RuntimeError } from "./viewereditwsclient";
-import { resolveUri, StringUri, uriDirname, uriEquals } from "./interfaces/hostinterface";
-import { stringUriToVscodeUri, vscodeUriToStringUri } from "./utils";
+    CompilationResult,
+    Diagnostic,
+    ObjectInventoryItem,
+    RuntimeDebug,
+    RuntimeError,
+} from "#sl-ide-ws-client";
+import { stringUriToVscodeUri, vscodeUriToStringUri, createFileWatcher, closeTextDocument, showStatusMessage, errorLevelToSeverity, logRuntimeInfo, logRuntimeError, VSCodeHost } from "./utils";
 import { SynchService } from "./synchservice";
-import { IncludeInfo } from "./shared/parser";
 import { sha256 } from "js-sha256";
-import { getLanguageConfig, isProccessedLanguage, LanguageLexerConfig } from "./shared/lexer";
-import { ObjectInventoryItem } from "./vscode/objectcontentinterfaces";
 
 
 //====================================================================
@@ -63,13 +58,36 @@ interface TrackedVirtualFile {
 
 type TrackedFile = TrackedLocalFile | TrackedVirtualFile;
 
+export function buildPreprocessorConfig(language: ScriptLanguage, config: FullConfigInterface) : PreprocessorOptions {
+    return {
+        enabled: true,
+        language: language,
+        flags: {
+            generateWarnings: true,
+            generateDecls: true,
+        },
+        notecard: {
+            commentPrefix: config.getConfig<string>(ConfigKey.NotecardSyncComment, "//"),
+        },
+        include: {
+            maxDepth: config.getConfig<number>(ConfigKey.PreprocessorMaxIncludeDepth, 5),
+            paths: config.getConfig<string[]>(ConfigKey.PreprocessorIncludePaths, ["."]),
+        },
+        logger: {
+            debug: (message: string) => console.debug(message),
+            info: (message: string) => console.info(message),
+            warn: (message: string) => console.warn(message),
+            error: (message: string, error?: unknown) => console.error(message, error),
+        },
+    };
+}
+
 export class ScriptSync implements vscode.Disposable {
     private saveListener: vscode.Disposable | undefined;
     private masterDocument: vscode.TextDocument;
     private language: ScriptLanguage;
     private fileMappings: TrackedFile[] = [];
     private macros: MacroProcessor;
-    private preprocessor: LexingPreprocessor | undefined;
     private disposed: boolean = false;
     private diagnosticCollection: vscode.DiagnosticCollection;
     private diagnosticSources: Set<string> = new Set();
@@ -97,12 +115,6 @@ export class ScriptSync implements vscode.Disposable {
         this.initializeSystemMacros(language);
 
         this.syncService = syncService;
-
-        // Initialize preprocessor with macro processor
-        const enabled = config.getConfig<boolean>(ConfigKey.PreprocessorEnable, true);
-        if (enabled && isProccessedLanguage(this.language)) {
-            this.preprocessor = new LexingPreprocessor(this.syncService.getHost(), config, this.macros);
-        }
 
         this.masterDocument = masterDocument;
         this.diagnosticCollection = vscode.languages.createDiagnosticCollection(
@@ -611,8 +623,12 @@ export class ScriptSync implements vscode.Disposable {
 
     public async preProcessContent(originalContent: string): Promise<string> {
         // Check if preprocessing is enabled
-        if(!this.preprocessor) return originalContent;
-        if(!this.config.getConfig<boolean>(ConfigKey.PreprocessorEnable)) return originalContent;
+        const enabled = this.config.getConfig<boolean>(ConfigKey.PreprocessorEnable, true);
+        if (!enabled || !isProccessedLanguage(this.language)) {
+            return originalContent;
+        }
+        const config = buildPreprocessorConfig(this.language, this.config);
+        const preprocessor = new LexingPreprocessor(this.syncService.getHost(), config, this.macros);
 
         this.clearDiagnostics();
 
@@ -625,7 +641,7 @@ export class ScriptSync implements vscode.Disposable {
 
             this.macros.clearNonSystemMacros();
             const languageConfig = this.getLanguageConfig();
-            preprocessorResult = await this.preprocessor.process(
+            preprocessorResult = await preprocessor.process(
                 originalContent,
                 vscodeUriToStringUri(this.masterDocument.uri),
                 languageConfig,
@@ -667,7 +683,7 @@ export class ScriptSync implements vscode.Disposable {
     }
 
     private getLanguageConfig(): LanguageLexerConfig {
-        const config = getLanguageConfig(this.language, this.config);
+        const config = getLanguageConfig(this.language, buildPreprocessorConfig(this.language, this.config));
         if(config.name === "lsl" && this.config.getConfig<boolean>(ConfigKey.PreprocessorLSLSwitchStatements, false)) {
             config.directiveKeywords.push("switch");
         }

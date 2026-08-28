@@ -4,7 +4,7 @@
  * Copyright (C) 2025, Linden Research, Inc.
  */
 
-import { StringUri } from "../interfaces/hostinterface";
+import { StringUri } from "./interfaces";
 
 //#region Diagnostic Types
 

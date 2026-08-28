@@ -5,8 +5,8 @@
 import * as vscode from "vscode";
 import path from "path";
 import { ConfigService } from "./configservice";
-import { ConfigKey, FullConfigInterface } from "./interfaces/configinterface";
-import { fileExists, HostInterface, StringUri, filePathToStringUri, stringUriToFilePath } from "./interfaces/hostinterface";
+import { ConfigKey } from "./interfaces/configinterface";
+import { fileExists, HostInterface, StringUri, filePathToStringUri, stringUriToFilePath } from "#sl-script-preprocessor";
 import { writeJSONFile, readJSONFile, writeYAMLFile, writeTOMLFile, readYAMLFile, readTOMLFile } from "./shared/sharedutils";
 
 // Generic utilities for sl-vscode-plugin
@@ -276,15 +276,12 @@ export function errorLevelToSeverity(level: string): vscode.DiagnosticSeverity {
 //#region Workspace/VScode file interface
 
 export class VSCodeHost implements HostInterface {
-    public readonly config: FullConfigInterface;
 
     constructor(private readonly context?: vscode.ExtensionContext) {
         // Adapt existing ConfigService singleton to FullConfigInterface implementation
         if (context) {
             ConfigService.getInstance(context); // ensure initialized
         }
-        const svc = ConfigService.getInstance();
-        this.config = svc;
     }
 
     /**

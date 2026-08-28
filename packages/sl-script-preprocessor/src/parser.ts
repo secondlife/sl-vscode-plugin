@@ -6,9 +6,9 @@
  * Consumes token stream from lexer and produces preprocessed output.
  */
 
-import { LanguageLexerConfig, Token, TokenType } from './lexer';
-import { StringUri, HostInterface, uriDirname } from '../interfaces/hostinterface';
-import { FullConfigInterface, ConfigKey } from '../interfaces/configinterface';
+import { LanguageLexerConfig} from './lexer';
+import { Token, TokenType } from './token';
+import { StringUri, HostInterface, uriDirname, PreprocessorOptions } from './interfaces';
 import { LineMapping } from './linemapper';
 import type { DirectiveImplementations } from './lexingpreprocessor';
 import { MacroProcessor, MacroExpansionContext } from './macroprocessor';
@@ -172,7 +172,7 @@ export class Parser {
     private host?: HostInterface;
 
     // Configuration interface for reading settings
-    private config?: FullConfigInterface;
+    private config?: PreprocessorOptions;
 
     // Track whether this is the top-level parser (for emitting require table)
     private isTopLevelParser: boolean;
@@ -197,7 +197,7 @@ export class Parser {
         isTopLevel: boolean = true,
         workspaceRoots?: StringUri[],
         diagnostics?: DiagnosticCollector,
-        config?: FullConfigInterface
+        config?: PreprocessorOptions
     ) {
         this.tokens = tokens;
         this.position = 0;
@@ -217,8 +217,8 @@ export class Parser {
         this.workspaceRoots = workspaceRoots || [uriDirname(sourceFile)];
 
         // Read configuration values for include processing from individual config keys
-        const maxIncludeDepth = config?.getConfig<number>(ConfigKey.PreprocessorMaxIncludeDepth) ?? 5;
-        const includePaths = config?.getConfig<string[]>(ConfigKey.PreprocessorIncludePaths) ?? ['.'];
+        const maxIncludeDepth = this.config?.include?.maxDepth ?? 5;
+        const includePaths = this.config?.include?.paths ?? ['.'];
 
         // Initialize parser state
         this.state = {

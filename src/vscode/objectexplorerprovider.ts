@@ -6,8 +6,13 @@
  */
 import * as vscode from "vscode";
 import * as path from "path";
-import { ObjectContentService } from "./objectcontentservice";
-import { ObjectInventoryItem, LinkedObject, ObjectEntry, ItemPermissions } from "./objectcontentinterfaces";
+import {
+    ItemPermissions,
+    LinkedObject,
+    ObjectContentService,
+    ObjectEntry,
+    ObjectInventoryItem,
+} from "#sl-ide-ws-client";
 import { displayName, itemUri } from "./objectcontentprovider";
 
 // Permission bit flags from LLPermissions

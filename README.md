@@ -384,8 +384,8 @@ Access these commands via the Command Palette (`Ctrl+Shift+P`):
 
 Comprehensive guides available in the `doc/` directory:
 
-- **[Preprocessor Guide](doc/preprocessor-guide.md)** - Complete preprocessing reference
-- **[Message Interfaces](doc/Message_Interfaces.md)** - WebSocket communication protocols
+- **[Preprocessor Guide](packages/sl-script-preprocessor/doc/preprocessor-guide.md)** - Complete preprocessing reference
+- **[Message Interfaces](packages/sl-ide-ws-client/doc/Message_Interfaces.md)** - WebSocket communication protocols
 
 ---
 

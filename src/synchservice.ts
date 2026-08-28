@@ -6,7 +6,7 @@ import * as vscode from "vscode";
 import * as path from "path";
 import * as fs from "fs";
 import { SCRIPT_FILE_PATTERN, ConfigService, NOTECARD_FILE_PATTERN } from "./configservice";
-import { ConfigKey } from "./interfaces/configinterface";
+import { ConfigKey, FullConfigInterface } from "./interfaces/configinterface";
 import {
     ViewerEditWSClient,
     CompilationResult,
@@ -19,14 +19,12 @@ import {
     SyntaxChange,
     RuntimeDebug,
     RuntimeError,
-} from "./viewereditwsclient";
-import {
     ObjectPublishMessage,
     ObjectUnpublishMessage,
     ObjectUpdateMessage,
     ObjectInventoryItem,
     PublishedObject,
-} from "./vscode/objectcontentinterfaces";
+} from "#sl-ide-ws-client";
 import {
     hasWorkspace,
     showInfoMessage,
@@ -48,13 +46,12 @@ import {
     CommandExecuteParams,
     CommandExecuteResponse,
     CommandListResponse,
-} from "./viewereditwsclient";
-import { ScriptLanguage, LanguageService } from "./shared/languageservice";
-import { ScriptIdentity, ScriptSync } from "./scriptsync";
-import { getLanguageConfig } from "./shared/lexer";
-import { HostInterface } from "./interfaces/hostinterface";
+} from "#sl-ide-ws-client";
+import {LanguageService } from "./shared/languageservice";
+import { buildPreprocessorConfig, ScriptIdentity, ScriptSync } from "./scriptsync";
+import { getLanguageConfig, HostInterface, ScriptLanguage } from "#sl-script-preprocessor";
 import { SyncedFileDecorator } from "./vscode/SyncedFileDecorator";
-import { ObjectContentChangeEvent, ObjectContentService, ObjectTreeChangeEvent } from "./vscode/objectcontentservice";
+import { ObjectContentChangeEvent, ObjectContentService, ObjectTreeChangeEvent } from "#sl-ide-ws-client";
 import { ObjectPinStore } from "./vscode/objectpinstore";
 import { SL_SCHEME, SL_AUTHORITY, displayName, itemUri, languageForItem } from "./vscode/objectcontentprovider";
 
@@ -88,6 +85,7 @@ export class SynchService implements vscode.Disposable {
     private lastActiveChange: number = 0;
     private activeSync: ScriptSync | undefined;
     private host: HostInterface;
+    private config: FullConfigInterface;
     private readonly commandRegistry = new CommandRegistry();
     private initialGenerationDone: boolean = false;
     private pendingLaunchObjectId?: string;
@@ -112,9 +110,10 @@ export class SynchService implements vscode.Disposable {
 
     private disposables: vscode.Disposable[] = [];
 
-    private constructor(context: vscode.ExtensionContext) {
+    private constructor(context: vscode.ExtensionContext, config: FullConfigInterface) {
         this.context = context;
         this.host = new VSCodeHost();
+        this.config = config;
         this.syncedFileDecorator = new SyncedFileDecorator(this);
         // Note: _onDidChangeConnectionState is NOT added to disposables
         // because it must survive activate/deactivate cycles
@@ -127,7 +126,7 @@ export class SynchService implements vscode.Disposable {
                     "SynchService not initialized. Context is required for first initialization.",
                 );
             }
-            SynchService.instance = new SynchService(context);
+            SynchService.instance = new SynchService(context, ConfigService.getInstance());
         }
         return SynchService.instance;
     }
@@ -317,7 +316,7 @@ export class SynchService implements vscode.Disposable {
             syncs.push(...this.findSyncsByTempFilePath(viewerFilePath));
         }
 
-        if(!this.host.config.getConfig(ConfigKey.KeepViewerFileOpen, true) && masterFound) {
+        if(!this.config.getConfig(ConfigKey.KeepViewerFileOpen, true) && masterFound) {
             void closeTextDocument(viewerDocument).catch((error) => {
                 logInfo(
                     `Failed to auto-close viewer document ${viewerDocument.uri.fsPath}: ${error instanceof Error ? error.message : String(error)}`,
@@ -522,12 +521,25 @@ export class SynchService implements vscode.Disposable {
         showStatusMessage("Connecting to Second Life viewer...", handshake);
 
         const port = portOverride
-            ?? this.host.config.getConfig<number>(ConfigKey.NetworkWebsocketPort, 9020);
-        this.websocket = new ViewerEditWSClient(
-            this.context,
-            `ws://localhost:${port}`
-        );
-        this.websocket.setup(handlers);
+            ?? this.config.getConfig<number>(ConfigKey.NetworkWebsocketPort, 9020);
+        this.websocket = new ViewerEditWSClient({
+            url: `ws://localhost:${port}`,
+            logger: {
+                debug: logDebug,
+                info: logInfo,
+                warn: logWarning,
+            },
+            notify: (message, kind): void => {
+                if (kind === "status") {
+                    showStatusMessage(message);
+                } else {
+                    showInfoMessage(message);
+                }
+            },
+            disconnectDelayMs: (): number =>
+                this.config.getConfig<number>(ConfigKey.NetworkDisconnectDelayMs, 1000),
+        });
+        this.context.subscriptions.push(this.websocket.setup(handlers));
         let connected = await this.websocket.connect();
 
         if (!connected.success) {
@@ -1164,7 +1176,7 @@ export class SynchService implements vscode.Disposable {
     ) : Promise<vscode.Uri | null> {
         const config =  ConfigService.getInstance()
 
-        const cmt = getLanguageConfig(script.language,config).lineCommentPrefix;
+        const cmt = getLanguageConfig(script.language,buildPreprocessorConfig(script.language, config)).lineCommentPrefix;
 
         if(cmt.length < 1) return null;
 

@@ -4,9 +4,9 @@
  */
 
 import * as assert from 'assert';
-import { Parser } from '../../shared/parser';
-import { getLanguageConfig, Lexer, TokenType } from '../../shared/lexer';
-import { filePathToStringUri, StringUri, stringUriToFilePath } from '../../interfaces/hostinterface';
+import { Parser } from '#sl-script-preprocessor';
+import { getLanguageConfig, Lexer, TokenType } from '#sl-script-preprocessor';
+import { filePathToStringUri, StringUri, stringUriToFilePath } from '#sl-script-preprocessor';
 import { createMockHost } from './helpers/mockHost';
 
 suite('Parser Tests', () => {

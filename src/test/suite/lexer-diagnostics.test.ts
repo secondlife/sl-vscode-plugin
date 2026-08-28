@@ -5,9 +5,9 @@
  */
 
 import * as assert from 'assert';
-import { getLanguageConfig, Lexer, TokenType } from '../../shared/lexer';
-import { DiagnosticCollector, DiagnosticSeverity, ErrorCodes } from '../../shared/diagnostics';
-import { filePathToStringUri } from '../../interfaces/hostinterface';
+import { getLanguageConfig, Lexer, TokenType } from '#sl-script-preprocessor';
+import { DiagnosticCollector, DiagnosticSeverity, ErrorCodes } from '#sl-script-preprocessor';
+import { filePathToStringUri } from '#sl-script-preprocessor';
 
 suite('Lexer Diagnostics', () => {
     const testFile = filePathToStringUri('d:/test/test.lsl');

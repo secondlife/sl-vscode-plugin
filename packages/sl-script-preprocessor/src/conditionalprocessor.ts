@@ -7,10 +7,11 @@
  * with proper nesting and state tracking.
  */
 
-import { Token, TokenType, type LanguageLexerConfig } from './lexer';
+import { Token, TokenType } from './token';
+import { type LanguageLexerConfig } from './lexer';
 import type { MacroProcessor } from './macroprocessor';
 import { PreprocessorDiagnostic, DiagnosticLocation, ErrorCodes } from './diagnostics';
-import { StringUri } from '../interfaces/hostinterface';
+import { StringUri } from './interfaces';
 
 //#region Conditional State
 

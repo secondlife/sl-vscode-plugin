@@ -4,7 +4,7 @@
  * Copyright (C) 2025, Linden Research, Inc.
  */
 
-import { HostInterface, StringUri, filePathToStringUri } from '../../../interfaces/hostinterface';
+import { HostInterface, StringUri, filePathToStringUri } from '#sl-script-preprocessor';
 import { FullConfigInterface, ConfigKey } from '../../../interfaces/configinterface';
 
 // ─── MockConfig ───────────────────────────────────────────────────────────────
@@ -50,12 +50,9 @@ export type MockFileSystem = Map<StringUri, string>;
 
 /**
  * Creates a no-op mock host. All reads return null/false.
- * Optionally accepts a pre-built FullConfigInterface.
  */
-export function createMockHost(config?: FullConfigInterface): HostInterface {
-    const cfg = config ?? new MockConfig();
+export function createMockHost(): HostInterface {
     return {
-        config: cfg,
         async readFile(_uri: StringUri): Promise<string | null> { return null; },
         async exists(_uri: StringUri): Promise<boolean> { return false; },
         async resolveFile(_f: string, _from: StringUri): Promise<StringUri | null> { return null; },
@@ -77,12 +74,9 @@ export function createMockHost(config?: FullConfigInterface): HostInterface {
  * file system changes during a test.
  */
 export function createMockHostWithFiles(
-    files: MockFileSystem,
-    config?: FullConfigInterface
+    files: MockFileSystem
 ): HostInterface {
-    const cfg = config ?? new MockConfig();
     return {
-        config: cfg,
         async readFile(uri: StringUri): Promise<string | null> {
             return files.get(uri) ?? null;
         },

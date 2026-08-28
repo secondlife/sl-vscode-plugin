@@ -9,8 +9,7 @@
 import * as fs from 'fs';
 import * as path from 'path';
 import { glob } from 'glob';
-import { HostInterface, StringUri, filePathToStringUri, stringUriToFilePath } from '../interfaces/hostinterface';
-import { FullConfigInterface } from '../interfaces/configinterface';
+import { HostInterface, StringUri, filePathToStringUri, stringUriToFilePath } from '#sl-script-preprocessor';
 import * as yaml from 'js-yaml';
 import * as toml from '@iarna/toml';
 
@@ -24,8 +23,6 @@ interface Logger {
 export interface NodeHostOptions {
     /** Workspace root directories (at least one). */
     roots: string[];
-    /** Injected configuration provider. */
-    config: FullConfigInterface;
     /** Optional override for file system (for tests). */
     fsModule?: typeof fs;
     /** Optional logger (partial). */
@@ -36,7 +33,6 @@ export interface NodeHostOptions {
 function hasWildcard(p: string): boolean { return /[*?]/.test(p); }
 
 export class NodeHost implements HostInterface {
-    public readonly config: FullConfigInterface;
     private readonly roots: string[];
     private readonly fs: typeof fs;
     private readonly log: Logger;
@@ -45,7 +41,6 @@ export class NodeHost implements HostInterface {
         if (!opts.roots || opts.roots.length === 0) {
             throw new Error('NodeHost requires at least one root directory');
         }
-        this.config = opts.config;
         this.roots = opts.roots.map(r => path.normalize(path.resolve(r)));
         this.fs = opts.fsModule || fs;
         const noOp = (): void => {};

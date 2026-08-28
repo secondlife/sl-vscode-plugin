@@ -1,6 +1,6 @@
 import * as assert from 'assert';
-import { LineMapping } from '../../../shared/linemapper';
-import { StringUri } from '../../../interfaces/hostinterface';
+import { LineMapping } from '#sl-script-preprocessor';
+import { StringUri } from '#sl-script-preprocessor';
 
 /**
  * Assert that a single LineMapping matches expected values.

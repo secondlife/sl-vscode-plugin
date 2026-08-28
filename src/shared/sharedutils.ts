@@ -30,7 +30,7 @@
 import * as fs from "fs";
 import * as yaml from "js-yaml";
 import * as TOML from "@iarna/toml";
-import { fileExists } from "../interfaces/hostinterface";
+import { fileExists } from '#sl-script-preprocessor';
 
 //=============================================================================
 //#region General Utilities

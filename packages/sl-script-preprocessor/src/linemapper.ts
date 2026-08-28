@@ -3,8 +3,7 @@
  * Copyright (C) 2025, Linden Research, Inc.
  */
 
-import { HostInterface, StringUri } from "../interfaces/hostinterface";
-import { ScriptLanguage } from "./languageservice";
+import { HostInterface, StringUri, ScriptLanguage} from "./interfaces";
 
 //-------------------------------------------------------------
 export interface LineMapping {
