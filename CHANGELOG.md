@@ -5,6 +5,21 @@ All notable changes to the Second Life External Scripting Extension will be docu
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.0.7] - 2026-09-11
+
+## What's Changed
+* chore: prepare release v1.0.6 by @github-actions[bot] in https://github.com/secondlife/sl-vscode-plugin/pull/119
+* Issue #111: Deep pass to make the jsonrpc documents agree. by @Rider-Linden in https://github.com/secondlife/sl-vscode-plugin/pull/123
+* use configured wine prefix path for proton path translation by @zero-x-zero-x in https://github.com/secondlife/sl-vscode-plugin/pull/122
+* RPC Doc reconciliation issues.   by @Rider-Linden in https://github.com/secondlife/sl-vscode-plugin/pull/136
+* Auto-link scripts within an explored object. by @Rider-Linden in https://github.com/secondlife/sl-vscode-plugin/pull/140
+
+## New Contributors
+* @zero-x-zero-x made their first contribution in https://github.com/secondlife/sl-vscode-plugin/pull/122
+
+**Full Changelog**: https://github.com/secondlife/sl-vscode-plugin/compare/v1.0.6...v1.0.7
+
+
 ## [1.0.6] - 2026-08-21
 
 ## What's Changed

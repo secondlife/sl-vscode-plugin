@@ -7,8 +7,6 @@ declare const acquireVsCodeApi: () => {
     setState(state: unknown): void;
 };
 
-export {};
-
 // ============================================
 // Types
 // ============================================
@@ -31,6 +29,7 @@ interface InventoryItem {
     subtype?: number;
     vm?: string;
     running?: boolean;
+    faulted?: boolean;
     permissions?: { owner: number; next_owner: number };
 }
 
@@ -578,9 +577,10 @@ function renderItem(object_id: string, prim_id: string, item: InventoryItem): st
     const permIcons = permissionIcons(item);
     const languageLabel = item.subtype === 1 ? "Luau Script" : "LSL Script";
     const typeLabel = item.type === "notecard" ? "Notecard" : languageLabel;
+    const isFaulted = isScript && item.faulted === true;
 
     return `
-        <div class="tree-node item${item.running ? " running" : ""}"
+        <div class="tree-node item${item.running ? " running" : ""}${isFaulted ? " faulted" : ""}"
              data-object="${object_id}"
              data-prim="${prim_id}"
              data-item="${item.item_id}"
@@ -589,14 +589,19 @@ function renderItem(object_id: string, prim_id: string, item: InventoryItem): st
              data-subtype="${item.subtype ?? 0}"
              data-vm="${item.vm ?? ""}"
              data-name="${item.name}"
+             data-faulted="${isFaulted}"
              data-can-modify="${canModify}">
             <div class="node-header item-row"
-                 title="${[label, typeLabel, item.description].filter(Boolean).join('\n')}">
+                 title="${[label, typeLabel, isFaulted ? "Script has faulted" : "", item.description].filter(Boolean).join('\n')}">
                 <span class="file-icon ${iconClass}"></span>
                 <span class="label">${escapeHtml(nameLabel)}</span>
                 ${permIcons ? `<span class="perm-icons">${permIcons}</span>` : ""}
-                ${isScript ? `<span class="running-indicator${item.running ? " active" : ""}"></span>` : ""}
-                ${isScript ? `<button class="action-btn toggle-run" data-running="${item.running ?? false}" title="${item.running ? "Stop script" : "Start script"}">${item.running ? "&#9632;" : "&#9654;"}</button>` : ""}
+                ${isScript ? (isFaulted
+                    ? `<span class="running-indicator faulted" title="Script has faulted"></span>`
+                    : `<span class="running-indicator${item.running ? " active" : ""}"></span>`) : ""}
+                ${isScript ? (isFaulted
+                    ? `<button class="action-btn restart-script" title="Restart script">&#8635;</button>`
+                    : `<button class="action-btn toggle-run" data-running="${item.running ?? false}" title="${item.running ? "Stop script" : "Start script"}">${item.running ? "&#9632;" : "&#9654;"}</button>`) : ""}
                 <button class="action-btn more" title="More actions">\u22EE</button>
             </div>
         </div>`;
@@ -659,6 +664,23 @@ function attachEventListeners(): void {
                     prim_id: itemEl.dataset["prim"]!,
                     item_id: itemEl.dataset["item"]!,
                     running: !running,
+                },
+            });
+        });
+    });
+
+    // Restart (shown in place of play/stop when a script has faulted)
+    document.querySelectorAll<HTMLElement>(".restart-script").forEach((btn) => {
+        btn.addEventListener("click", (e) => {
+            e.stopPropagation();
+            const itemEl = btn.closest<HTMLElement>(".item");
+            if (!itemEl) { return; }
+            vscode.postMessage({
+                command: "restartScript",
+                payload: {
+                    object_id: itemEl.dataset["object"]!,
+                    prim_id: itemEl.dataset["prim"]!,
+                    item_id: itemEl.dataset["item"]!,
                 },
             });
         });
@@ -850,6 +872,7 @@ function showItemMenu(anchor: MenuAnchor, itemEl: HTMLElement): void {
     const uri = itemEl.dataset["uri"]!;
     const toggleBtn = itemEl.querySelector<HTMLElement>(".toggle-run");
     const running = toggleBtn?.dataset["running"] === "true";
+    const faulted = itemEl.dataset["faulted"] === "true";
     const subtype = parseInt(itemEl.dataset["subtype"] ?? "0", 10);
     const currentVm = itemEl.dataset["vm"] ?? "";
 
@@ -863,27 +886,37 @@ function showItemMenu(anchor: MenuAnchor, itemEl: HTMLElement): void {
 
     if (type === "script") {
         entries.push({ separator: true });
-        entries.push({
-            label: running ? "Stop" : "Start",
-            action: () => vscode.postMessage({
-                command: "toggleRunning",
-                payload: { object_id, prim_id, item_id, running: !running },
-            }),
-        });
-        entries.push({
-            label: "Restart",
-            action: () => vscode.postMessage({
-                command: "restartScript",
-                payload: { object_id, prim_id, item_id },
-            }),
-        });
+        if (faulted) {
+            entries.push({
+                label: "Restart",
+                action: () => vscode.postMessage({
+                    command: "restartScript",
+                    payload: { object_id, prim_id, item_id },
+                }),
+            });
+        } else {
+            entries.push({
+                label: running ? "Stop" : "Start",
+                action: () => vscode.postMessage({
+                    command: "toggleRunning",
+                    payload: { object_id, prim_id, item_id, running: !running },
+                }),
+            });
+            entries.push({
+                label: "Restart",
+                action: () => vscode.postMessage({
+                    command: "restartScript",
+                    payload: { object_id, prim_id, item_id },
+                }),
+            });
+        }
         entries.push({ separator: true });
         const isLuauScript = subtype === 1;
         entries.push({
             label: "Select VM",
             submenu: (
                 [
-                    { vm: "lsl2", label: "LSL2" },
+                    { vm: "lsl2", label: "LSL" },
                     { vm: "mono", label: "Mono" },
                     { vm: "luau", label: "Luau" },
                 ] as Array<{ vm: string; label: string }>
@@ -1110,6 +1143,9 @@ function showObjectMenu(anchor: MenuAnchor, objectEl: HTMLElement): void {
 
     const object_id = objectEl.dataset["objectId"]!;
     const objectEntry = state.objects.find((obj) => obj.object_id === object_id);
+    const hasScripts = (objectEntry?.inventory.some((item) => item.type === "script") ?? false) || (objectEntry?.linked_objects?.some((lo) => lo.inventory.some((item) => item.type === "script")) ?? false);
+    const resetAllAvailable = viewerCommands.has("viewer.script.reset_all");
+    const recompileAllAvailable = viewerCommands.has("viewer.script.recompile_all");
     const canSaveBack = objectEntry?.can_save_back === true;
     const saveBackCommandAvailable = viewerCommands.has("viewer.object.save_back_to_contents");
     const saveBackEnabled = saveBackCommandAvailable && canSaveBack;
@@ -1123,6 +1159,13 @@ function showObjectMenu(anchor: MenuAnchor, objectEl: HTMLElement): void {
             label: "New File...",
             action: () => beginCreateItem(object_id, object_id),
         },
+        {
+            label: "Link All",
+            action: () => vscode.postMessage({
+                command: "autoLinkObject",
+                payload: { object_id },
+            }),
+        },
         { separator: true },
         {
             label: "Unexplore",
@@ -1133,6 +1176,46 @@ function showObjectMenu(anchor: MenuAnchor, objectEl: HTMLElement): void {
             label: "Save Back to Contents",
             disabled: !saveBackEnabled,
             action: () => vscode.postMessage({ command: "saveBackToObjectContents", payload: { object_id } }),
+        },
+        { separator: true },
+        {
+            label: "Reset All Scripts",
+            disabled: !resetAllAvailable || !hasScripts,
+            action: () => vscode.postMessage({ command: "resetAllScripts", payload: { object_id } }),
+        },
+        {
+            label: "Recompile All",
+            disabled: !recompileAllAvailable || !hasScripts,
+            submenu: [
+                {
+                    label: "Luau",
+                    action: () => vscode.postMessage({
+                        command: "recompileAllScripts",
+                        payload: { object_id, target: "luau" },
+                    }),
+                },
+                {
+                    label: "LSL",
+                    action: () => vscode.postMessage({
+                        command: "recompileAllScripts",
+                        payload: { object_id, target: "lsl2" },
+                    }),
+                },
+                {
+                    label: "Mono",
+                    action: () => vscode.postMessage({
+                        command: "recompileAllScripts",
+                        payload: { object_id, target: "mono" },
+                    }),
+                },
+                {
+                    label: "Current VM",
+                    action: () => vscode.postMessage({
+                        command: "recompileAllScripts",
+                        payload: { object_id, target: "auto" },
+                    }),
+                },
+            ],
         },
         { separator: true },
         {
@@ -1151,6 +1234,11 @@ function showObjectMenu(anchor: MenuAnchor, objectEl: HTMLElement): void {
 function showPrimMenu(anchor: MenuAnchor, primEl: HTMLElement): void {
     const object_id = primEl.dataset["objectId"]!;
     const prim_id = primEl.dataset["primId"]!;
+    const objectEntry = state.objects.find((obj) => obj.object_id === object_id);
+    const primEntry = objectEntry?.linked_objects?.find((obj) => obj.link_id === prim_id);
+    const hasScripts = primEntry?.inventory.some((item) => item.type === "script") ?? false;
+    const resetAllAvailable = viewerCommands.has("viewer.script.reset_all");
+    const recompileAllAvailable = viewerCommands.has("viewer.script.recompile_all");
 
     showMenu(anchor, [
         {
@@ -1160,6 +1248,46 @@ function showPrimMenu(anchor: MenuAnchor, primEl: HTMLElement): void {
         {
             label: "New File...",
             action: () => beginCreateItem(object_id, prim_id),
+        },
+        { separator: true },
+        {
+            label: "Reset All Scripts",
+            disabled: !resetAllAvailable || !hasScripts,
+            action: () => vscode.postMessage({ command: "resetAllScripts", payload: { object_id } }),
+        },
+        {
+            label: "Recompile All",
+            disabled: !recompileAllAvailable || !hasScripts,
+            submenu: [
+                {
+                    label: "Luau",
+                    action: () => vscode.postMessage({
+                        command: "recompileAllScripts",
+                        payload: { object_id: prim_id, target: "luau" },
+                    }),
+                },
+                {
+                    label: "LSL",
+                    action: () => vscode.postMessage({
+                        command: "recompileAllScripts",
+                        payload: { object_id: prim_id, target: "lsl2" },
+                    }),
+                },
+                {
+                    label: "Mono",
+                    action: () => vscode.postMessage({
+                        command: "recompileAllScripts",
+                        payload: { object_id: prim_id, target: "mono" },
+                    }),
+                },
+                {
+                    label: "Current VM",
+                    action: () => vscode.postMessage({
+                        command: "recompileAllScripts",
+                        payload: { object_id: prim_id, target: "auto" },
+                    }),
+                },
+            ],
         },
     ]);
 }

@@ -285,6 +285,15 @@ body {
     background-color: #89d185;
 }
 
+.running-indicator.faulted {
+    border-radius: 0;
+    background-color: var(--vscode-editorWarning-foreground, #cca700);
+}
+
+.tree-node.item.faulted > .node-header > .label {
+    color: var(--vscode-errorForeground);
+}
+
 /* Action buttons */
 .action-btn {
     background: transparent;

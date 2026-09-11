@@ -594,3 +594,32 @@ export function sortObjectKeysRecursive(obj: any): any {
         return result;
     },{});
 }
+
+/**
+ * Resolve a Windows path to its Proton equivalent on Linux.
+ * When Second Life runs under Proton, it reports Windows paths (e.g. C:\...)
+ * but the actual files live under the Wine prefix's drive_c.
+ */
+export function resolveProtonPath(windowsPath: string): string {
+    if (process.platform !== "linux") {
+        return windowsPath;
+    }
+
+    // Match Windows paths like C:\... or C:/...
+    const winMatch = windowsPath.match(/^([A-Za-z]):[/\\](.*)$/);
+    if (!winMatch) {
+        return windowsPath;
+    }
+
+    const drive = winMatch[1].toUpperCase();
+    const subPath = winMatch[2].replace(/\\/g, "/");
+
+    // User-configured Wine prefix — only path we set
+    const customPrefix = ConfigService.getInstance().getConfig<string>(ConfigKey.NetworkWinePrefixPath);
+    if (customPrefix && customPrefix.trim() !== "") {
+        return path.join(customPrefix.trim(), `drive_${drive.toLowerCase()}`, subPath);
+    }
+
+    // No config set — return original path
+    return windowsPath;
+}

@@ -107,6 +107,17 @@ const JSONRPCErrorCodes = {
     SERVER_ERROR: -32000, // -32000 to -32099 are reserved for implementation-defined server errors
 } as const;
 
+export class JSONRPCError extends Error {
+    constructor(
+        public readonly code: number,
+        message: string,
+        public readonly data?: unknown,
+    ) {
+        super(message);
+        this.name = "JSONRPCError";
+    }
+}
+
 export interface JSONRPCInterface {
     // Connection / lifecycle (inherited from base WebSocket client)
     isConnected(): boolean;
@@ -120,6 +131,7 @@ export interface JSONRPCInterface {
     on?(method: string, handler: ((params?: any) => any | Promise<any> | void) | undefined): void;
     off?(method: string): boolean;
     getHandlers?(): string[];
+    getMethods?(): string[];
     clearHandlers?(): void;
 }
 
@@ -617,9 +629,9 @@ export class JSONRPCClient extends WebsockClient implements JSONRPCInterface {
                 console.error(`Error in request handler for ${request.method}:`, error);
                 this.respondWithJSONRPCError(
                     requestId,
-                    -32603,
-                    "Internal error",
+                    error instanceof JSONRPCError ? error.code : JSONRPCErrorCodes.INTERNAL_ERROR,
                     error instanceof Error ? error.message : String(error),
+                    error instanceof JSONRPCError ? error.data : undefined,
                 );
             }
             return;
@@ -631,22 +643,25 @@ export class JSONRPCClient extends WebsockClient implements JSONRPCInterface {
                 this.respondToJSONRPC(requestId, "pong");
                 break;
             case "system.getVersion":
+                {
+                    const packageJson = this.context.extension.packageJSON as {
+                        name?: string;
+                        version?: string;
+                    };
+
+                    this.respondToJSONRPC(requestId, {
+                        client_name: packageJson.name ?? "sl-vscode-plugin",
+                        client_version: packageJson.version ?? "0.0.0",
+                    });
+                }
+                break;
+            case "system.status":
                 this.respondToJSONRPC(requestId, {
-                    version: "1.0.0",
-                    client: "vscode-extension",
+                    status: "OK",
                 });
                 break;
             case "system.listMethods": {
-                const builtInMethods = [
-                    "system.ping",
-                    "system.getVersion",
-                    "system.listMethods",
-                ];
-                const registeredMethods = this.getHandlers();
-                const allMethods = [
-                    ...new Set([...builtInMethods, ...registeredMethods]),
-                ];
-                this.respondToJSONRPC(requestId, allMethods);
+                this.respondToJSONRPC(requestId, this.getMethods());
                 break;
             }
             default:
@@ -776,6 +791,23 @@ export class JSONRPCClient extends WebsockClient implements JSONRPCInterface {
    */
     public getHandlers(): string[] {
         return Array.from(this.methodHandlers.keys());
+    }
+
+    /**
+     * Gets all methods available on this client, including built-in methods.
+     */
+    public getMethods(): string[] {
+        const builtInMethods = [
+            "system.ping",
+            "system.getVersion",
+            "system.status",
+            "system.listMethods",
+        ];
+
+        return [...new Set([
+            ...builtInMethods,
+            ...this.methodHandlers.keys(),
+        ])].sort();
     }
 
     /**

@@ -157,12 +157,22 @@ export class ObjectExplorerProvider implements vscode.TreeDataProvider<ExplorerN
                 const canModify = !node.item.permissions || (node.item.permissions.owner & PERM_MODIFY) !== 0;
                 const noModSuffix = canModify ? "" : "NoMod";
                 if (node.item.type === "script") {
-                    item.contextValue = (node.item.running ? "scriptRunning" : "scriptStopped") + noModSuffix;
+                    const runState = node.item.faulted ? "scriptFaulted" : (node.item.running ? "scriptRunning" : "scriptStopped");
+                    item.contextValue = runState + noModSuffix;
                 } else {
                     item.contextValue = "inventoryItem" + noModSuffix;
                 }
                 // Show permission restriction icons in description
-                item.description = getPermissionIcons(node.item.permissions);
+                const permIcons = getPermissionIcons(node.item.permissions);
+                if (node.item.faulted)
+                {
+                    item.description = [permIcons, "⚠"].filter(Boolean).join(" ");
+                    item.tooltip = `${label} — script has faulted, restart required`;
+                }
+                else
+                {
+                    item.description = permIcons;
+                }
                 // Allow opening: notecards always, scripts only if modifiable
                 if (node.item.type !== "script" || canModify) {
                     item.command = {

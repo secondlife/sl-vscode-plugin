@@ -55,9 +55,15 @@ export class ObjectContentDecorator implements FileDecorationProvider, Disposabl
             this._onDidChangeFileDecorations.fire(undefined);
         });
 
+        // Inventory replacements carry the faulted flag, so decorations must follow them
+        const objectsSub = contentService.onDidChangeObjects(() => {
+            this._onDidChangeFileDecorations.fire(undefined);
+        });
+
         this.disposables.push(
             connectionSub,
             runningSub,
+            objectsSub,
             this._onDidChangeFileDecorations,
         );
     }
@@ -112,6 +118,15 @@ export class ObjectContentDecorator implements FileDecorationProvider, Disposabl
         const item = this.contentService.getItemByDisplayName(root_id, prim_id, filename);
         if (!item || item.type !== "script") {
             return undefined; // Not a script, no decoration
+        }
+
+        if (item.faulted)
+        {
+            return {
+                badge: "⚠",
+                tooltip: "Script has faulted — restart required",
+                color: new ThemeColor("errorForeground"),
+            };
         }
 
         // Return decoration based on running state

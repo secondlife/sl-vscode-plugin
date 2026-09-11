@@ -9,7 +9,8 @@ import { ObjectContentService } from "./objectcontentservice";
 import { PublishedObject } from "./objectcontentinterfaces";
 import { ViewerEditWSClient } from "../viewereditwsclient";
 import { ObjectPinStore } from "./objectpinstore";
-import { displayName } from "./objectcontentprovider";
+import { displayName, extractJsonRpcErrorCode, JSONRPC_INVALID_PARAMS } from "./objectcontentprovider";
+import { SynchService } from "../synchservice";
 
 interface PinnedObjectView {
     object_id: string;
@@ -37,12 +38,15 @@ export class ObjectExplorerWebviewProvider implements vscode.WebviewViewProvider
     private readonly _disposables: vscode.Disposable[] = [];
     private _connected: boolean;
     private readonly _pinnedUnavailableCache = new Map<string, { reason: "not_found" | "error"; checkedAt: number }>();
+    private _refreshing = false;
+    private _refreshPending = false;
 
     constructor(
         extensionUri: vscode.Uri,
         private readonly isConnected: () => boolean,
         onConnectionChange: vscode.Event<boolean>,
         private readonly getWebSocket: () => ViewerEditWSClient | undefined,
+        private readonly synchService: SynchService,
     ) {
         this._extensionUri = extensionUri;
         this._service = ObjectContentService.getInstance();
@@ -89,6 +93,26 @@ export class ObjectExplorerWebviewProvider implements vscode.WebviewViewProvider
     }
 
     private async _refresh(): Promise<void> {
+        // Coalesce re-entrant refreshes (e.g. an object.publish notification arriving while a
+        // pinned-object availability check from an earlier refresh is still in flight) into a
+        // single follow-up pass instead of racing two postMessage calls.
+        if (this._refreshing) {
+            this._refreshPending = true;
+            return;
+        }
+        this._refreshing = true;
+        try {
+            await this._doRefresh();
+        } finally {
+            this._refreshing = false;
+            if (this._refreshPending) {
+                this._refreshPending = false;
+                void this._refresh();
+            }
+        }
+    }
+
+    private async _doRefresh(): Promise<void> {
         if (!this._view) { return; }
         const objects: PublishedObject[] = this._service.getObjects().map((e) => e.object);
         const pinRecords = await this._pinStore.loadPins();
@@ -152,19 +176,14 @@ export class ObjectExplorerWebviewProvider implements vscode.WebviewViewProvider
         await Promise.all(toCheck.map(async (pinned) => {
             let reason: "not_found" | "error" = "error";
             try {
-                const response = await client.requestObject({ object_id: pinned.object_id });
-                if (response.object) {
-                    this._service.handlePublish({ object: response.object });
+                await client.requestObject({ object_id: pinned.object_id });
+                const entry = await this._service.waitForObjectPublish(pinned.object_id);
+                if (entry) {
                     this._pinnedUnavailableCache.delete(pinned.object_id);
                     return;
                 }
-
-                if (this._isNotFoundMessage(response.message)) {
-                    reason = "not_found";
-                }
             } catch (err) {
-                const message = err instanceof Error ? err.message : String(err);
-                if (this._isNotFoundMessage(message)) {
+                if (err instanceof Error && extractJsonRpcErrorCode(err) === JSONRPC_INVALID_PARAMS) {
                     reason = "not_found";
                 }
             }
@@ -182,14 +201,6 @@ export class ObjectExplorerWebviewProvider implements vscode.WebviewViewProvider
                 pinned.unavailableReason = cached.reason;
             }
         }
-    }
-
-    private _isNotFoundMessage(message: string | undefined): boolean {
-        if (!message) {
-            return false;
-        }
-        const lower = message.toLowerCase();
-        return lower.includes("not found") || lower.includes("does not exist");
     }
 
     private _updateConnectionState(): void {
@@ -216,6 +227,32 @@ export class ObjectExplorerWebviewProvider implements vscode.WebviewViewProvider
     public sendViewerCommands(commands: string[]): void {
         if (!this._view) { return; }
         this._view.webview.postMessage({ type: "viewerCommands", payload: { commands } });
+    }
+
+    private async _executeViewerCommand(
+        command: string,
+        params: Record<string, unknown>,
+        failureMessage: string,
+        successMessage?: string,
+    ): Promise<void> {
+        const socket = this.getWebSocket();
+        if (!socket) {
+            vscode.window.showErrorMessage("Not connected to Second Life viewer.");
+            return;
+        }
+
+        try {
+            const response = await socket.executeCommand({ command, params });
+            if (!response.success) {
+                vscode.window.showErrorMessage(failureMessage);
+                return;
+            }
+            if (successMessage) {
+                vscode.window.showInformationMessage(successMessage);
+            }
+        } catch (err) {
+            vscode.window.showErrorMessage(`${failureMessage}: ${err}`);
+        }
     }
 
     private async _handleMessage(message: { command: string; payload: Record<string, unknown> }): Promise<void> {
@@ -281,6 +318,11 @@ export class ObjectExplorerWebviewProvider implements vscode.WebviewViewProvider
             case "unpublishObject": {
                 const { object_id } = message.payload as { object_id: string };
                 this._service.handleUnpublish({ object_id });
+                break;
+            }
+            case "autoLinkObject": {
+                const { object_id } = message.payload as { object_id: string };
+                await this.synchService.autoLinkObject(object_id);
                 break;
             }
             case "renameItem": {
@@ -386,36 +428,53 @@ export class ObjectExplorerWebviewProvider implements vscode.WebviewViewProvider
                 break;
             case "teleportToObject": {
                 const { object_id } = message.payload as { object_id: string };
-                this.getWebSocket()?.executeCommand({ command: "viewer.teleport", params: { object_id } });
+                void this._executeViewerCommand(
+                    "viewer.teleport",
+                    { object_id },
+                    "Failed to teleport to object",
+                );
                 break;
             }
             case "zoomInOnObject": {
                 const { object_id } = message.payload as { object_id: string };
-                this.getWebSocket()?.executeCommand({ command: "viewer.camera.focus", params: { object_id } });
+                void this._executeViewerCommand(
+                    "viewer.camera.focus",
+                    { object_id },
+                    "Failed to zoom to object",
+                );
                 break;
             }
             case "saveBackToObjectContents": {
                 const { object_id } = message.payload as { object_id: string };
-                const socket = this.getWebSocket();
-                if (!socket) {
-                    vscode.window.showErrorMessage("Not connected to Second Life viewer.");
-                    break;
-                }
-
-                try {
-                    const response = await socket.executeCommand({
-                        command: "viewer.object.save_back_to_contents",
-                        params: { object_id },
-                    });
-                    if (!response.success) {
-                        vscode.window.showErrorMessage(response.message ?? "Failed to save object back to contents.");
-                        break;
-                    }
-                    vscode.window.showInformationMessage("Saved object back to contents.");
-                } catch (err) {
-                    vscode.window.showErrorMessage(`Failed to save object back to contents: ${err}`);
-                }
-
+                await this._executeViewerCommand(
+                    "viewer.object.save_back_to_contents",
+                    { object_id },
+                    "Failed to save object back to contents",
+                    "Saved object back to contents.",
+                );
+                break;
+            }
+            case "resetAllScripts": {
+                const { object_id } = message.payload as { object_id: string };
+                await this._executeViewerCommand(
+                    "viewer.script.reset_all",
+                    { object_id },
+                    "Failed to reset scripts",
+                    "Reset queue opened.",
+                );
+                break;
+            }
+            case "recompileAllScripts": {
+                const { object_id, target } = message.payload as {
+                    object_id: string;
+                    target: "luau" | "lsl2" | "mono" | "auto";
+                };
+                await this._executeViewerCommand(
+                    "viewer.script.recompile_all",
+                    { object_id, target },
+                    "Failed to recompile scripts",
+                    "Compile queue opened.",
+                );
                 break;
             }
             case "togglePinObject": {

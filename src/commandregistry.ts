@@ -3,12 +3,12 @@
  * Copyright (C) 2025, Linden Research, Inc.
  */
 import {
-    CommandErrorCode,
     CommandExecuteParams,
     CommandExecuteResponse,
     CommandInfo,
     CommandListResponse,
 } from "./viewereditwsclient";
+import { JSONRPCError } from "./websockclient";
 
 type CommandHandler = (params: Record<string, unknown>) => Promise<CommandExecuteResponse>;
 
@@ -22,12 +22,18 @@ export class CommandRegistry {
     public async execute(params: CommandExecuteParams): Promise<CommandExecuteResponse> {
         const entry = this.commands.get(params.command);
         if (!entry) {
-            return { success: false, error_code: CommandErrorCode.UnknownCommand, message: `Unknown command: ${params.command}` };
+            throw new JSONRPCError(-32602, `Unknown command: ${params.command}`);
         }
         try {
             return await entry.handler(params.params ?? {});
-        } catch (err: any) {
-            return { success: false, error_code: CommandErrorCode.ExecutionError, message: err?.message ?? "Execution error" };
+        } catch (err) {
+            if (err instanceof JSONRPCError) {
+                throw err;
+            }
+            throw new JSONRPCError(
+                -32603,
+                err instanceof Error ? err.message : "Execution error",
+            );
         }
     }
 

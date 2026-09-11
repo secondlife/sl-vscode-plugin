@@ -235,6 +235,30 @@ export class ObjectContentService implements vscode.Disposable {
     }
 
     /**
+     * Resolves once `object_id` is published — immediately if already known, otherwise on the
+     * next matching "added" event — or resolves undefined if `timeoutMs` elapses first.
+     */
+    waitForObjectPublish(object_id: string, timeoutMs = 5000): Promise<ObjectEntry | undefined> {
+        const existing = this.objects.get(object_id);
+        if (existing) {
+            return Promise.resolve(existing);
+        }
+        return new Promise((resolve) => {
+            const sub = this.onDidChangeObjects((e) => {
+                if (e.type === "added" && e.object_id === object_id) {
+                    clearTimeout(timer);
+                    sub.dispose();
+                    resolve(this.objects.get(object_id));
+                }
+            });
+            const timer = setTimeout(() => {
+                sub.dispose();
+                resolve(undefined);
+            }, timeoutMs);
+        });
+    }
+
+    /**
      * Returns inventory for any prim in the linkset.
      * Pass prim_id === object_id for root prim, or a link_id for a child prim.
      */

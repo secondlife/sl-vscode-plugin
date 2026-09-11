@@ -3,7 +3,7 @@
  * Copyright (C) 2025, Linden Research, Inc.
  */
 import * as vscode from "vscode";
-import { JSONRPCClient } from "./websockclient";
+import { JSONRPCClient, JSONRPCError } from "./websockclient";
 import { ConfigService } from "./configservice";
 import { ConfigKey } from "./interfaces/configinterface";
 import { showStatusMessage } from "./utils";
@@ -51,7 +51,7 @@ export interface SessionHandshake {
 
 export interface SessionHandshakeResponse {
     client_name: string;
-    client_version: "1.0";
+    client_version: string;
     protocol_version: string;
     languages: string[];
     features: { [feature: string]: boolean };
@@ -65,11 +65,12 @@ export interface SessionDisconnect {
     message: string;
 }
 
-export interface SessionPing {
+export interface SystemPing {
     timestamp: number;
 }
 
-export interface SessionPingResponse {
+export interface SystemPingResponse {
+    pong: string;
     timestamp: number;
     server_time: number;
 }
@@ -128,15 +129,6 @@ export interface CommandExecuteParams {
 export interface CommandExecuteResponse {
     success: boolean;
     result?: unknown;
-    error_code?: CommandErrorCode;
-    message?: string;
-}
-
-export const enum CommandErrorCode {
-    UnknownCommand  = 1,
-    InvalidParams   = 2,
-    NotPermitted    = 3,
-    ExecutionError  = 4,
 }
 
 export interface CommandParamInfo {
@@ -174,6 +166,7 @@ export interface CompilationResult {
 }
 
 export interface RuntimeDebug {
+    script_id?: string;
     object_id: string;
     /** @deprecated Use item.prim_id instead. */
     prim_id?: string;
@@ -186,6 +179,7 @@ export interface RuntimeDebug {
 }
 
 export interface RuntimeError {
+    script_id?: string;
     object_id: string;
     /** @deprecated Use item.prim_id instead. */
     prim_id?: string;
@@ -408,7 +402,7 @@ export class ViewerEditWSClient implements vscode.Disposable {
             if (this.handlers.onCommandExecute) {
                 return this.handlers.onCommandExecute(params);
             }
-            return Promise.resolve({ success: false, error_code: CommandErrorCode.UnknownCommand, message: "Unknown command" });
+            return Promise.reject(new JSONRPCError(-32602, "Unknown command"));
         });
 
         this.transport.on("command.list", (): CommandListResponse => {
@@ -418,8 +412,9 @@ export class ViewerEditWSClient implements vscode.Disposable {
             return { commands: [] };
         });
 
-        // Register handler for viewer-initiated pings
-        this.transport.on("session.ping", (params: SessionPing): SessionPingResponse => ({
+        // Register handler for viewer-initiated system pings
+        this.transport.on("system.ping", (params: SystemPing): SystemPingResponse => ({
+            pong: "pong",
             timestamp: params.timestamp,
             server_time: Date.now()
         }));
@@ -476,8 +471,8 @@ export class ViewerEditWSClient implements vscode.Disposable {
      * Sends a ping to the viewer to check connection health and measure latency.
      * @returns Promise resolving to the ping response with timing information
      */
-    public sendPing(): Promise<SessionPingResponse> {
-        return this.transport.call("session.ping", {
+    public sendPing(): Promise<SystemPingResponse> {
+        return this.transport.call("system.ping", {
             timestamp: Date.now()
         });
     }

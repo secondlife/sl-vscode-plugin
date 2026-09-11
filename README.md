@@ -2,7 +2,7 @@
 
 **Enhance your Second Life scripting workflow with advanced preprocessing and external editing capabilities!**
 
-[![Version](https://img.shields.io/badge/version-1.0.6-blue.svg)](https://github.com/secondlife/sl-vscode-plugin)
+[![Version](https://img.shields.io/badge/version-1.0.7-blue.svg)](https://github.com/secondlife/sl-vscode-plugin)
 [![License](https://img.shields.io/badge/license-MIT-green.svg)](LICENSE)
 [![VS Code](https://img.shields.io/badge/VS%20Code-1.85.0%2B-red.svg)](https://code.visualstudio.com/)
 

@@ -22,6 +22,7 @@ export enum ConfigKey {
   NetworkDisconnectDelayMs = 'network.disconnectDelayMs',
   NetworkDisposeDelayMs = 'network.disposeDelayMs',
   NetworkWebsocketPort = 'network.websocketPort',
+  NetworkWinePrefixPath = 'network.winePrefixPath',
   Preprocessor = 'preprocessor',
   PreprocessorEnable = 'preprocessor.enable',
   PreprocessorOptions = 'preprocessor.options',
@@ -33,6 +34,7 @@ export enum ConfigKey {
   AskIfViewerScriptMismatchesMaster = 'sync.askIfViewerScriptMismatchesMaster',
   CompareHashBeforeSync = 'sync.compareHashBeforeSync',
   KeepViewerFileOpen = 'sync.keepViewerFileOpen',
+  AutoLinkOnPublish = 'sync.autoLinkOnPublish',
   NotecardSyncComment = 'sync.notecardComment',
 
   FileMetaInfoInOutput ='sync.includeFileMetaInOutput',

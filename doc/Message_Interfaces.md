@@ -7,12 +7,16 @@ This document describes all the message interfaces defined for WebSocket communi
 - [Usage Flow](#usage-flow)
 - [VS Code Launch URI](#vs-code-launch-uri)
 - [JSON-RPC Method Summary](#json-rpc-method-summary)
+- [Error Handling](#error-handling)
 - [Session Management Interfaces](#session-management-interfaces)
   - [SessionHandshake](#sessionhandshake)
   - [SessionHandshakeResponse](#sessionhandshakeresponse)
   - [Session OK](#session-ok)
   - [SessionDisconnect](#sessiondisconnect)
-  - [SessionPing](#sessionping)
+  - [SystemPing](#systemping)
+  - [SystemVersion](#systemversion)
+  - [SystemStatus](#systemstatus)
+  - [SystemListMethods](#systemlistmethods)
 - [Language and Syntax Interfaces](#language-and-syntax-interfaces)
   - [SyntaxChange](#syntaxchange)
   - [Language Syntax ID Request](#language-syntax-id-request)
@@ -35,6 +39,7 @@ This document describes all the message interfaces defined for WebSocket communi
   - [ClientInfo](#clientinfo)
 - [Object Explorer Interfaces](#object-explorer-interfaces)
   - [Core Data Types](#core-data-types)
+  - [Common preconditions](#common-preconditions)
   - [ObjectPublish](#objectpublish)
   - [ObjectUnpublish](#objectunpublish)
   - [ObjectUpdate](#objectupdate)
@@ -43,7 +48,9 @@ This document describes all the message interfaces defined for WebSocket communi
   - [ObjectItemCreate](#objectitemcreate)
   - [ObjectItemDelete](#objectitemdelete)
   - [ObjectScriptSetRunning](#objectscriptsetrunning)
+  - [ObjectScriptReset](#objectscriptreset)
   - [ObjectRequest](#objectrequest)
+  - [ObjectList](#objectlist)
   - [ObjectModify](#objectmodify)
   - [ObjectItemModify](#objectitemmodify)
 - [Command Interfaces](#command-interfaces)
@@ -157,11 +164,19 @@ WebSocket connects → session.handshake → session.ok
 | `session.handshake` (response)  | Extension → Viewer | Response     | `SessionHandshakeResponse` |
 | `session.ok`                    | Viewer → Extension | Notification | _(no interface)_           |
 | `session.disconnect`            | Bidirectional      | Notification | `SessionDisconnect`        |
-| `session.ping`                  | Bidirectional      | Call         | `SessionPing`              |
-| `session.ping` (response)       | Bidirectional      | Response     | `SessionPingResponse`      |
+| `system.ping`                   | Bidirectional      | Call         | `SystemPing`               |
+| `system.ping` (response)        | Bidirectional      | Response     | `SystemPingResponse`       |
+| `system.getVersion`             | Bidirectional      | Call         | _(no parameters)_          |
+| `system.getVersion` (response)  | Bidirectional      | Response     | `SystemVersionResponse`    |
+| `system.status`                 | Bidirectional      | Call         | _(no parameters)_          |
+| `system.status` (response)      | Bidirectional      | Response     | `SystemStatusResponse`     |
+| `system.listMethods`            | Bidirectional      | Call         | _(no parameters)_          |
+| `system.listMethods` (response) | Bidirectional      | Response     | `SystemListMethodsResponse`|
 | `script.subscribe`              | Extension → Viewer | Call         | `ScriptSubscribe`          |
 | `script.subscribe` (response)   | Viewer → Extension | Response     | `ScriptSubscribeResponse`  |
 | `script.unsubscribe`            | Viewer → Extension | Notification | `ScriptUnsubscribe`        |
+| `script.unsubscribe`            | Extension → Viewer | Call         | `ScriptUnsubscribeParams`  |
+| `script.unsubscribe` (response) | Viewer → Extension | Response     | `null`                     |
 | `script.list`                   | Extension → Viewer | Call         | _(no parameters)_          |
 | `script.list` (response)        | Viewer → Extension | Response     | `ScriptList`               |
 | `language.syntax.id`            | Extension → Viewer | Call         | _(no parameters)_          |
@@ -191,6 +206,8 @@ WebSocket connects → session.handshake → session.ok
 | `object.item.delete` (response) | Viewer → Extension | Response     | `ObjectItemDeleteResponse` |
 | `object.script.set_running`     | Extension → Viewer | Call         | `ObjectScriptSetRunningParams` |
 | `object.script.set_running` (response) | Viewer → Extension | Response | `ObjectScriptSetRunningResponse` |
+| `object.script.reset`           | Extension → Viewer | Call         | `ObjectScriptResetParams`      |
+| `object.script.reset` (response)| Viewer → Extension | Response     | `ObjectScriptResetResponse`    |
 | `object.request`                | Extension → Viewer | Call         | `ObjectRequestParams`          |
 | `object.request` (response)     | Viewer → Extension | Response     | `ObjectRequestResponse`        |
 | `object.list`                   | Extension → Viewer | Call         | `{}` (no params)               |
@@ -203,6 +220,56 @@ WebSocket connects → session.handshake → session.ok
 | `command.execute` (response)    | Bidirectional      | Response     | `CommandExecuteResponse`       |
 | `command.list`                  | Bidirectional      | Call         | _(no params)_                  |
 | `command.list` (response)       | Bidirectional      | Response     | `CommandListResponse`          |
+
+## Error Handling
+
+A call that fails returns a JSON-RPC 2.0 `error` object rather than a result. There is no partial
+success: a response carries either `result` or `error`, never both.
+
+```json
+{
+  "jsonrpc": "2.0",
+  "id": 12,
+  "error": {
+    "code": -32602,
+    "message": "Invalid params: No syntax category specified"
+  }
+}
+```
+
+**Standard JSON-RPC codes:**
+
+| Code | Meaning |
+| ---- | ------- |
+| `-32700` | Parse error — invalid JSON was received |
+| `-32600` | Invalid Request — the JSON sent is not a valid Request object |
+| `-32601` | Method not found |
+| `-32602` | Invalid params |
+| `-32603` | Internal error |
+
+**Server-specific codes.** The range `-32000` to `-32099` is reserved for server errors. The
+transport defines the following; `-32001` and `-32003` are the ones handlers commonly raise.
+
+| Code | Meaning |
+| ---- | ------- |
+| `-32000` | Connection closed unexpectedly |
+| `-32001` | Request timed out |
+| `-32002` | Authentication required |
+| `-32003` | Access denied |
+| `-32004` | Too many requests |
+| `-32005` | Service temporarily unavailable |
+| `-32006` | Message exceeds maximum size |
+| `-32007` | Session expired or invalid |
+
+**Message format.** Standard errors prefix the handler's detail text with a fixed label, so
+`error.message` reads `"Invalid params: <detail>"`, `"Internal error: <detail>"`,
+`"Method not found: <method>"`, and so on. Server-specific errors carry the detail text alone
+(e.g. `"Access denied"`). Clients should branch on `error.code`, not on `error.message`.
+
+**`success` is not an error channel.** Several results carry a `success` field. Where a method
+reports failure through a JSON-RPC error, that field is `true` on every response it ever
+appears in, and a failed call produces no result to inspect. Do not treat a missing or false
+`success` as the failure signal unless the method's own section documents it as one.
 
 ## Session Management Interfaces
 
@@ -243,6 +310,7 @@ interface SessionHandshake {
   - `compilation`: Viewer will forward compilation results via `script.compiled`
   - `syntax_cache`: Viewer supports `language.syntax.cache` and `language.syntax.get` for retrieving syntax definition files
   - `commands`: Both sides support `command.execute` and `command.list`
+  - `unified_diagnostics`: Viewer supports the unified diagnostic reporting format
 
 ### SessionHandshakeResponse
 
@@ -270,7 +338,14 @@ interface SessionHandshakeResponse {
 - `protocol_version`: Protocol version the client supports
 - `challenge_response` (optional): The UUID read from the temporary file identified by the `challenge` field in the handshake. Must be provided if `challenge` was present, otherwise the connection will be closed.
 - `languages`: Array of languages supported by the client
-- `features`: Dictionary of features supported by the client
+- `features`: Dictionary of features supported by the client. Known flags:
+  - `live_sync`: Client supports live script synchronisation
+  - `error_reporting`: Client accepts `runtime.error` notifications
+  - `unified_diagnostics`: Client supports the unified diagnostic reporting format
+  - `object_publish`: Client supports the object explorer methods and notifications
+  - `commands`: Both sides support `command.execute` and `command.list`
+  - `debugging`: Advertised as `false`. Reserved; no debugging support.
+  - `breakpoints`: Advertised as `false`. Reserved; no breakpoint support.
 - `script_name` (optional): Name of the script currently open in the editor
 - `script_language` (optional): Language of the script currently open in the editor (e.g. `"lsl"`, `"luau"`)
 
@@ -303,14 +378,19 @@ interface SessionDisconnect {
   - `4`: Internal server error
 - `message`: Human-readable description of the disconnect reason
 
-### SessionPing
+### SystemPing
 
-**JSON-RPC Method:** `session.ping` (call, bidirectional)
+**JSON-RPC Method:** `system.ping` (call, bidirectional)
 
-Heartbeat call used to verify the connection is alive and measure latency. Either side can initiate a ping; the recipient responds with the original timestamp plus its own server time.
+Ping call used to verify that the connection is alive and measure latency. Either side can
+initiate a ping.
+
+The generic JSON-RPC server responds with the simple result `"pong"`. The editor server extends
+that response with the original timestamp and its current server time. The extension uses the
+extended response for its periodic connection-health check.
 
 ```typescript
-interface SessionPing {
+interface SystemPing {
   timestamp: number;
 }
 ```
@@ -322,7 +402,8 @@ interface SessionPing {
 **Response:**
 
 ```typescript
-interface SessionPingResponse {
+interface SystemPingResponse {
+  pong: string;
   timestamp: number;
   server_time: number;
 }
@@ -330,18 +411,66 @@ interface SessionPingResponse {
 
 **Response Fields:**
 
-- `timestamp`: The original timestamp from the request (echoed back)
+- `pong`: Acknowledgement that the ping was received.
+- `timestamp`: The original timestamp from the request, echoed by the editor server.
 - `server_time`: Unix timestamp in milliseconds when the response was generated
+
+The extension sends a `system.ping` request every 30 seconds and tears the connection down
+after two consecutive failures.
 
 **Example Request:**
 
 ```json
 {
   "jsonrpc": "2.0",
-  "method": "session.ping",
+  "method": "system.ping",
   "id": 42,
   "params": {
     "timestamp": 1721145600000
+  }
+}
+```
+
+### SystemVersion
+
+**JSON-RPC Method:** `system.getVersion` (call, bidirectional)
+
+Requests the identity and version of the peer. The response uses the same field names in both
+directions:
+
+```typescript
+interface SystemVersionResponse {
+  client_name: string;
+  client_version: string;
+}
+```
+
+The viewer returns its viewer channel as `client_name` and its full viewer version as
+`client_version`. The extension returns its package name as `client_name` and its package version
+as `client_version`.
+
+**Example viewer response:**
+
+```json
+{
+  "jsonrpc": "2.0",
+  "id": 43,
+  "result": {
+    "client_name": "Second Life",
+    "client_version": "7.1.0.123456"
+  }
+}
+```
+
+**Example extension response:**
+
+```json
+{
+  "jsonrpc": "2.0",
+  "id": 43,
+  "result": {
+    "client_name": "sl-vscode-plugin",
+    "client_version": "1.0.6"
   }
 }
 ```
@@ -353,9 +482,70 @@ interface SessionPingResponse {
   "jsonrpc": "2.0",
   "id": 42,
   "result": {
+    "pong": "pong",
     "timestamp": 1721145600000,
     "server_time": 1721145600015
   }
+}
+```
+
+### SystemStatus
+
+**JSON-RPC Method:** `system.status` (call, bidirectional)
+
+Requests the current status of the peer. The default response is:
+
+```typescript
+interface SystemStatusResponse {
+  status: "OK";
+}
+```
+
+Both the viewer and the extension currently return `status: "OK"`. The response may be extended
+with additional status information in the future.
+
+**Example response:**
+
+```json
+{
+  "jsonrpc": "2.0",
+  "id": 44,
+  "result": {
+    "status": "OK"
+  }
+}
+```
+
+### SystemListMethods
+
+**JSON-RPC Method:** `system.listMethods` (call, bidirectional)
+
+Requests the names of the methods available on the receiving peer. The response contains an
+alphabetically ordered list of unique method names. Sync versus async dispatch is an internal
+implementation detail and is not exposed by this interface.
+
+```typescript
+type SystemListMethodsResponse = string[];
+```
+
+The viewer returns all methods registered on the connection, including methods registered by the
+base JSON-RPC server and the editor server. The extension returns its built-in system methods
+together with dynamically registered handlers.
+
+**Example response:**
+
+```json
+{
+  "jsonrpc": "2.0",
+  "id": 45,
+  "result": [
+    "command.execute",
+    "command.list",
+    "system.getVersion",
+    "system.listMethods",
+    "system.ping",
+    "system.status"
+  ]
 }
 ```
 
@@ -411,23 +601,24 @@ Requests the in-memory keyword definitions for a specific language. These defini
 ```typescript
 interface LanguageInfo {
   id: string;
-  defs?: object;    // Present only on success
+  defs: object;
   success: boolean;
-  error?: string;   // Present only on failure
 }
 ```
 
 **Response Fields:**
 
 - `id`: The current syntax version identifier
-- `defs` (optional): The keyword definitions object. Only present when `success` is `true`. Structure varies by language.
-- `success`: Whether the definitions were found and returned successfully
-- `error` (optional): Human-readable error description. Only present when `success` is `false`
+- `defs`: The keyword definitions object. Structure varies by language.
+- `success`: Always `true`. Failures are returned as JSON-RPC errors — see below.
 
-**Error cases:**
+**Errors:**
 
-- No `kind` parameter supplied: `success: false`, `error: "No syntax category specified"`
-- Unknown `kind` value: `success: false`, `error: "Unknown syntax category requested"`
+| Condition | Code | `error.message` |
+| --------- | ---- | --------------- |
+| No `kind` parameter supplied | `-32602` | `Invalid params: No syntax category specified` |
+| Unknown `kind` value | `-32602` | `Invalid params: Unknown syntax category requested` |
+| Definitions unavailable for a valid `kind` | `-32603` | `Internal error: Syntax definitions are unavailable` |
 
 ### Language Syntax Cache List
 
@@ -490,23 +681,24 @@ Requests the content of a specific file from the syntax definition cache. The fi
 
 ```typescript
 interface SyntaxCacheFile {
-  content?: string | object;  // Present only on success. String if as_json is false/omitted, object if as_json is true
+  content: string | object;  // String if as_json is false/omitted, object if as_json is true
   success: boolean;
-  error?: string;             // Present only on failure
 }
 ```
 
 **Response Fields:**
 
-- `content`: The file content. Only present when `success` is `true`. Is a raw text string when `as_json` is omitted or `false`; is a parsed object when `as_json` is `true`.
-- `success`: Whether the file was found and read successfully
-- `error` (optional): Human-readable error description. Only present when `success` is `false`
+- `content`: The file content. Is a raw text string when `as_json` is omitted or `false`; is a parsed object when `as_json` is `true`.
+- `success`: Always `true`. Failures are returned as JSON-RPC errors — see below.
 
-**Error cases:**
+**Errors:**
 
-- No `filename` parameter supplied: `success: false`, `error: "No filename specified"`
-- Name not found in cache: `success: false`, `error: "Requested syntax cache file not found"`
-- File could not be loaded: `success: false`, `error: "Failed to load syntax cache file"` (or `"Failed to load and format syntax cache file."` when `as_json` is `true`)
+| Condition | Code | `error.message` |
+| --------- | ---- | --------------- |
+| No `filename` parameter supplied | `-32602` | `Invalid params: No filename specified` |
+| Name not found in cache | `-32602` | `Invalid params: Requested syntax cache file not found` |
+| File could not be loaded (`as_json` omitted or `false`) | `-32603` | `Internal error: Failed to load syntax cache file` |
+| File could not be loaded or parsed (`as_json` is `true`) | `-32603` | `Internal error: Failed to load and format syntax cache file.` |
 
 ## Script Subscription Interfaces
 
@@ -541,9 +733,10 @@ interface ScriptSubscribeResponse {
   script_id: string;
   success: boolean;
   status: number;
-  object_id?: string;
-  item_id?: string;
-  message?: string;
+  message: string;
+  object_id?: string;   // Success only
+  root_id?: string;     // Success only
+  item_id?: string;     // Success only
 }
 ```
 
@@ -557,15 +750,26 @@ interface ScriptSubscribeResponse {
   - `2`: Invalid subscription — no subscription found for the given `script_id`
   - `3`: Already subscribed — another connection is already subscribed to this script
   - `4`: Internal server error
-- `object_id` (optional): The in-world UUID of the object containing the script
-- `item_id` (optional): The inventory item UUID of the script within the object
-- `message` (optional): Additional information about the subscription result
+- `message`: Always present. Fixed text matching `status`:
+
+| `status` | `message` |
+| -------- | --------- |
+| `0` | `OK` |
+| `1` | `Invalid editor handle` |
+| `2` | `No subscription found for script` |
+| `3` | `Script already subscribed` |
+| `4` | `Internal server error` |
+
+- `object_id`: UUID of the **prim** that owns the script. For a script in a child prim this is the child's UUID, not the linkset root's. Present only when `success` is `true`.
+- `root_id`: UUID of the root prim of the linkset containing the script. Present only when `success` is `true`. If the prim cannot be resolved, `root_id` is set equal to `object_id`, so equality does not by itself mean the script lives in the root prim.
+- `item_id`: The inventory item UUID of the script within the prim. Present only when `success` is `true`.
 
 ### ScriptUnsubscribe
 
 **JSON-RPC Method:** `script.unsubscribe` (notification from viewer)
 
-Notification sent by the viewer when a script subscription should be terminated.
+Notification sent by the viewer when a script subscription should be terminated. It is delivered
+only to the connection holding the subscription, not to all connections.
 
 ```typescript
 interface ScriptUnsubscribe {
@@ -576,6 +780,23 @@ interface ScriptUnsubscribe {
 **Fields:**
 
 - `script_id`: Unique identifier for the script to unsubscribe from
+
+**JSON-RPC Method:** `script.unsubscribe` (call from extension to viewer)
+
+The extension may also call `script.unsubscribe` to end a subscription it holds.
+
+```typescript
+interface ScriptUnsubscribeParams {
+  script_id: string;  // Script whose subscription should be dropped
+}
+```
+
+The result is `null`.
+
+The viewer drops the subscription only when the calling connection owns it. The call is
+idempotent: an unknown `script_id`, or one held by a different connection, is ignored and still
+returns a successful `null` result. A client therefore cannot use the response to detect that it
+targeted the wrong script.
 
 ### ScriptList
 
@@ -631,7 +852,6 @@ Result of a compilation operation in the viewer.
 
 ```typescript
 interface CompilationResult {
-  /** Deprecated: retained during migration to item-based routing. */
   script_id: string;
   success: boolean;
   running: boolean;
@@ -646,6 +866,25 @@ interface CompilationResult {
 - `running`: Whether the compiled script is currently running
 - `diagnostics` (optional): Array of `Diagnostic` records if any occurred
 
+**Delivery:** routed only to the connection subscribed to that script. This differs from
+`runtime.debug` and `runtime.error`, which are broadcast to every connection.
+
+**Two compile-feedback paths.** Compilation results reach a client by one of two routes,
+depending on how the save was made:
+
+| Save route | Feedback |
+| ---------- | -------- |
+| `object.content.save` (object explorer) | `compiled` and `diagnostics` returned inline in the response |
+| Live-sync editing of a subscribed script | `script.compiled` notification |
+
+A client using only the object explorer never receives `script.compiled`; a client waiting for
+`script.compiled` after an `object.content.save` will wait indefinitely. Consolidating these two
+paths is tracked separately.
+
+**Known limitation.** `script.compiled` is produced only while the viewer's script editor for that
+script is open. If that editor has closed, compilation results are dropped without notice — no
+result, no error, and not necessarily a preceding `script.unsubscribe`. Tracked separately.
+
 ## Runtime Event Interfaces
 
 ### RuntimeDebug
@@ -656,24 +895,27 @@ Debug message notification sent by the viewer during script execution.
 
 ```typescript
 interface RuntimeDebug {
-  /** Deprecated: use item.item_id when available. */
-  script_id?: string;
+  script_id?: string;  // Present when the viewer can resolve a script subscription id
   object_id: string;
-  prim_id?: string;
-  item_id?: string;
+  prim_id: string;
+  item_id: string;
   object_name: string;
   message: string;
-  channel?: "debug" | "owner_say";
-  item?: ItemRef;
+  channel: "debug" | "owner_say";
+  item: ItemRef;
 }
 ```
 
 **Fields:**
 
-- `script_id`: Unique identifier for the script generating the debug message
-- `object_id`: Unique identifier for the object containing the script
+- `script_id`: Identifier for the script generating the debug message
+- `object_id`: UUID of the root prim of the object containing the script
+- `prim_id`: UUID of the prim that owns the script
+- `item_id`: Inventory item UUID of the script
 - `object_name`: Human-readable name of the object
 - `message`: The debug message content
+- `channel`: Source of the text. `"debug"` for script debug output, `"owner_say"` for owner-directed chat.
+- `item`: Reference identifying the originating script. See `ItemRef` under `RuntimeError`.
 
 ### RuntimeError
 
@@ -683,39 +925,55 @@ Runtime error notification sent by the viewer when a script encounters an error 
 
 ```typescript
 interface RuntimeError {
-  /** Deprecated: use item.item_id when available. */
-  script_id: string;
+  script_id?: string;  // Present when the viewer can resolve a script subscription id
   object_id: string;
-  prim_id?: string;
-  item_id?: string;
+  prim_id: string;
+  item_id: string;
   object_name: string;
   message: string;
   error: string;
   line: number;
-  column?: number;
-  stack?: string[];
-  channel?: "debug" | "owner_say";
-  item?: ItemRef;
+  column: number;
+  stack: string[];
+  channel: "debug" | "owner_say";
+  item: ItemRef;
 }
 
 interface ItemRef {
   root_id: string;
-  prim_id?: string;
-  item_id?: string;
-  name?: string;
-  language?: "lsl" | "luau";
+  prim_id: string;
+  item_id: string;
+  name: string;
+  language: "lsl" | "luau";
 }
 ```
 
 **Fields:**
 
-- `script_id`: Unique identifier for the script that encountered the error
-- `object_id`: Unique identifier for the object containing the script
+- `script_id`: Identifier for the script that encountered the error
+- `object_id`: UUID of the root prim of the object containing the script
+- `prim_id`: UUID of the prim that owns the script
+- `item_id`: Inventory item UUID of the script
 - `object_name`: Human-readable name of the object
 - `message`: The full raw chat text of the runtime error message as received from the simulator
 - `error`: Extracted runtime error description. This remains a top-level compatibility field while the protocol stays on version `1.0`.
 - `line`: Line number where the error occurred when the runtime format can be parsed; otherwise `0`.
-- `stack` (optional): Stack trace lines if they could be extracted from the error message
+- `column`: Column position where the error occurred when the runtime format can be parsed; otherwise `0`.
+- `stack`: Stack trace lines extracted from the error message. Always present; an empty array when no trace could be extracted, so test its length rather than its presence.
+- `channel`: Source of the text. `"debug"` for script debug output, `"owner_say"` for owner-directed chat.
+- `item`: Reference identifying the originating script.
+  - `root_id`: UUID of the root prim of the linkset.
+  - `prim_id`: UUID of the prim that owns the script.
+  - `item_id`: Inventory item UUID of the script.
+  - `name`: Script name as it appears in the prim's inventory.
+  - `language`: The script's source language. Independent of the compile target; the VM is not carried in runtime messages.
+
+**Note on `script_id`:** this field is optional. It is included when the viewer can resolve the
+originating script inventory item and construct a subscription id from `prim_id` + `item_id`.
+When that resolution is not possible, the field is omitted.
+
+**Delivery:** `runtime.debug` and `runtime.error` are broadcast to all connections. An event is
+emitted when the originating object is published or its script is subscribed.
 
 ## Handler and Configuration Interfaces
 
@@ -775,6 +1033,11 @@ interface ClientInfo {
 
 These interfaces support exploring in-world object inventories (scripts and notecards) from the external editor as a browseable virtual filesystem. The extension exposes explored objects under the `sl://objects/` URI scheme.
 
+Explored objects are shared across all connections rather than owned by the connection that
+requested them. `object.publish`, `object.update` and `object.unpublish` are broadcast to every
+connected client, so a client will receive notifications for objects it never requested, and must
+drop an object from its own state when an `object.unpublish` for it arrives.
+
 ### Core Data Types
 
 ```typescript
@@ -800,6 +1063,7 @@ interface ObjectInventoryItem {
   subtype?: number;        // Scripts only: language from II_FLAGS_SUBTYPE_MASK (0=LSL, 1=Luau)
   vm?: ScriptVM;           // Scripts only: which VM the script targets
   running?: boolean;       // Scripts only: whether the script is running
+  faulted?: boolean;       // Scripts only: whether the script has a runtime fault
   permissions?: ItemPermissions;
   creator_id?: string;
 }
@@ -810,6 +1074,7 @@ interface LinkedObject {
   link_number: number;      // Link number (root=1, children≥2)
   link_name: string;
   link_description?: string;
+  permissions?: ObjectPermissions;   // Actual permissions for this linked prim
   inventory: ObjectInventoryItem[];
 }
 
@@ -825,20 +1090,60 @@ interface PublishedObject {
   object_description?: string;
   region?: string;
   owner_id?: string;
-  permissions?: ObjectPermissions;
+  permissions?: ObjectPermissions;   // Actual permissions for this root prim
   can_save_back?: boolean;      // Whether Save Back to Contents is currently available for this object
   inventory: ObjectInventoryItem[];      // Root prim's scripts and notecards
   linked_objects?: LinkedObject[];       // Child prims
 }
 ```
 
-**Script display extensions** (synthetic, derived from `subtype`):
+**Display names.** The extension synthesises a file extension for scripts when presenting items in
+the virtual filesystem:
 
-| `subtype` | Extension |
-| --------- | --------- |
-| `0` (LSL) | `.lsl`    |
-| `1` (Luau)| `.luau`   |
-| notecard  | `.txt`    |
+| Item | Extension |
+| ---- | --------- |
+| Script, `subtype` `0` (LSL) | `.lsl` |
+| Script, `subtype` `1` (Luau) | `.luau` |
+| Notecard | _(none)_ |
+
+Notecards receive no synthetic extension; the inventory name is used verbatim, so an extension the
+user gave the notecard is preserved and none is added.
+
+These extensions exist only for display and are never part of the item's inventory name. Names sent
+to and received from the viewer — including in `object.item.create` and `object.item.modify` — are
+always the pure inventory name, without an extension.
+
+### Common preconditions
+
+Every method that addresses an item by `prim_id` + `item_id` — `object.content.get`,
+`object.content.save`, `object.item.delete` and `object.item.modify` — runs the same validation
+before doing any work, in this order:
+
+1. Both `prim_id` and `item_id` are present.
+2. The prim exists.
+3. The object containing the prim is currently published.
+4. The item exists in that prim's inventory.
+5. The item is a script or a notecard.
+6. The caller holds the permissions that method requires.
+
+An object must be published before any of its items can be addressed. Learning an object's id from
+`object.list` is not sufficient on its own — the object must be published, which `object.list`
+reports and `object.request` initiates.
+
+**Errors:**
+
+| Condition | Code | `error.message` |
+| --------- | ---- | --------------- |
+| `prim_id` or `item_id` missing | `-32602` | `Invalid params: prim_id and item_id are required` |
+| Prim not found | `-32602` | `Invalid params: Prim not found` |
+| Object is not published | `-32003` | `Object is not published` |
+| Item not in the prim's inventory | `-32602` | `Invalid params: Item not found in prim inventory` |
+| Item is not a script or notecard | `-32602` | `Invalid params: Item is not a script or notecard` |
+| Required item permission denied | `-32003` | `Insufficient permissions` |
+| Modify denied on the containing prim | `-32003` | `No modify permission on object` |
+
+Writes require modify permission on both the item **and** the prim that contains it. A no-modify
+object can be published and read, but its contents cannot be changed.
 
 ---
 
@@ -865,7 +1170,7 @@ interface ObjectPublishMessage {
 
 **JSON-RPC Method:** `object.unpublish` (notification from viewer)
 
-Sent when the viewer stops exploring a previously explored object — for example when the user clicks "Stop Exploring", moves away, or the object is deleted.
+Sent when the viewer stops exploring a previously explored object — for example when the user stops exploring it from the viewer UI, the extension calls `object.unpublish`, or the object is deleted or linked into another object.
 
 ```typescript
 interface ObjectUnpublishMessage {
@@ -877,11 +1182,22 @@ interface ObjectUnpublishMessage {
 **Fields:**
 
 - `object_id`: UUID of the root prim that is no longer being explored
-- `reason` (optional): Human-readable explanation (e.g. `"object deleted"`, `"out of range"`)
+- `reason` (optional): Machine-readable token identifying why exploring stopped. One of:
+
+| Value | Meaning |
+| ----- | ------- |
+| `manual` | The extension called `object.unpublish` for this object. |
+| `republish` | The object is being re-published; a fresh `object.publish` follows. |
+| `user` | The user stopped exploring the object from the viewer UI. |
+| `deleted` | The object was deleted. |
+| `linked` | The object became a child prim of a linkset and is no longer a root. |
+
+The field is omitted only when no reason was supplied; in practice every unpublish carries one
+of the values above.
 
 **JSON-RPC Method:** `object.unpublish` (call from extension to viewer)
 
-The extension may also call `object.unpublish` to manually stop exploring an object. The viewer will stop and send a corresponding `object.unpublish` notification back to the caller.
+The extension may also call `object.unpublish` to manually stop exploring an object. The viewer will stop and broadcast a corresponding `object.unpublish` notification to all connections.
 
 ```typescript
 interface ObjectUnpublishParams {
@@ -899,7 +1215,7 @@ interface ObjectUnpublishResponse {
 - `object_id`: UUID of the root prim to stop exploring.
 - `success`: `true` if the object was being explored and has been removed.
 
-**Note:** The viewer also sends an `object.unpublish` notification to the caller immediately after responding. Extensions should handle that notification idempotently.
+**Note:** The viewer also broadcasts an `object.unpublish` notification immediately after responding. The caller receives it too, so extensions should handle that notification idempotently.
 
 ---
 
@@ -907,9 +1223,56 @@ interface ObjectUnpublishResponse {
 
 **JSON-RPC Method:** `object.update` (notification from viewer)
 
-Sent when the inventory of an explored object changes. Supports two modes:
-- **Full replacement**: `inventory` and/or `linked_objects` fields replace the entire prior state.
-- **Delta update**: `changes` field describes only what changed. Takes precedence over full replacement fields when present.
+Sent when an explored object's inventory, properties, or linkset membership change.
+
+**Shapes currently emitted.** The viewer sends exactly the following five payloads:
+
+| Trigger | Payload |
+| ------- | ------- |
+| Root prim inventory changed | `object_id`, `inventory` (complete replacement array) |
+| Child prim inventory changed | `object_id`, `changes.linked_objects.modified[]` with `link_id` and `inventory` (complete replacement array for that child) |
+| Root prim name/description changed | `object_id`, `object_name` and/or `object_description` |
+| Child prim name/description changed | `object_id`, `changes.linked_objects.modified[]` with `link_id` and `link_name` and/or `link_description` |
+| Linkset membership changed | `object_id`, `linked_objects` (complete replacement array covering every child prim) |
+
+`inventory` and `linked_objects` are always complete replacements of the prior state, never
+increments. Linkset membership changes are coalesced behind a short flush delay, so several
+rapid link or unlink operations may arrive as a single update.
+
+```typescript
+interface ObjectUpdateMessage {
+  object_id: string;
+  object_name?: string;
+  object_description?: string;
+  // Full replacement
+  inventory?: ObjectInventoryItem[];
+  linked_objects?: LinkedObject[];
+  changes?: {
+    inventory?: InventoryChanges;        // Not implemented — see below
+    linked_objects?: LinkedObjectChanges;
+  };
+}
+
+interface LinkedObjectChanges {
+  added?: LinkedObject[];     // Not implemented — see below
+  removed?: string[];         // Not implemented — see below
+  modified?: {
+    link_id: string;
+    link_name?: string;
+    link_description?: string;
+    inventory?: ObjectInventoryItem[];   // Complete replacement array, not a delta
+  }[];
+}
+```
+
+**Note:** `changes.linked_objects.modified` is emitted, as shown in the table above.
+`changes.linked_objects.added` and `changes.linked_objects.removed` are not.
+
+#### Not implemented
+
+The delta sub-protocol below is specified but is **not currently emitted by the viewer**.
+Implementation is tracked separately. Clients must rely on the full-replacement shapes listed
+above; code written to consume these types will never run against the current viewer.
 
 ```typescript
 interface InventoryChanges {
@@ -919,30 +1282,10 @@ interface InventoryChanges {
   content_changed?: string[];                                 // item_ids whose content changed (invalidates cache)
   running_changed?: { item_id: string; running: boolean }[];  // running state toggled
 }
-
-interface LinkedObjectChanges {
-  added?: LinkedObject[];
-  removed?: string[];         // link_ids removed
-  modified?: {
-    link_id: string;
-    link_name?: string;
-    inventory?: InventoryChanges;
-  }[];
-}
-
-interface ObjectUpdateMessage {
-  object_id: string;
-  object_name?: string;
-  // Full replacement (used when changes is absent)
-  inventory?: ObjectInventoryItem[];
-  linked_objects?: LinkedObject[];
-  // Delta (takes precedence when present)
-  changes?: {
-    inventory?: InventoryChanges;
-    linked_objects?: LinkedObjectChanges;
-  };
-}
 ```
+
+Also not implemented: `LinkedObjectChanges.added` and `LinkedObjectChanges.removed`. Linkset
+membership changes are sent as a complete `linked_objects` replacement array instead.
 
 ---
 
@@ -973,6 +1316,14 @@ interface ObjectContentGetResponse {
 - `success`: `true` on success.
 - `content`: The raw text content of the item. For notecards, the `Linden text version 2` envelope is stripped — only the body text is returned.
 
+**Permissions.** Scripts require both `PERM_COPY` and `PERM_MODIFY` on the item: the source of a
+no-copy or no-modify script is never exposed. Notecards require no permission at all, so that
+no-modify notecards remain readable in the external editor. See
+[Common preconditions](#common-preconditions) for the shared checks and errors.
+
+**Timeout.** 30 seconds to fetch the asset, after which the call fails with `-32001`
+(`Asset fetch timed out`).
+
 ---
 
 ### ObjectContentSave
@@ -987,6 +1338,7 @@ interface ObjectContentSaveParams {
   item_id: string;
   content: string;
   vm?: "mono" | "lsl2" | "luau";
+  running?: boolean;  // Scripts only: run state applied after compilation when supplied.
 }
 
 interface ObjectContentSaveResponse {
@@ -995,7 +1347,6 @@ interface ObjectContentSaveResponse {
   item_id?: string;
   compiled?: boolean;
   diagnostics?: Diagnostic[];
-  message?: string;
 }
 ```
 
@@ -1005,10 +1356,19 @@ interface ObjectContentSaveResponse {
 - `item_id`: UUID of the saved inventory item.
 - `content`: Raw script/notecard source text to store.
 - `vm` (optional): Scripts only compile target. Accepted values are `"mono"`, `"lsl2"`, `"luau"`. When `"luau"` is specified for an LSL script (as opposed to a native Luau script), the viewer automatically selects the correct LSL-on-Luau compile path. If omitted, inferred from item metadata or content analysis.
+- `running` (optional): Scripts only. When provided, the viewer applies that run state after upload and compilation. When omitted, the viewer preserves the script's current run state and does not force it off.
 - `success`: Whether the upload/save operation succeeded.
 - `compiled` (optional): Scripts only. `true` when compilation succeeded, `false` when source saved but compile failed.
 - `diagnostics` (optional): Scripts only. Compiler diagnostics when `compiled` is `false`.
-- `message` (optional): Error description on failure.
+
+> **Note:** Omitting `running` leaves the script's existing run state unchanged. Only an explicit `true` or `false` changes the post-save state.
+
+**Permissions.** Requires `PERM_MODIFY` on the item and modify permission on the containing prim.
+See [Common preconditions](#common-preconditions) for the shared checks and errors.
+
+**Timeouts.** Scripts allow 60 seconds for upload and compilation; notecards allow 30 seconds. A
+client's own timeout must exceed the longer of the two. Exceeding either fails the call with
+`-32001`.
 
 ---
 
@@ -1016,18 +1376,17 @@ interface ObjectContentSaveResponse {
 
 **JSON-RPC Method:** `object.item.create` (call from extension to viewer)
 
-Creates a new script in a prim's inventory. The call is asynchronous — the viewer sends
-`RezScript` to the simulator and waits for the inventory-changed callback before returning
-the created item's details. The simulator may rename the item if a duplicate name exists.
-
-Notecard creation is not yet supported and will return an error.
+Creates a new script or notecard in a prim's inventory. The call is asynchronous and returns the
+created item's details once the simulator confirms the item exists. The simulator may rename the
+item if a duplicate name exists.
 
 ```typescript
 interface ObjectItemCreateParams {
   prim_id: string;           // UUID of the prim to create the item in
   name: string;              // Pure SL inventory name — no file extension
-  type: InventoryItemType;   // "script" ("notecard" reserved for future)
-  vm: ScriptVM;              // Required for scripts: "luau" | "lsl"
+  type: InventoryItemType;   // "script" | "notecard"
+  vm?: ScriptVM;             // Scripts only (required): "luau" | "mono" | "lsl2"
+  text?: string;             // Notecards only (optional): initial body text
 }
 
 // On success, returns an ObjectInventoryItem with prim_id:
@@ -1036,12 +1395,32 @@ interface ObjectItemCreateResponse extends ObjectInventoryItem {
 }
 ```
 
+**Fields:**
+
+- `prim_id`: UUID of the prim to create the item in. Child prims are addressable directly by UUID.
+- `name`: Pure SL inventory name, without a file extension.
+- `type`: `"script"` or `"notecard"`.
+- `vm`: Scripts only. Required when `type` is `"script"`; accepted values are `"luau"`, `"mono"` and `"lsl2"`. Ignored for notecards.
+- `text` (optional): Notecards only. Initial body text for the new notecard. Ignored for scripts.
+
 **Notes:**
 - The response matches the `ObjectInventoryItem` structure (same fields as items in
   `object.publish` and `object.update` notifications).
 - The `name` in the response may differ from the request if the simulator renamed it.
 - An `object.update` notification will also fire for the prim (since inventory changed).
-- Timeout: 30 seconds. Returns a JSON-RPC internal error if the simulator does not respond.
+
+**Errors:**
+
+| Condition | Code | `error.message` |
+| --------- | ---- | --------------- |
+| `type` is not `"script"` or `"notecard"` | `-32602` | `Invalid params: Unsupported item type: <type>` |
+| `prim_id` missing | `-32602` | `Invalid params: prim_id is required` |
+| Prim not found | `-32602` | `Invalid params: Prim not found` |
+| `name` missing | `-32602` | `Invalid params: name is required` |
+| `vm` missing or invalid for a script | `-32602` | `Invalid params: vm must be 'luau', 'mono', or 'lsl2'` |
+| Object is not published | `-32003` | `Object is not published` |
+| Another `object.item.create` is already in flight for this prim | `-32600` | `Invalid Request: An item.create is already in flight for this prim` |
+| Simulator did not respond within 30 seconds | `-32001` | `Timed out waiting for item creation` |
 
 ---
 
@@ -1064,6 +1443,9 @@ interface ObjectItemDeleteResponse {
 }
 ```
 
+**Permissions.** Requires `PERM_MODIFY` on the item and modify permission on the containing prim.
+See [Common preconditions](#common-preconditions) for the shared checks and errors.
+
 ---
 
 ### ObjectScriptSetRunning
@@ -1081,9 +1463,56 @@ interface ObjectScriptSetRunningParams {
 
 interface ObjectScriptSetRunningResponse {
   success: boolean;
-  message?: string;
 }
 ```
+
+**`success` means dispatched, not applied.** The viewer sends a message to the simulator and
+returns immediately. `success: true` confirms the message was sent — it does not confirm the
+simulator started or stopped the script. Confirmation, if it arrives, comes later as an
+`object.update` notification. Treat the response as an acknowledgement and wait for the update
+before reporting the new run state to the user.
+
+**Permissions.** Requires `PERM_MODIFY` on the script. This method validates independently of the
+shared item validator and accepts scripts only.
+
+**Errors:**
+
+| Condition | Code | `error.message` |
+| --------- | ---- | --------------- |
+| `prim_id` or `item_id` missing | `-32602` | `Invalid params: prim_id and item_id are required` |
+| Prim not found | `-32602` | `Invalid params: Prim not found` |
+| Object is not published | `-32003` | `Object is not published` |
+| Script not in the prim's inventory | `-32602` | `Invalid params: Script not found in prim inventory` |
+| Item is not a script | `-32602` | `Invalid params: Item is not a script` |
+| No modify permission on the script | `-32003` | `No modify permission on script` |
+
+---
+
+### ObjectScriptReset
+
+**JSON-RPC Method:** `object.script.reset` (call from extension to viewer)
+
+Resets a script within a prim, clearing its state and restarting from the default state entry.
+
+```typescript
+interface ObjectScriptResetParams {
+  prim_id: string;
+  item_id: string;
+}
+
+interface ObjectScriptResetResponse {
+  success: boolean;
+}
+```
+
+**`success` means dispatched, not applied.** As with `object.script.set_running`, the viewer sends
+a message to the simulator and returns immediately. `success: true` does not confirm the script
+was reset.
+
+**Permissions.** Requires `PERM_MODIFY` on the script. This method validates independently of the
+shared item validator and accepts scripts only.
+
+**Errors:** identical to `object.script.set_running` above.
 
 ---
 
@@ -1102,15 +1531,24 @@ interface ObjectRequestParams {
 
 interface ObjectRequestResponse {
   success: boolean;
-  message?: string;  // reason on failure (e.g. "object not found", "permission denied")
 }
 ```
 
 **Fields:**
 
 - `object_id`: UUID of the root prim of the linkset to explore.
-- `success`: Whether the viewer accepted the request. A `true` response does not mean `object.publish` has been sent yet — it means the viewer will send it.
-- `message` (optional): Human-readable failure reason. Only present when `success` is `false`.
+- `success`: Whether the viewer accepted the request. A `true` response does not mean `object.publish` has been sent yet — it means the viewer will send it. Failures are returned as JSON-RPC errors — see below.
+
+**Permissions.** Requires modify permission on the object.
+
+**Errors:**
+
+| Condition | Code | `error.message` |
+| --------- | ---- | --------------- |
+| `object_id` missing | `-32602` | `Invalid params: No object_id specified` |
+| Object not found | `-32602` | `Invalid params: Object not found` |
+| No modify permission on the object | `-32003` | `Permission denied` |
+| Publish could not be started | `-32603` | `Internal error: Failed to initiate publish` |
 
 **Sequence:**
 1. Extension calls `object.request`
@@ -1165,7 +1603,6 @@ interface ObjectModifyParams {
 interface ObjectModifyResponse {
   success: boolean;
   prim_id: string;           // Echoed back from request
-  message?: string;          // Error description on failure
 }
 ```
 
@@ -1176,8 +1613,24 @@ interface ObjectModifyResponse {
 - `description` (optional): New description for the prim. If omitted, description remains unchanged.
 - `permissions` (optional): Permission changes.
   - `next_owner`: Permission mask applied when the object is transferred. Uses same bit flags as `ItemPermissions` (e.g., `PERM_MODIFY=0x4000`, `PERM_COPY=0x8000`, `PERM_TRANSFER=0x2000`).
-- `success`: Whether the update operation succeeded.
-- `message` (optional): Error description. Only present when `success` is `false`.
+- `success`: Whether the property messages were dispatched.
+
+**`success` means dispatched, not applied.** Each supplied property is sent to the simulator as a
+separate message and the viewer returns immediately. `success: true` confirms the messages were
+sent, not that any of them took effect — and because they travel independently, one may be applied
+while another is not. Confirmation arrives later as an `object.update` notification.
+
+**Permissions.** Requires modify permission on the prim.
+
+**Errors:**
+
+| Condition | Code | `error.message` |
+| --------- | ---- | --------------- |
+| `prim_id` missing | `-32602` | `Invalid params: prim_id is required` |
+| No property supplied | `-32602` | `Invalid params: At least one property (name, description, or permissions) must be specified` |
+| Prim not found | `-32602` | `Invalid params: Prim not found` |
+| Object is not published | `-32003` | `Object is not published` |
+| No modify permission on the prim | `-32003` | `No modify permission on object` |
 
 **Notes:**
 - At least one property field (`name`, `description`, or `permissions`) must be specified.
@@ -1207,7 +1660,6 @@ interface ObjectItemModifyResponse {
   success: boolean;
   prim_id: string;           // Echoed back from request
   item_id: string;           // Echoed back from request
-  message?: string;          // Error description on failure
 }
 ```
 
@@ -1219,8 +1671,16 @@ interface ObjectItemModifyResponse {
 - `description` (optional): New description for the item. If omitted, description remains unchanged.
 - `permissions` (optional): Permission changes.
   - `next_owner`: Permission mask applied when the item is transferred. Uses same bit flags as `ItemPermissions` (e.g., `PERM_MODIFY=0x4000`, `PERM_COPY=0x8000`, `PERM_TRANSFER=0x2000`).
-- `success`: Whether the update operation succeeded.
-- `message` (optional): Error description. Only present when `success` is `false`.
+- `success`: Whether the property messages were dispatched.
+
+**`success` means dispatched, not applied.** The viewer sends the change to the simulator and
+returns immediately; confirmation arrives later as an `object.update` notification.
+
+**Permissions.** Requires `PERM_MODIFY` on the item and modify permission on the containing prim.
+See [Common preconditions](#common-preconditions) for the shared checks and errors.
+
+**Errors:** as listed under [Common preconditions](#common-preconditions), plus `-32602` when no
+property field is supplied.
 
 **Notes:**
 - At least one property field (`name`, `description`, or `permissions`) must be specified.
@@ -1249,27 +1709,40 @@ interface CommandExecuteParams {
 interface CommandExecuteResponse {
   success: boolean;
   result?: unknown;                      // optional command-specific return value
-  error_code?: number;
-  message?: string;
 }
 ```
 
 **Fields:**
 
 - `command`: Namespaced command identifier. The prefix before the first `.` identifies the side that owns and executes the command:
-  - `viewer.*` — commands executed by the viewer (e.g. `viewer.teleport`, `viewer.script.recompile_all`)
+  - `viewer.*` — commands executed by the viewer (e.g. `viewer.teleport`, `viewer.camera.focus`)
   - `editor.*` — commands executed by the extension (e.g. `editor.open_file`, `editor.show_message`)
 - `params` (optional): Command-specific argument map. Structure varies by command.
-- `success`: Whether the command was found and executed without error.
-- `result` (optional): Command-specific return value. Only present when `success` is `true` and the command produces output.
-- `error_code` (optional): Numeric failure code. Only present when `success` is `false`:
-  - `1` — Unknown command
-  - `2` — Invalid or missing parameters
-  - `3` — Not permitted
-  - `4` — Execution error
-- `message` (optional): Human-readable error description. Only present when `success` is `false`.
+- `success`: `true` when the command executed. Failures are returned as JSON-RPC errors — see below.
+- `result` (optional): Command-specific return value. Only present when the command produces output.
 
-**Capability gate:** A side MUST NOT send `command.execute` unless the peer advertised `commands: true` in the handshake. A receiver that receives the call without having negotiated the feature MUST respond with `success: false, error_code: 1`.
+**Errors:**
+
+| Condition | Code | `error.message` |
+| --------- | ---- | --------------- |
+| `command` missing | `-32602` | `Invalid params: command is required` |
+| Command not registered | `-32602` | `Invalid params: Unknown command: <command>` |
+
+The invoked command's own handler may raise further errors — `-32602` for bad arguments,
+`-32003` when the action is not permitted, `-32603` on internal failure. Clients must handle any
+error code, not only the two above.
+
+**Capability gate (directional):**
+
+- A sender MUST NOT call `command.execute` on a peer that did not advertise `commands: true`.
+- A receiver MAY accept `command.execute` whenever it advertised `commands: true`, regardless of
+  whether the sender advertised `commands`.
+- In practice this means:
+  - Extension → Viewer calls are allowed when the viewer advertised `commands: true`.
+  - Viewer → Extension calls are allowed only when the extension advertised `commands: true`.
+
+This treats `commands` as a receiver capability per direction, not as a symmetric "both sides or
+nothing" toggle.
 
 **Example — extension asks viewer to teleport:**
 
@@ -1329,6 +1802,17 @@ interface CommandExecuteResponse {
 }
 ```
 
+```json
+{
+  "jsonrpc": "2.0",
+  "id": 8,
+  "result": { "success": true }
+}
+```
+
+The extension implements `editor.show_message`. It accepts `level` values of `"info"`,
+`"warn"`, or `"error"`; when omitted, `level` defaults to `"info"`.
+
 ---
 
 ### CommandList
@@ -1364,21 +1848,21 @@ interface CommandParamInfo {
 - `commands`: Array of commands the responder supports. Each entry describes one command.
   - `command`: The namespaced command identifier.
   - `description` (optional): Human-readable description of what the command does.
-  - `params` (optional): Map of parameter names to their type descriptors.
+  - `params` (optional): Map of parameter names to their type descriptors. The viewer populates
+    this field for its registered commands.
 
 **Known viewer commands:**
 
 | Command | Required params | Description |
 |---------|----------------|-------------|
 | `viewer.teleport` | `object_id: string` | Teleport agent to an in-world object. |
-| `viewer.script.recompile_all` | `object_id: string` | Recompile all scripts in an object. |
-| `viewer.script.reset_all` | `object_id: string` | Reset all scripts in an object. |
-| `viewer.camera.focus` | `object_id: string` | Move camera focus to an in-world object. |
+| `viewer.camera.focus` | `object_id: string` | Zoom camera to an in-world object (same behavior as context menu Zoom In). |
 | `viewer.object.save_back_to_contents` | `object_id: string` | Save an in-world object back to source object contents. |
+| `viewer.script.reset_all` | `object_id: string` | Open the viewer's reset queue and reset all scripts in an in-world object. |
+| `viewer.script.recompile_all` | `object_id: string`, `target: "luau" \| "lsl2" \| "mono" \| "auto"` | Open the viewer's compile queue and recompile scripts in an in-world object using the selected target. `luau` automatically selects Luau for native Luau scripts and LSL-Luau for LSL scripts. `auto` uses each script's previously registered VM. |
 
 **Known extension commands:**
 
 | Command | Required params | Description |
 |---------|----------------|-------------|
-| `editor.open_file` | `path: string` | Open a file in the editor. Optional `line: number`. |
 | `editor.show_message` | `message: string` | Show a notification. Optional `level: "info" \| "warn" \| "error"`. |

@@ -112,6 +112,7 @@ export function activate(context: vscode.ExtensionContext): void {
         () => synchService.isConnected(),
         synchService.onDidChangeConnectionState,
         () => synchService.getWebSocket(),
+        synchService,
     );
     context.subscriptions.push(
         vscode.window.registerWebviewViewProvider(ObjectExplorerWebviewProvider.viewType, objectExplorerWebview),
@@ -127,7 +128,16 @@ export function activate(context: vscode.ExtensionContext): void {
             (uri: vscode.Uri) => {
                 vscode.window.showTextDocument(uri, { preview: false });
             }
-        )
+        ),
+        vscode.commands.registerCommand(
+            "slVscodeEdit.autoLinkObject",
+            async (node: ExplorerNode) => {
+                if (node.kind !== "object") {
+                    return;
+                }
+                await synchService.autoLinkObject(node.object_id);
+            },
+        ),
     );
 
     // Rename commands for context menu actions

@@ -2,7 +2,7 @@
   "name": "sl-vscode-plugin",
   "displayName": "Second Life VSCode Plugin",
   "description": "Binding extension for external LSL and SLua editing from the Second Life viewer.",
-  "version": "1.0.6",
+  "version": "1.0.7",
   "publisher": "lindenlab",
   "icon": "sl-logo-vscode.png",
   "extensionDependencies": [],
@@ -83,6 +83,11 @@
       {
         "command": "slVscodeEdit.openInventoryItem",
         "title": "Open",
+        "category": "Second Life"
+      },
+      {
+        "command": "slVscodeEdit.autoLinkObject",
+        "title": "Link All",
         "category": "Second Life"
       },
       {
@@ -210,6 +215,11 @@
           "group": "7_modification"
         },
         {
+          "command": "slVscodeEdit.autoLinkObject",
+          "when": "view == slInworldExplorer && viewItem == slObject",
+          "group": "navigation"
+        },
+        {
           "command": "slVscodeEdit.teleportToObject",
           "when": "view == slInworldExplorer && viewItem == slObject",
           "group": "navigation"
@@ -306,6 +316,11 @@
             "default": true,
             "description": "Should the viewers tempfile be kept open while editing"
           },
+          "slVscodeEdit.sync.autoLinkOnPublish": {
+            "type": "boolean",
+            "default": false,
+            "description": "Automatically link matching workspace files when an object is first published"
+          },
           "slVscodeEdit.sync.notecardComment": {
             "type": "string",
             "default": null,
@@ -377,6 +392,11 @@
             "type": "number",
             "default": 1000,
             "description": "Delay in milliseconds before disposing resources after session disconnect"
+          },
+          "slVscodeEdit.network.winePrefixPath": {
+            "type": "string",
+            "default": "",
+            "description": "Path to your Wine/Proton prefix directory on Linux. When set, Windows paths reported by the viewer (e.g. C:\\...) are translated to their Linux equivalents inside this prefix (e.g. {prefix}/drive_c/...). Leave empty to disable path translation. Example: /home/user/SecondLife/Prefix/pfx"
           }
         }
       }

@@ -29,8 +29,8 @@ export const SL_AUTHORITY = "objects";
 const PERM_MODIFY = 0x4000;
 
 // JSON-RPC error codes used by the viewer
-const JSONRPC_INVALID_PARAMS = -32602;
-const JSONRPC_FORBIDDEN = -32003;
+export const JSONRPC_INVALID_PARAMS = -32602;
+export const JSONRPC_FORBIDDEN = -32003;
 const JSONRPC_TIMEOUT = -32001;
 const JSONRPC_INTERNAL_ERROR = -32603;
 
@@ -38,7 +38,7 @@ const JSONRPC_INTERNAL_ERROR = -32603;
  * Extract JSON-RPC error code from error message.
  * The websocket client formats errors as "JSON-RPC Error {code}: {message}"
  */
-function extractJsonRpcErrorCode(error: Error): number | undefined {
+export function extractJsonRpcErrorCode(error: Error): number | undefined {
     const match = error.message.match(/^JSON-RPC Error (-?\d+):/);
     return match ? parseInt(match[1], 10) : undefined;
 }
@@ -519,7 +519,8 @@ export class ObjectContentProvider implements vscode.FileSystemProvider, vscode.
             } else {
                 const fetched = await client.getObjectContent({ prim_id, item_id });
                 if (!fetched.success) { return; }
-                content = fetched.encoding === "base64"
+                const encoding = fetched.encoding ?? "utf-8";
+                content = encoding === "base64"
                     ? Buffer.from(fetched.content, "base64").toString("utf-8")
                     : fetched.content;
             }
@@ -666,7 +667,10 @@ export class ObjectContentProvider implements vscode.FileSystemProvider, vscode.
 
         try {
             const response = await client.getObjectContent({ prim_id, item_id: item_id! });
-            const text = response.content ?? "";
+            const encoding = response.encoding ?? "utf-8";
+            const text = encoding === "base64"
+                ? Buffer.from(response.content ?? "", "base64").toString("utf-8")
+                : response.content ?? "";
             const bytes = Buffer.from(text, "utf-8");
             this.service.cacheContent(root_id, item_id!, bytes);
             return bytes;

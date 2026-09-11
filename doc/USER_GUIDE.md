@@ -100,6 +100,7 @@ settings use the `slVscodeEdit.` prefix.
 | `slVscodeEdit.sync.includeFileMetaInOutput` | Boolean | `false` | Includes file metadata in processed script output. |
 | `slVscodeEdit.sync.includeCreatorInFileMeta` | Boolean | `false` | Includes the current Second Life user in file metadata. |
 | `slVscodeEdit.sync.keepViewerFileOpen` | Boolean | `true` | Keeps the viewer's temporary file open during editing. |
+| `slVscodeEdit.sync.autoLinkOnPublish` | Boolean | `false` | Automatically links matching workspace files when an object is explored. |
 | `slVscodeEdit.sync.notecardComment` | String | `null` | Defines the comment text used to match external files with notecards. |
 
 ### Preprocessor
@@ -232,6 +233,27 @@ and sends the processed result to the viewer. The viewer then compiles the
 resulting script. For details about includes and requires, macros, conditionals,
 and other preprocessor behavior, see the [Preprocessor Guide](preprocessor-guide.md).
 
+### Linking all files in an explored object
+
+To link all matching workspace files for an explored object, open the object's
+context menu and select **Link All**. The operation checks the root prim and
+every linked prim, including both scripts and notecards.
+
+The plugin uses the same matching rules as individual file linking. It checks
+file metadata when available, then falls back to matching the displayed file
+name and extension. Existing links are retained, and one workspace file may be
+linked to more than one in-world item.
+
+**Link All** does not open editor tabs. It reads each object item, establishes
+matching links in the current session, and displays one summary when complete.
+Items without matching workspace files and items without modify permission are
+reported in that summary. Links are ephemeral and must be recreated after the
+plugin session ends.
+
+To run this automatically whenever an object is explored, enable
+`slVscodeEdit.sync.autoLinkOnPublish` in the **SL Scripting - Sync** settings.
+The setting is disabled by default.
+
 ## Pinning Objects
 
 You can pin explored objects in the **Second Life** view so they are restored
@@ -283,6 +305,8 @@ The available actions include:
 - **New File...**: Prompts for a filename. If the name ends with `.lsl`, the
   new item is created as an LSL script; if it ends with `.luau`, it is created
   as a Luau script; otherwise, it is created as a notecard.
+- **Link All**: Attempts to link every script and notecard in the object,
+  including items in linked prims, with matching workspace files.
 - **Unexplore**: Removes the selected object from publication in the viewer.
 - **Save Back to Contents**: If the object was rezzed directly from another object,
   it is saved back to that rezzing object's inventory.
