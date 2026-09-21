@@ -20,7 +20,6 @@ import {
     closeTextDocument,
     errorLevelToSeverity,
     VSCodeHost,
-    logInfo,
     logRuntimeInfo,
     logRuntimeError,
     logError,
