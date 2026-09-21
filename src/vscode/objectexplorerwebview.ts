@@ -325,6 +325,11 @@ export class ObjectExplorerWebviewProvider implements vscode.WebviewViewProvider
                 await this.synchService.autoLinkObject(object_id);
                 break;
             }
+            case "pullObjectToWorkspace": {
+                const { object_id } = message.payload as { object_id: string };
+                await this.synchService.pullObjectToWorkspace(object_id);
+                break;
+            }
             case "renameItem": {
                 const { prim_id, item_id, newName } = message.payload as {
                     object_id: string; prim_id: string; item_id: string; newName: string;

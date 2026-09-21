@@ -138,6 +138,15 @@ export function activate(context: vscode.ExtensionContext): void {
                 await synchService.autoLinkObject(node.object_id);
             },
         ),
+        vscode.commands.registerCommand(
+            "slVscodeEdit.pullObjectToWorkspace",
+            async (node: ExplorerNode) => {
+                if (node.kind !== "object") {
+                    return;
+                }
+                await synchService.pullObjectToWorkspace(node.object_id);
+            },
+        ),
     );
 
     // Rename commands for context menu actions

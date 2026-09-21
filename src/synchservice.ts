@@ -59,6 +59,7 @@ import {
 import { FileLinkIndex } from "./shared/filelinkindex";
 import { getLanguageConfig } from "./shared/lexer";
 import { HostInterface } from "./interfaces/hostinterface";
+import { sanitiseSegment, uniqueInDirectory } from "./shared/pathsafety";
 import { SyncedFileDecorator } from "./vscode/SyncedFileDecorator";
 import { ObjectContentChangeEvent, ObjectContentService, ObjectTreeChangeEvent } from "./vscode/objectcontentservice";
 import { ObjectPinStore } from "./vscode/objectpinstore";
@@ -692,6 +693,222 @@ export class SynchService implements vscode.Disposable {
             `(no modify), ${summary.errors} errors, ${summary.mismatches} differing.`,
         );
         return summary;
+    }
+
+    public async pullObjectToWorkspace(objectId: string): Promise<void> {
+        if (!vscode.workspace.workspaceFolders || vscode.workspace.workspaceFolders.length === 0) {
+            vscode.window.showErrorMessage("No workspace open to pull the object into.");
+            return;
+        }
+
+        const entry = ObjectContentService.getInstance().getObject(objectId);
+        if (!entry) {
+            vscode.window.showErrorMessage("Object not found or not published.");
+            return;
+        }
+
+        const workspaceFolder = await vscode.window.showWorkspaceFolderPick({ 
+            placeHolder: "Select workspace folder for pull destination" 
+        });
+        if (!workspaceFolder) {
+            return;
+        }
+
+        const sanitizedObjectName = sanitiseSegment(entry.object.object_name || "Object");
+        const folderName = await vscode.window.showInputBox({
+            prompt: "Destination folder name",
+            value: sanitizedObjectName,
+            validateInput: (value) => {
+                if (value.trim().length === 0) return "Folder name cannot be empty.";
+                return null;
+            }
+        });
+
+        if (!folderName) {
+            return;
+        }
+
+        const destinationRoot = vscode.Uri.joinPath(workspaceFolder.uri, folderName);
+        
+        try {
+            await vscode.workspace.fs.createDirectory(destinationRoot);
+        } catch (e) {
+            vscode.window.showErrorMessage(`Could not create destination folder: ${e}`);
+            return;
+        }
+
+        const summary = {
+            written: 0,
+            skippedExists: 0,
+            failed: 0,
+        };
+
+        const items = [
+            {
+                primId: objectId,
+                items: entry.object.inventory ?? [],
+                isRoot: true,
+                primName: entry.object.object_name || "Object",
+                linkNumber: 0
+            },
+            ...(entry.object.linked_objects ?? []).map((linked) => ({
+                primId: linked.link_id,
+                items: linked.inventory ?? [],
+                isRoot: false,
+                primName: linked.link_name || "Object",
+                linkNumber: linked.link_number
+            })),
+        ].flatMap(({ primId, items: inventory, isRoot, primName, linkNumber }) =>
+            inventory.map((item) => ({ primId, item, isRoot, primName, linkNumber }))
+        );
+
+        const takenNamesByFolder = new Map<string, Set<string>>();
+        const itemsWithDest: {
+            primId: string;
+            item: ObjectInventoryItem;
+            isRoot: boolean;
+            primName: string;
+            linkNumber: number;
+            targetFolderUri: vscode.Uri;
+            targetFileUri: vscode.Uri;
+        }[] = [];
+
+        for (const itemInfo of items) {
+            const { primId, item, isRoot, primName, linkNumber } = itemInfo;
+            
+            let targetFolderUri = destinationRoot;
+            if (!isRoot) {
+                const childFolderName = sanitiseSegment(`${primName}_${linkNumber}`);
+                targetFolderUri = vscode.Uri.joinPath(destinationRoot, childFolderName);
+            }
+
+            const folderPath = targetFolderUri.toString();
+            if (!takenNamesByFolder.has(folderPath)) {
+                takenNamesByFolder.set(folderPath, new Set());
+            }
+            const takenNames = takenNamesByFolder.get(folderPath)!;
+
+            const rawItemName = item.name;
+            let itemNameSafe = sanitiseSegment(rawItemName);
+            const lang = languageForItem(item);
+            
+            if (lang && lang !== "txt") {
+                itemNameSafe = `${itemNameSafe}.${lang}`;
+            } else if (item.type === "notecard") { // Notecard
+                itemNameSafe = `${itemNameSafe}.txt`;
+            }
+
+            itemNameSafe = uniqueInDirectory(itemNameSafe, takenNames);
+            takenNames.add(itemNameSafe);
+
+            const targetFileUri = vscode.Uri.joinPath(targetFolderUri, itemNameSafe);
+            itemsWithDest.push({ ...itemInfo, targetFolderUri, targetFileUri });
+        }
+
+        let existingFilesCount = 0;
+        for (const { targetFileUri } of itemsWithDest) {
+            try {
+                if (await vscode.workspace.fs.stat(targetFileUri)) {
+                    existingFilesCount++;
+                }
+            } catch {
+                // does not exist
+            }
+        }
+
+        let overwriteBehavior: "overwrite" | "skip" = "skip";
+
+        if (existingFilesCount > 0) {
+            const choice = await vscode.window.showWarningMessage(
+                `${existingFilesCount} file(s) already exist in the destination folder. Do you want to overwrite them?`,
+                { modal: true },
+                "Overwrite All",
+                "Skip Existing"
+            );
+
+            if (choice === "Overwrite All") {
+                overwriteBehavior = "overwrite";
+            } else if (choice === "Skip Existing") {
+                overwriteBehavior = "skip";
+            } else {
+                return; // User cancelled
+            }
+        }
+
+        await vscode.window.withProgress(
+            {
+                location: vscode.ProgressLocation.Notification,
+                title: `Pulling files from ${entry.object.object_name || "Object"}`,
+                cancellable: true,
+            },
+            async (progress, token) => {
+                for (let index = 0; index < itemsWithDest.length; index++) {
+                    if (token.isCancellationRequested) {
+                        break;
+                    }
+
+                    const { primId, item, isRoot, targetFolderUri, targetFileUri } = itemsWithDest[index];
+                    const lang = languageForItem(item);
+                    progress.report({
+                        message: `${index + 1}/${itemsWithDest.length}: ${displayName(item)}`,
+                        increment: itemsWithDest.length > 0 ? 100 / itemsWithDest.length : 100,
+                    });
+
+                    if (!isRoot) {
+                        try {
+                            await vscode.workspace.fs.createDirectory(targetFolderUri);
+                        } catch (e) {
+                            summary.failed++;
+                            logWarning(`[pullObjectToWorkspace] Failed to create child folder ${targetFolderUri.toString()}: ${e}`);
+                            continue;
+                        }
+                    }
+
+                    // Containment check (already guaranteed by joinPath generally, but we can verify it starts with destinationRoot)
+                    if (!targetFileUri.toString().startsWith(destinationRoot.toString())) {
+                        summary.failed++;
+                        logWarning(`[pullObjectToWorkspace] Escaped path detected: ${targetFileUri.toString()}`);
+                        continue;
+                    }
+
+                    if (overwriteBehavior === "skip") {
+                        try {
+                            if (await vscode.workspace.fs.stat(targetFileUri)) {
+                                // Safe mode: skip existing file
+                                summary.skippedExists++;
+                                continue;
+                            }
+                        } catch {
+                            // File does not exist, safe to write
+                        }
+                    }
+
+                    const uri = itemUri(objectId, primId, item.item_id);
+                    
+                    try {
+                        const contentBuffer = await vscode.workspace.fs.readFile(uri);
+                        const rawContent = Buffer.from(contentBuffer).toString("utf-8");
+                        
+                        const strippedContent = SynchService.stripEmittedMeta(rawContent, lang || "txt");
+                        const outBuffer = Buffer.from(strippedContent, "utf-8");
+                        
+                        await vscode.workspace.fs.writeFile(targetFileUri, outBuffer);
+                        summary.written++;
+                    } catch (error) {
+                        summary.failed++;
+                        logWarning(
+                            `[pullObjectToWorkspace] Failed to pull ${displayName(item)}: ` +
+                            `${error instanceof Error ? error.message : String(error)}`,
+                        );
+                    }
+                }
+            }
+        );
+
+        vscode.window.showInformationMessage(
+            `Pull complete for ${entry.object.object_name}: ` +
+            `${summary.written} written, ${summary.skippedExists} skipped (exists), ${summary.failed} errors.`
+        );
     }
 
     public removeSync(filePath: string): void {
@@ -1794,6 +2011,43 @@ export class SynchService implements vscode.Disposable {
             }
         }
         return null;
+    }
+
+    public static stripEmittedMeta(content: string, language: ScriptLanguage): string {
+        const config = ConfigService.getInstance();
+        const cmt = getLanguageConfig(language, config).lineCommentPrefix;
+
+        if (cmt.length < 1) return content;
+
+        const startPrefix = `${cmt} ================ sl-vscode-plugin meta ================`;
+        const endPrefix = `${cmt} =======================================================`;
+
+        const lines = content.split("\n");
+        let startIndex = -1;
+        let endIndex = -1;
+
+        for (let i = 0; i < Math.min(10, lines.length); i++) {
+            if (lines[i].trim() === startPrefix) {
+                startIndex = i;
+                break;
+            }
+        }
+
+        if (startIndex !== -1) {
+            for (let i = startIndex + 1; i < Math.min(startIndex + 15, lines.length); i++) {
+                if (lines[i].trim() === endPrefix) {
+                    endIndex = i;
+                    break;
+                }
+            }
+        }
+
+        if (startIndex !== -1 && endIndex !== -1) {
+            lines.splice(startIndex, endIndex - startIndex + 1);
+            return lines.join("\n");
+        }
+
+        return content;
     }
 
     private static async openMasterScript(

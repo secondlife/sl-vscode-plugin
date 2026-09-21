@@ -146,6 +146,11 @@
         "command": "slVscodeEdit.newFile",
         "title": "New file...",
         "category": "Second Life"
+      },
+      {
+        "command": "slVscodeEdit.pullObjectToWorkspace",
+        "title": "Pull Object to Workspace (Safe Mode)",
+        "category": "Second Life"
       }
     ],
     "menus": {
@@ -216,6 +221,11 @@
         },
         {
           "command": "slVscodeEdit.autoLinkObject",
+          "when": "view == slInworldExplorer && viewItem == slObject",
+          "group": "navigation"
+        },
+        {
+          "command": "slVscodeEdit.pullObjectToWorkspace",
           "when": "view == slInworldExplorer && viewItem == slObject",
           "group": "navigation"
         },
