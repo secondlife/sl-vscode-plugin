@@ -39,6 +39,8 @@ export enum ConfigKey {
 
   FileMetaInfoInOutput ='sync.includeFileMetaInOutput',
   FileMetaInfoIncludeCreator ='sync.includeCreatorInFileMeta',
+
+  ExternalToolingSteps = 'externalTooling.steps',
 }
 
 /** Scope target for configuration updates. */

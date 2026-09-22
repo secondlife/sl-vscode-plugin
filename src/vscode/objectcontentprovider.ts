@@ -325,10 +325,10 @@ export function languageForItem(item: ObjectInventoryItem) : ScriptLanguage {
  * Derive type and vm from a synthetic display extension.
  * Used when creating new items from a filename the user typed.
  */
-function typeAndVmFromExtension(ext: string): { type: InventoryItemType; vm?: ScriptVM } {
+export function typeAndVmFromExtension(ext: string): { type: InventoryItemType; vm?: ScriptVM } {
     switch (ext.toLowerCase()) {
         case ".luau": return { type: "script", vm: "luau" };
-        case ".lsl":  return { type: "script", vm: "lsl2" };
+        case ".lsl":  return { type: "script", vm: "mono" };
         default:      return { type: "notecard" };
     }
 }

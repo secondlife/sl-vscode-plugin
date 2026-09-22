@@ -374,6 +374,67 @@
         }
       },
       {
+        "title": "SL Scripting - External Tools",
+        "properties": {
+          "slVscodeEdit.externalTooling.steps": {
+            "type": "array",
+            "default": [],
+            "description": "External tools to run before or after the preprocessor.",
+            "items": {
+              "type": "object",
+              "properties": {
+                "command": {
+                  "type": "string",
+                  "description": "Shell command to execute. Supports {inputFile} and {outputFile} tokens."
+                },
+                "trigger": {
+                  "type": "string",
+                  "enum": [
+                    "beforePreprocessor",
+                    "afterPreprocessor"
+                  ],
+                  "default": "afterPreprocessor",
+                  "description": "When to run the tool."
+                },
+                "input": {
+                  "type": "string",
+                  "enum": [
+                    "file",
+                    "stdin"
+                  ],
+                  "default": "stdin",
+                  "description": "How the tool receives its input."
+                },
+                "output": {
+                  "type": "string",
+                  "enum": [
+                    "file",
+                    "stdout"
+                  ],
+                  "default": "stdout",
+                  "description": "How the tool returns its output."
+                },
+                "languages": {
+                  "type": "array",
+                  "items": {
+                    "type": "string"
+                  },
+                  "description": "Optional list of languages this step applies to (e.g. ['lsl']). Omit to apply to all."
+                },
+                "timeoutMs": {
+                  "type": "number",
+                  "default": 10000,
+                  "description": "Timeout in milliseconds before the process is killed."
+                }
+              },
+              "required": [
+                "command"
+              ]
+            }
+          }
+        }
+      },
+      {
         "title": "SL Scripting - Network",
         "properties": {
           "slVscodeEdit.network.websocketPort": {

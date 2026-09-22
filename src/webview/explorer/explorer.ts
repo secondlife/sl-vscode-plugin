@@ -751,6 +751,22 @@ function setFocus(header: HTMLElement): void {
         state.focusedId = "i:" + itemEl.dataset["item"];
     }
     saveState();
+
+    let targetPayload: { object_id?: string, prim_id?: string } = {};
+    if (itemEl) {
+        targetPayload = { object_id: itemEl.dataset["object"], prim_id: itemEl.dataset["prim"] };
+    } else {
+        const primEl = header.closest<HTMLElement>(".tree-node.linked-prim");
+        if (primEl) {
+            targetPayload = { object_id: primEl.dataset["objectId"], prim_id: primEl.dataset["primId"] };
+        } else {
+            const objectEl = header.closest<HTMLElement>(".tree-node.object");
+            if (objectEl) {
+                targetPayload = { object_id: objectEl.dataset["objectId"] };
+            }
+        }
+    }
+    vscode.postMessage({ command: "focusChanged", payload: targetPayload });
 }
 
 function restoreFocus(): void {

@@ -37,9 +37,10 @@ import { IncludeInfo } from "./shared/parser";
 import { sha256 } from "js-sha256";
 import { getLanguageConfig, isProccessedLanguage, LanguageLexerConfig } from "./shared/lexer";
 import { ObjectInventoryItem } from "./vscode/objectcontentinterfaces";
-
+import { ExternalToolRunner } from "./externaltools";
 
 //====================================================================
+
 export interface ScriptIdentity {
     rootId: string;
     primId: string | null;
@@ -791,11 +792,19 @@ export class ScriptSync implements vscode.Disposable {
             const masterFilePath: string = this.getMasterFilePath();
             await this.syncService.validateMasterUri(this.masterDocument.uri);
 
-            const originalContent = await fs.promises.readFile(
+            let contentForProcessing = await fs.promises.readFile(
                 masterFilePath,
                 "utf8",
             );
-            const processedContent = await this.preProcessContent(originalContent);
+
+            // Hook: beforePreprocessor
+            const toolRunner = new ExternalToolRunner(this.config);
+            contentForProcessing = await toolRunner.runSteps(contentForProcessing, this.language, "beforePreprocessor");
+
+            let processedContent = await this.preProcessContent(contentForProcessing);
+
+            // Hook: afterPreprocessor
+            processedContent = await toolRunner.runSteps(processedContent, this.language, "afterPreprocessor");
 
             const sha = sha256.create();
             sha.update(processedContent);
