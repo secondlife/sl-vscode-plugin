@@ -40,6 +40,7 @@ export class ObjectExplorerWebviewProvider implements vscode.WebviewViewProvider
     private readonly _pinnedUnavailableCache = new Map<string, { reason: "not_found" | "error"; checkedAt: number }>();
     private _refreshing = false;
     private _refreshPending = false;
+    private _selectedTarget: { object_id: string; prim_id?: string } | undefined;
 
     constructor(
         extensionUri: vscode.Uri,
@@ -63,6 +64,10 @@ export class ObjectExplorerWebviewProvider implements vscode.WebviewViewProvider
                 void this._refresh();
             })
         );
+    }
+
+    public getSelectedTarget(): { object_id: string; prim_id?: string } | undefined {
+        return this._selectedTarget;
     }
 
     public resolveWebviewView(
@@ -138,6 +143,15 @@ export class ObjectExplorerWebviewProvider implements vscode.WebviewViewProvider
             }
         }
 
+        if (this._selectedTarget) {
+            const exists = objects.some((o) => o.object_id === this._selectedTarget!.object_id);
+            if (!exists) {
+                this._selectedTarget = undefined;
+                this.synchService.setSelectedTarget(undefined);
+                vscode.commands.executeCommand("setContext", "slVscodeEdit:objectSelected", false);
+            }
+        }
+
         this._view.webview.postMessage({
             type: "refresh",
             payload: {
@@ -205,6 +219,11 @@ export class ObjectExplorerWebviewProvider implements vscode.WebviewViewProvider
 
     private _updateConnectionState(): void {
         if (!this._view) { return; }
+        if (!this._connected) {
+            this._selectedTarget = undefined;
+            this.synchService.setSelectedTarget(undefined);
+            vscode.commands.executeCommand("setContext", "slVscodeEdit:objectSelected", false);
+        }
         this._view.webview.postMessage({
             type: "connectionState",
             payload: { connected: this._connected },
@@ -257,6 +276,17 @@ export class ObjectExplorerWebviewProvider implements vscode.WebviewViewProvider
 
     private async _handleMessage(message: { command: string; payload: Record<string, unknown> }): Promise<void> {
         switch (message.command) {
+            case "focusChanged": {
+                const { object_id, prim_id } = message.payload as { object_id?: string; prim_id?: string };
+                if (object_id) {
+                    this._selectedTarget = { object_id, prim_id };
+                } else {
+                    this._selectedTarget = undefined;
+                }
+                this.synchService.setSelectedTarget(this._selectedTarget);
+                vscode.commands.executeCommand("setContext", "slVscodeEdit:objectSelected", Boolean(this._selectedTarget));
+                break;
+            }
             case "openItem": {
                 const uriText = message.payload["uri"];
                 if (typeof uriText !== "string") { break; }

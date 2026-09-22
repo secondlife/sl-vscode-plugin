@@ -146,10 +146,32 @@
         "command": "slVscodeEdit.newFile",
         "title": "New file...",
         "category": "Second Life"
+      },
+      {
+        "command": "slVscodeEdit.pullObjectToWorkspace",
+        "title": "Second Life: Pull Object to Workspace",
+        "category": "Second Life"
+      },
+      {
+        "command": "slVscodeEdit.pushFilesToObject",
+        "title": "Push to Object...",
+        "category": "Second Life",
+        "enablement": "slVscodeEdit:objectSelected"
       }
     ],
     "menus": {
+      "commandPalette": [
+        {
+          "command": "slVscodeEdit.pushFilesToObject",
+          "when": "false"
+        }
+      ],
       "explorer/context": [
+        {
+          "command": "slVscodeEdit.pushFilesToObject",
+          "group": "second-life@1",
+          "when": "resourceScheme == file && slVscodeEdit:connected"
+        },
         {
           "command": "second-life-scripting.stopFileSync",
           "group": "navigation@99",

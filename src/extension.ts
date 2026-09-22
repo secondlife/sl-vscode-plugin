@@ -495,4 +495,14 @@ function setupCommands(context: vscode.ExtensionContext) : void {
             }
         )
     );
+
+    context.subscriptions.push(
+        vscode.commands.registerCommand(
+            "slVscodeEdit.pushFilesToObject",
+            async (clickedUri?: vscode.Uri, allUris?: vscode.Uri[]) => {
+                const sync = SynchService.getInstance();
+                await sync.pushFilesToObject(clickedUri, allUris);
+            }
+        )
+    );
 }

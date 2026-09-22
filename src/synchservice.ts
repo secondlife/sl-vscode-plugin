@@ -62,7 +62,7 @@ import { HostInterface } from "./interfaces/hostinterface";
 import { SyncedFileDecorator } from "./vscode/SyncedFileDecorator";
 import { ObjectContentChangeEvent, ObjectContentService, ObjectTreeChangeEvent } from "./vscode/objectcontentservice";
 import { ObjectPinStore } from "./vscode/objectpinstore";
-import { SL_SCHEME, SL_AUTHORITY, displayName, itemUri, languageForItem, extractJsonRpcErrorCode, JSONRPC_INVALID_PARAMS, JSONRPC_FORBIDDEN } from "./vscode/objectcontentprovider";
+import { SL_SCHEME, SL_AUTHORITY, displayName, itemUri, languageForItem, extractJsonRpcErrorCode, JSONRPC_INVALID_PARAMS, JSONRPC_FORBIDDEN, typeAndVmFromExtension } from "./vscode/objectcontentprovider";
 
 /** PERM_MODIFY bit from viewer LLPermissions */
 const PERM_MODIFY = 0x4000;
@@ -147,6 +147,7 @@ export class SynchService implements vscode.Disposable {
     private handshakeResolve?: (value: boolean, message?: string) => void;
     private handshakePromise?: Promise<{ success: boolean; message: string }>;
     private sessionConnected: boolean = false;
+    private _selectedTarget: { object_id: string; prim_id?: string } | undefined;
     private lastActiveChange: number = 0;
     private activeSync: ScriptSync | undefined;
     private host: HostInterface;
@@ -237,6 +238,14 @@ export class SynchService implements vscode.Disposable {
             SynchService.instance = new SynchService(context);
         }
         return SynchService.instance;
+    }
+
+    public setSelectedTarget(target: { object_id: string; prim_id?: string } | undefined): void {
+        this._selectedTarget = target;
+    }
+
+    public getSelectedTarget(): { object_id: string; prim_id?: string } | undefined {
+        return this._selectedTarget;
     }
 
     dispose(): void {
@@ -749,6 +758,230 @@ export class SynchService implements vscode.Disposable {
             "slVscodeEdit:syncsActive",
             this.activeSyncs.size > 0
         );
+    }
+
+    private sanitiseFileName(name: string): string {
+        let clean = name.replace(/[|]/g, "_");
+        if (clean.length > 63) {
+            const ext = path.extname(clean);
+            const base = clean.slice(0, clean.length - ext.length);
+            clean = base.slice(0, 63 - ext.length) + ext;
+        }
+        return clean;
+    }
+
+    public async pushFilesToObject(clickedUri?: vscode.Uri, allUris?: vscode.Uri[]): Promise<void> {
+        const client = this.getWebSocket();
+        if (!client) {
+            vscode.window.showErrorMessage("Not connected to Second Life viewer.");
+            return;
+        }
+
+        const target = this.getSelectedTarget();
+        if (!target) {
+            vscode.window.showErrorMessage("No target object or prim is selected in the Second Life explorer.");
+            return;
+        }
+
+        const targetObject = ObjectContentService.getInstance().getObject(target.object_id);
+        if (!targetObject) {
+            vscode.window.showErrorMessage("Target object not found or not published.");
+            return;
+        }
+
+        const primId = target.prim_id ?? target.object_id;
+        const objectName = targetObject.object.object_name;
+        
+        const uris = allUris && allUris.length > 0 ? allUris : (clickedUri ? [clickedUri] : []);
+        if (uris.length === 0) {
+            return;
+        }
+
+        const files: vscode.Uri[] = [];
+        let ignoredDirs = 0;
+        let skippedNotUtf8 = 0;
+
+        for (const uri of uris) {
+            if (uri.scheme !== "file") continue;
+            
+            const stat = await vscode.workspace.fs.stat(uri);
+            if (stat.type === vscode.FileType.Directory) {
+                const children = await vscode.workspace.fs.readDirectory(uri);
+                for (const [name, type] of children) {
+                    if (type === vscode.FileType.Directory) {
+                        ignoredDirs++;
+                    } else if (type === vscode.FileType.File) {
+                        files.push(vscode.Uri.joinPath(uri, name));
+                    }
+                }
+            } else if (stat.type === vscode.FileType.File) {
+                files.push(uri);
+            }
+        }
+
+        if (files.length === 0) {
+            vscode.window.showErrorMessage("No valid files selected for push.");
+            return;
+        }
+        
+        const pushItems = new Map<string, { uri: vscode.Uri, name: string, type: "script" | "notecard", vm?: string, existingItem?: ObjectInventoryItem, content: Uint8Array, sizeWarning: boolean, stringContent: string }>();
+        const targetNames = new Map<string, vscode.Uri>();
+        const inventory = ObjectContentService.getInstance().getInventory(target.object_id, primId) || [];
+
+        for (const file of files) {
+            const ext = path.extname(file.fsPath);
+            const { type, vm } = typeAndVmFromExtension(ext);
+            let name = path.basename(file.fsPath);
+            if (type === "script") {
+                name = name.slice(0, name.length - ext.length);
+            }
+            name = this.sanitiseFileName(name);
+
+            if (targetNames.has(name)) {
+                vscode.window.showErrorMessage(`Collision detected: multiple files resolve to the same target name "${name}". Aborting push.`);
+                return;
+            }
+            targetNames.set(name, file);
+            
+            const content = await vscode.workspace.fs.readFile(file);
+            if (content.includes(0)) { // Simple heuristic for binary file
+                skippedNotUtf8++;
+                continue;
+            }
+            
+            const stringContent = new TextDecoder().decode(content);
+            const sizeWarning = content.length > 65536; // 64KB
+            
+            // Prefer exact match by name, fall back to display name if synthetic extension exists in viewer
+            let existingItem = inventory.find(i => i.name === name);
+            if (!existingItem) {
+                existingItem = inventory.find(i => displayName(i) === name);
+            }
+
+            // Only "script" or "notecard" allowed to be pushed
+            if (type !== "script" && type !== "notecard") continue;
+
+            pushItems.set(file.toString(), { uri: file, name, type, vm, existingItem, content, sizeWarning, stringContent });
+        }
+
+        if (pushItems.size === 0) {
+            vscode.window.showInformationMessage(`No valid files to push (Skipped non-UTF8: ${skippedNotUtf8}, Ignored dirs: ${ignoredDirs}).`);
+            return;
+        }
+
+        const unsaved = vscode.workspace.textDocuments.filter(d => d.isDirty && files.some(f => f.toString() === d.uri.toString()));
+        if (unsaved.length > 0) {
+            const saveResult = await vscode.workspace.saveAll(false);
+            if (!saveResult) {
+                vscode.window.showErrorMessage("Please save all files before pushing.");
+                return;
+            }
+        }
+        
+        let md = `Pushing to prim in ${objectName}:\n\n`;
+        let creates = 0;
+        let updates = 0;
+        let oversized = 0;
+        for (const item of pushItems.values()) {
+            if (item.existingItem) updates++;
+            else creates++;
+            if (item.sizeWarning) oversized++;
+        }
+        md += `Files to Create: ${creates}\n`;
+        md += `Files to Update: ${updates}\n`;
+        if (oversized > 0) {
+            md += `\nWARNING: ${oversized} file(s) are over 64KB and may fail to save in Second Life.\n`;
+        }
+        if (ignoredDirs > 0 || skippedNotUtf8 > 0) {
+            md += `\n(Ignored ${ignoredDirs} nested directories and skipped ${skippedNotUtf8} non-text files).\n`;
+        }
+        
+        const confirm = await vscode.window.showInformationMessage(md, { modal: true }, "Push");
+        if (confirm !== "Push") return;
+
+        await vscode.window.withProgress({
+            location: vscode.ProgressLocation.Notification,
+            title: `Pushing files to ${objectName}...`,
+            cancellable: true
+        }, async (progress, token) => {
+            const results = { updated: 0, created: 0, failed: 0 };
+            
+            // Phase 4: Serialization. Updates first.
+            const updateItems = Array.from(pushItems.values()).filter(i => i.existingItem);
+            const createItems = Array.from(pushItems.values()).filter(i => !i.existingItem);
+            
+            const total = updateItems.length + createItems.length;
+
+            const processItem = async (item: typeof updateItems[0], isCreate: boolean) => {
+                if (token.isCancellationRequested) return false;
+                progress.report({ increment: 100 / total, message: `Processing ${item.name}` });
+
+                try {
+                    let itemIdToSave = item.existingItem?.item_id;
+                    
+                    if (isCreate) {
+                        const createResult = await client.createObjectItem({
+                            prim_id: primId,
+                            name: item.name,
+                            type: item.type,
+                            vm: item.vm as ("luau" | "lsl2" | "mono") | undefined
+                        });
+                        ObjectContentService.getInstance().addItem(target.object_id, primId, createResult);
+                        itemIdToSave = createResult.item_id;
+                    }
+
+                    if (!itemIdToSave) throw new Error("Item ID not available");
+
+                    const saveResult = await client.saveObjectContent({
+                        prim_id: primId,
+                        item_id: itemIdToSave,
+                        content: item.stringContent
+                    });
+                    
+                    if (!saveResult.success) {
+                        throw new Error(saveResult.message || "Save failed");
+                    }
+
+                    // On success, link to master
+                    const identity: ScriptIdentity = {
+                        rootId: target.object_id,
+                        primId: primId === target.object_id ? null : primId,
+                        itemId: itemIdToSave
+                    };
+                    const lang: ScriptLanguage = item.vm === "luau" ? "luau" : item.type === "notecard" ? "txt" : "lsl";
+                    const slUri = itemUri(target.object_id, primId, itemIdToSave);
+                    
+                    await this.moveVirtualFile(
+                        item.uri,
+                        lang,
+                        slUri,
+                        item.stringContent,
+                        identity,
+                        item.existingItem
+                    );
+
+                    if (isCreate) results.created++;
+                    else results.updated++;
+                    
+                } catch (err) {
+                    logWarning(`[pushFilesToObject] Failed to process ${item.name}: ${err}`);
+                    results.failed++;
+                }
+                return true;
+            };
+
+            for (const item of updateItems) {
+                const continued = await processItem(item, false);
+                if (!continued) break;
+            }
+
+            for (const item of createItems) {
+                const continued = await processItem(item, true);
+                if (!continued) break;
+            }
+
+            vscode.window.showInformationMessage(`Push complete: ${results.updated} updated, ${results.created} created, ${results.failed} failed.`);
+        });
     }
 
     //====================================================================
