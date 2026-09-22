@@ -20,7 +20,8 @@ import {
     logDebug,
     showStatusMessage,
     hasWorkspace,
-    showErrorMessage
+    showErrorMessage,
+    logError
 } from "./utils";
 import { ConfigKey } from "./interfaces/configinterface";
 import { ViewerEditWSClient } from "./viewereditwsclient";
@@ -77,6 +78,43 @@ export function activate(context: vscode.ExtensionContext): void {
     const languageService = LanguageService.getInstance(host);
     // Initialize the file sync functionality
     const synchService = SynchService.getInstance(context);
+
+    // Handle configuration changes that require immediate actions (Issue #27)
+    configService.on(ConfigKey.NetworkWebsocketPort, () => {
+        if (synchService.isConnected()) {
+            logInfo("Websocket port changed. Reconnecting active sockets.");
+            synchService.disconnect();
+            synchService.connect();
+        }
+    });
+
+    configService.on(ConfigKey.StorageUseLocalConfig, async () => {
+        logInfo("Storage location changed. Migrating configuration files...");
+        const useLocal = ConfigService.useLocalConfig();
+        const newPath = await ConfigService.getConfigPath();
+        const oldPath = await (useLocal ? ConfigService.getGlobalConfigPath() : ConfigService.getLocalConfigPath());
+        
+        try {
+            const files = await vscode.workspace.fs.readDirectory(oldPath);
+            for (const [name, type] of files) {
+                const oldUri = vscode.Uri.joinPath(oldPath, name);
+                const newUri = vscode.Uri.joinPath(newPath, name);
+                await vscode.workspace.fs.copy(oldUri, newUri, { overwrite: true });
+            }
+            
+            // Delete the old config files
+            for (const [name, type] of files) {
+                const oldUri = vscode.Uri.joinPath(oldPath, name);
+                await vscode.workspace.fs.delete(oldUri, { recursive: true, useTrash: false });
+            }
+            logInfo("Configuration files migrated successfully.");
+            
+            // Refresh language service configuration from new path
+            await synchService.forceLanguageUpdate();
+        } catch (e) {
+            logError(`Failed to migrate configuration files: ${e}`);
+        }
+    });
 
     // Initialize object content service and register the sl:// FileSystemProvider
     const objectContentService = ObjectContentService.getInstance();
