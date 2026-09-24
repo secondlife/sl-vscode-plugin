@@ -4,10 +4,10 @@
  */
 
 import * as assert from 'assert';
-import { Parser } from '../../shared/parser';
-import { getLanguageConfig, Lexer, TokenType } from '../../shared/lexer';
-import { DiagnosticCollector, DiagnosticSeverity, ErrorCodes } from '../../shared/diagnostics';
-import { filePathToStringUri, StringUri } from '../../interfaces/hostinterface';
+import { Parser } from '#sl-script-preprocessor';
+import { getLanguageConfig, Lexer, TokenType } from '#sl-script-preprocessor';
+import { DiagnosticCollector, DiagnosticSeverity, ErrorCodes } from '#sl-script-preprocessor';
+import { filePathToStringUri, StringUri } from '#sl-script-preprocessor';
 
 suite('Parser Directive Validation', () => {
     let sourceFile: StringUri;

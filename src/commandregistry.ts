@@ -7,8 +7,8 @@ import {
     CommandExecuteResponse,
     CommandInfo,
     CommandListResponse,
-} from "./viewereditwsclient";
-import { JSONRPCError } from "./websockclient";
+    JSONRPCError,
+} from "#sl-ide-ws-client";
 
 type CommandHandler = (params: Record<string, unknown>) => Promise<CommandExecuteResponse>;
 

@@ -5,6 +5,27 @@ All notable changes to the Second Life External Scripting Extension will be docu
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.0.8] - 2026-09-24
+
+## What's Changed
+* chore: prepare release v1.0.7 by @github-actions[bot] in https://github.com/secondlife/sl-vscode-plugin/pull/142
+* Fix from @ThomasNSF for bad parsing on hex literal numbers. by @Rider-Linden in https://github.com/secondlife/sl-vscode-plugin/pull/148
+* Fix #145: Treat .lua and .slua files as luau scripts by @Prem759-0 in https://github.com/secondlife/sl-vscode-plugin/pull/151
+* Enforce file link rules. by @Rider-Linden in https://github.com/secondlife/sl-vscode-plugin/pull/154
+* Fix: Use radix-aware parsing for hex/binary literals in #if conditionals by @Prem759-0 in https://github.com/secondlife/sl-vscode-plugin/pull/149
+* Fix #125: Handle faulted script state properly in UI by @Prem759-0 in https://github.com/secondlife/sl-vscode-plugin/pull/150
+* Isolate the websocket and jsonrpc work into its own package by @WolfGangS in https://github.com/secondlife/sl-vscode-plugin/pull/115
+* Isolate the preprocessor work into its own package by @WolfGangS in https://github.com/secondlife/sl-vscode-plugin/pull/121
+* Logging enhancement by @Rider-Linden in https://github.com/secondlife/sl-vscode-plugin/pull/160
+* Minor fixes for object.update and object.publish by @Rider-Linden in https://github.com/secondlife/sl-vscode-plugin/pull/161
+* Guidance on installing from a vsix by @Rider-Linden in https://github.com/secondlife/sl-vscode-plugin/pull/162
+
+## New Contributors
+* @Prem759-0 made their first contribution in https://github.com/secondlife/sl-vscode-plugin/pull/151
+
+**Full Changelog**: https://github.com/secondlife/sl-vscode-plugin/compare/v1.0.7...v1.0.8
+
+
 ## [1.0.7] - 2026-09-11
 
 ## What's Changed

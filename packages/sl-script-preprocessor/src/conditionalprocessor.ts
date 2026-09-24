@@ -7,10 +7,11 @@
  * with proper nesting and state tracking.
  */
 
-import { Token, TokenType, type LanguageLexerConfig } from './lexer';
+import { Token, TokenType } from './token';
+import { type LanguageLexerConfig } from './lexer';
 import type { MacroProcessor } from './macroprocessor';
 import { PreprocessorDiagnostic, DiagnosticLocation, ErrorCodes } from './diagnostics';
-import { StringUri } from '../interfaces/hostinterface';
+import { StringUri } from './interfaces';
 
 //#region Conditional State
 
@@ -421,7 +422,7 @@ export class ConditionalProcessor {
 
             // Numeric literal
             if (token.type === TokenType.NUMBER_LITERAL) {
-                return parseFloat(token.value) !== 0;
+                return this.parseNumericLiteral(token.value) !== 0;
             }
 
             // Identifier - check if it's a boolean literal or undefined macro
@@ -731,7 +732,7 @@ export class ConditionalProcessor {
 
         // Handle numbers
         if (token.type === TokenType.NUMBER_LITERAL) {
-            const value = parseFloat(token.value);
+            const value = this.parseNumericLiteral(token.value);
             if (isNaN(value)) {
                 throw new Error(`Invalid number: ${token.value}`);
             }
@@ -755,6 +756,29 @@ export class ConditionalProcessor {
         }
 
         throw new Error(`Unexpected token: ${token.type} ${token.value}`);
+    }
+
+    /**
+     * Radix-aware numeric parser for NUMBER_LITERAL token values.
+     * Handles:
+     * - Hexadecimal: 0x / 0X prefix  (e.g. 0xFF, 0x9E)
+     * - Binary:      0b / 0B prefix  (e.g. 0b1010)
+     * - All other forms delegated to parseFloat (decimals, floats, scientific notation)
+     *
+     * JavaScript's parseFloat('0x1') returns 0 and parseFloat('0b1') returns 0,
+     * so without this helper '#if 0x1' would incorrectly select the false branch.
+     */
+    private parseNumericLiteral(value: string): number {
+        if (value.length > 2) {
+            const prefix = value.slice(0, 2).toLowerCase();
+            if (prefix === '0x') {
+                return parseInt(value, 16);
+            }
+            if (prefix === '0b') {
+                return parseInt(value.slice(2), 2);
+            }
+        }
+        return parseFloat(value);
     }
 
     //#endregion

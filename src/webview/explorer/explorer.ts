@@ -30,7 +30,7 @@ interface InventoryItem {
     vm?: string;
     running?: boolean;
     faulted?: boolean;
-    permissions?: { owner: number; next_owner: number };
+    permissions?: { owner: number; next_owner?: number };
 }
 
 interface LinkedObject {
@@ -296,7 +296,8 @@ window.addEventListener("message", (event: MessageEvent) => {
         case "updateItem":
             updateItemRunningState(
                 message.payload["item_id"] as string,
-                message.payload["running"] as boolean
+                message.payload["running"] as boolean,
+                message.payload["faulted"] as boolean | undefined
             );
             break;
 
@@ -416,7 +417,28 @@ function renderTree(): void {
     restoreFocus();
 }
 
-function updateItemRunningState(item_id: string, running: boolean): void {
+function updateItemRunningState(item_id: string, running: boolean, faulted?: boolean): void {
+    // Update internal state so it survives re-renders
+    for (const obj of state.objects) {
+        const patch = (inv: InventoryItem[]) => {
+            const i = inv.find((x) => x.item_id === item_id);
+            if (i) {
+                i.running = running;
+                if (faulted !== undefined) { i.faulted = faulted; }
+            }
+        };
+        patch(obj.inventory);
+        for (const lo of obj.linked_objects ?? []) { patch(lo.inventory); }
+    }
+    saveState();
+
+    // Re-render the tree entirely if faulted changed, because transitioning between faulted/running
+    // involves changing the toggle button to a restart button and updating multiple tooltips.
+    if (faulted !== undefined) {
+        renderTree();
+        return;
+    }
+
     const itemEl = document.querySelector<HTMLElement>(`[data-item="${item_id}"]`);
     if (!itemEl) { return; }
     const indicator = itemEl.querySelector(".running-indicator");
@@ -983,9 +1005,9 @@ function beginCreateItem(object_id: string, prim_id: string): void {
     input.addEventListener("input", () => {
         const val = input.value.toLowerCase();
         iconEl.className = "file-icon " + (
-            val.endsWith(".luau") ? "file-icon-script-luau" :
+            (val.endsWith(".luau") || val.endsWith(".slua") || val.endsWith(".lua")) ? "file-icon-script-luau" :
             val.endsWith(".lsl")  ? "file-icon-script-lsl" :
-                                    "file-icon-script-lsl"
+                                    "file-icon-notecard"
         );
     });
 

@@ -122,6 +122,12 @@ settings use the `slVscodeEdit.` prefix.
 | `slVscodeEdit.network.disconnectDelayMs` | Number | `100` | Sets the delay before the WebSocket closes after a disconnect message. |
 | `slVscodeEdit.network.disposeDelayMs` | Number | `1000` | Sets the delay before resources are disposed after a session disconnects. |
 
+### Logging
+
+| Setting | Type | Default | Purpose |
+| --- | --- | --- | --- |
+| `slVscodeEdit.logging.level` | String (`ERROR`, `WARN`, `INFO`, `DEBUG`, `TRACE`) | `INFO` | Sets the minimum severity written to the Second Life Plugin Log output channel. `TRACE` additionally includes full JSON-RPC message bodies and preprocessor directive/macro-expansion tracing. Does not affect the Second Life runtime channel. |
+
 ## Starting WebSocket Sync
 
 The viewer provides the WebSocket server used by the plugin. Start it using

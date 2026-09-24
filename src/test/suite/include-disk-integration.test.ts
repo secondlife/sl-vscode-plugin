@@ -6,11 +6,11 @@
 import * as assert from 'assert';
 import * as path from 'path';
 import * as fs from 'fs';
-import { LexingPreprocessor, PreprocessorOptions } from '../../shared/lexingpreprocessor';
-import { filePathToStringUri, stringUriToFilePath, type StringUri, type HostInterface } from '../../interfaces/hostinterface';
+import { LexingPreprocessor, PreprocessorOptions, ScriptLanguage } from '#sl-script-preprocessor';
+import { filePathToStringUri, stringUriToFilePath, type StringUri, type HostInterface } from '#sl-script-preprocessor';
 import type { FullConfigInterface } from '../../interfaces/configinterface';
 import { ConfigKey } from '../../interfaces/configinterface';
-import { getLanguageConfig } from '../../shared/lexer';
+import { getLanguageConfig } from '#sl-script-preprocessor';
 
 /**
  * Normalize paths in preprocessor output for comparison with expected files.
@@ -54,13 +54,13 @@ class TestConfig implements FullConfigInterface {
     getConfig<T>(key: ConfigKey): T | undefined {
         // Return individual config values instead of PreprocessorOptions object
         if (key === ConfigKey.PreprocessorEnable) {
-            return this.options.enable as T;
+            return this.options.enabled as T;
         }
         if (key === ConfigKey.PreprocessorIncludePaths) {
-            return (this.options.includePaths ?? ['.']) as T;
+            return (this.options.include?.paths ?? ['.']) as T;
         }
         if (key === ConfigKey.PreprocessorMaxIncludeDepth) {
-            return (this.options.maxIncludeDepth ?? 5) as T;
+            return (this.options.include?.maxDepth ?? 5) as T;
         }
         return undefined;
     }
@@ -87,14 +87,12 @@ class TestConfig implements FullConfigInterface {
  * Test host implementation that reads real files from disk
  */
 class DiskTestHost implements HostInterface {
-    config: FullConfigInterface;
     private workspaceRoot: string;
     private workspaceRootUri: StringUri;
 
-    constructor(workspaceRoot: string, options: PreprocessorOptions) {
+    constructor(workspaceRoot: string) {
         this.workspaceRoot = workspaceRoot;
         this.workspaceRootUri = filePathToStringUri(workspaceRoot);
-        this.config = new TestConfig(options);
     }
 
     async readFile(filePath: StringUri): Promise<string | null> {
@@ -200,14 +198,15 @@ class DiskTestHost implements HostInterface {
 suite('LSL Include Directive Tests - Disk-based Integration', () => {
     let workspaceRoot: string;
     let host: DiskTestHost;
+    let config: PreprocessorOptions;
 
     const lslLanguageConfig = getLanguageConfig('lsl');
     const lslLanguageConfigWithSwitch = getLanguageConfig('lsl');
     lslLanguageConfigWithSwitch.directiveKeywords.push('switch');
 
-    function createDefaultOptions(): PreprocessorOptions {
+    function createDefaultOptions(language: ScriptLanguage): PreprocessorOptions {
         return {
-            enable: true,
+            enabled: true,
             flags: {
                 generateWarnings: false,
                 generateDecls: false,
@@ -215,15 +214,19 @@ suite('LSL Include Directive Tests - Disk-based Integration', () => {
                 disableMacros: false,
                 disableConditionals: false,
             },
-            includePaths: ['./include/', 'include/'],
-            maxIncludeDepth: 10,
+            include: {
+                paths: ['./include/', 'include/'],
+                maxDepth: 10,
+            },
+            language: language,
         };
     }
 
     suiteSetup(() => {
         // Point to the test workspace
         workspaceRoot = path.resolve(__dirname, '../../../src/test/workspace/set_1');
-        host = new DiskTestHost(workspaceRoot, createDefaultOptions());
+        host = new DiskTestHost(workspaceRoot);
+        config = createDefaultOptions("lsl");
     });
 
     test('should process simple include chain (A->B->C) from disk files', async () => {
@@ -232,7 +235,7 @@ suite('LSL Include Directive Tests - Disk-based Integration', () => {
         const expectedFile = path.join(workspaceRoot, 'test_include_chain_expected.lsl');
         const source = fs.readFileSync(testFilePath, 'utf-8');
         const expected = fs.readFileSync(expectedFile, 'utf-8');
-        const preprocessor = new LexingPreprocessor(host, host.config);
+        const preprocessor = new LexingPreprocessor(host, config);
 
         const result = await preprocessor.process(source, testFile, lslLanguageConfig);
 
@@ -253,7 +256,7 @@ suite('LSL Include Directive Tests - Disk-based Integration', () => {
         const expectedFile = path.join(workspaceRoot, 'test_include_diamond_expected.lsl');
         const source = fs.readFileSync(testFilePath, 'utf-8');
         const expected = fs.readFileSync(expectedFile, 'utf-8');
-        const preprocessor = new LexingPreprocessor(host, host.config);
+        const preprocessor = new LexingPreprocessor(host, config);
 
         const result = await preprocessor.process(source, testFile, lslLanguageConfig);
 
@@ -278,7 +281,7 @@ suite('LSL Include Directive Tests - Disk-based Integration', () => {
         const expectedFile = path.join(workspaceRoot, 'test_include_multiple_expected.lsl');
         const source = fs.readFileSync(testFilePath, 'utf-8');
         const expected = fs.readFileSync(expectedFile, 'utf-8');
-        const preprocessor = new LexingPreprocessor(host, host.config);
+        const preprocessor = new LexingPreprocessor(host, config);
 
         const result = await preprocessor.process(source, testFile, lslLanguageConfig);
 
@@ -300,7 +303,7 @@ suite('LSL Include Directive Tests - Disk-based Integration', () => {
         const testFilePath = path.join(workspaceRoot, 'test_include_chain.lsl');
         const testFile = filePathToStringUri(testFilePath);
         const source = fs.readFileSync(testFilePath, 'utf-8');
-        const preprocessor = new LexingPreprocessor(host, host.config);
+        const preprocessor = new LexingPreprocessor(host, config);
 
         const result = await preprocessor.process(source, testFile, lslLanguageConfig);
 
@@ -326,7 +329,7 @@ suite('LSL Include Directive Tests - Disk-based Integration', () => {
         const testFilePath = path.join(workspaceRoot, 'test_include_chain.lsl');
         const testFile = filePathToStringUri(testFilePath);
         const source = fs.readFileSync(testFilePath, 'utf-8');
-        const preprocessor = new LexingPreprocessor(host, host.config);
+        const preprocessor = new LexingPreprocessor(host, config);
 
         const result = await preprocessor.process(source, testFile, lslLanguageConfig);
 
@@ -349,11 +352,11 @@ suite('LSL Include Directive Tests - Disk-based Integration', () => {
         const testFile = filePathToStringUri(testFilePath);
         const source = fs.readFileSync(testFilePath, 'utf-8');
 
-        const options = createDefaultOptions();
-        options.maxIncludeDepth = 1; // Only allow one level of includes
+        const options = createDefaultOptions("lsl");
+        options.include!.maxDepth = 1; // Only allow one level of includes
 
-        const customHost = new DiskTestHost(workspaceRoot, options);
-        const preprocessor = new LexingPreprocessor(customHost, customHost.config);
+        const customHost = new DiskTestHost(workspaceRoot);
+        const preprocessor = new LexingPreprocessor(customHost, options);
         const result = await preprocessor.process(source, testFile, lslLanguageConfig);
 
         // Should fail due to max depth exceeded
@@ -376,7 +379,7 @@ suite('LSL Include Directive Tests - Disk-based Integration', () => {
         const expectedFile = path.join(workspaceRoot, 'test_switch_expected.lsl');
         const source = fs.readFileSync(testFilePath, 'utf-8');
         const expected = fs.readFileSync(expectedFile, 'utf-8');
-        const preprocessor = new LexingPreprocessor(host, host.config);
+        const preprocessor = new LexingPreprocessor(host, config);
 
 
         const result = await preprocessor.process(source, testFile, lslLanguageConfigWithSwitch);

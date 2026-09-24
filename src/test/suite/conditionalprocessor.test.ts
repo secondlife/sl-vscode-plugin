@@ -4,10 +4,10 @@
  */
 
 import * as assert from 'assert';
-import { ConditionalProcessor } from '../../shared/conditionalprocessor';
-import { MacroProcessor, MacroDefinition } from '../../shared/macroprocessor';
-import { Token, TokenType, Lexer, getLanguageConfig } from '../../shared/lexer';
-import { ScriptLanguage } from '../../shared/languageservice';
+import { ConditionalProcessor } from '#sl-script-preprocessor';
+import { MacroProcessor, MacroDefinition } from '#sl-script-preprocessor';
+import { Token, TokenType, Lexer, getLanguageConfig } from '#sl-script-preprocessor';
+import { ScriptLanguage } from '#sl-script-preprocessor';
 
 suite('ConditionalProcessor (Lexing)', () => {
     let processor: ConditionalProcessor;
@@ -1201,5 +1201,79 @@ suite('ConditionalProcessor (Lexing)', () => {
 
     //#endregion
 
+    //#region Hex and Binary Literal Evaluation
+
+    suite('Hex and Binary Literal Evaluation in #if', () => {
+        // Regression for the Copilot finding on PR #148:
+        // parseFloat('0x1') === 0 and parseFloat('0b1') === 0 in JavaScript,
+        // so #if 0x1 / #if 0b1 would silently select the false branch before this fix.
+
+        test('#if 0x1 evaluates as true (non-zero)', () => {
+            const conditionals = new ConditionalProcessor(lslLanguageConfig);
+            const tokens = createTokens('0x1');
+            const result = conditionals.processIf(tokens, macros, 1);
+            assert.strictEqual(result.success, true);
+            assert.strictEqual(result.shouldInclude, true);
+        });
+
+        test('#if 0x0 evaluates as false (zero)', () => {
+            const conditionals = new ConditionalProcessor(lslLanguageConfig);
+            const tokens = createTokens('0x0');
+            const result = conditionals.processIf(tokens, macros, 1);
+            assert.strictEqual(result.success, true);
+            assert.strictEqual(result.shouldInclude, false);
+        });
+
+        test('#if 0x9E evaluates as true (158, non-zero)', () => {
+            const conditionals = new ConditionalProcessor(lslLanguageConfig);
+            const tokens = createTokens('0x9E');
+            const result = conditionals.processIf(tokens, macros, 1);
+            assert.strictEqual(result.success, true);
+            assert.strictEqual(result.shouldInclude, true);
+        });
+
+        test('#if 0xFF evaluates correctly (255)', () => {
+            const conditionals = new ConditionalProcessor(lslLanguageConfig);
+            // 0xFF == 255 which is non-zero, so true
+            const tokens = createTokens('0xFF');
+            const result = conditionals.processIf(tokens, macros, 1);
+            assert.strictEqual(result.success, true);
+            assert.strictEqual(result.shouldInclude, true);
+        });
+
+        test('#if 0xFF == 255 evaluates as true', () => {
+            const conditionals = new ConditionalProcessor(lslLanguageConfig);
+            const tokens = createTokens('0xFF == 255');
+            const result = conditionals.processIf(tokens, macros, 1);
+            assert.strictEqual(result.success, true);
+            assert.strictEqual(result.shouldInclude, true);
+        });
+
+        test('#if 0x10 == 16 evaluates as true', () => {
+            const conditionals = new ConditionalProcessor(lslLanguageConfig);
+            const tokens = createTokens('0x10 == 16');
+            const result = conditionals.processIf(tokens, macros, 1);
+            assert.strictEqual(result.success, true);
+            assert.strictEqual(result.shouldInclude, true);
+        });
+
+        test('#if 0b1010 evaluates as true (10, non-zero) - Luau', () => {
+            const conditionals = new ConditionalProcessor(luauLanguageConfig);
+            const tokens = createTokens('0b1010', 'luau');
+            const result = conditionals.processIf(tokens, macros, 1);
+            assert.strictEqual(result.success, true);
+            assert.strictEqual(result.shouldInclude, true);
+        });
+
+        test('#if 0b0000 evaluates as false (zero) - Luau', () => {
+            const conditionals = new ConditionalProcessor(luauLanguageConfig);
+            const tokens = createTokens('0b0000', 'luau');
+            const result = conditionals.processIf(tokens, macros, 1);
+            assert.strictEqual(result.success, true);
+            assert.strictEqual(result.shouldInclude, false);
+        });
+    });
+
     //#endregion
+
 });

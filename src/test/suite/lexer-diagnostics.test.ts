@@ -5,9 +5,9 @@
  */
 
 import * as assert from 'assert';
-import { getLanguageConfig, Lexer, TokenType } from '../../shared/lexer';
-import { DiagnosticCollector, DiagnosticSeverity, ErrorCodes } from '../../shared/diagnostics';
-import { filePathToStringUri } from '../../interfaces/hostinterface';
+import { getLanguageConfig, Lexer, TokenType } from '#sl-script-preprocessor';
+import { DiagnosticCollector, DiagnosticSeverity, ErrorCodes } from '#sl-script-preprocessor';
+import { filePathToStringUri } from '#sl-script-preprocessor';
 
 suite('Lexer Diagnostics', () => {
     const testFile = filePathToStringUri('d:/test/test.lsl');
@@ -242,6 +242,77 @@ suite('Lexer Diagnostics', () => {
         // Should have NO error diagnostics
         assert.strictEqual(diagnostics.hasErrors(), false);
         assert.strictEqual(diagnostics.getCount(), 0);
+    });
+
+    test('Hex literal followed by E is not an exponent - Luau byte table', () => {
+        // Regression: "0x9E" was lexed as "0x" + "9E", and "9E" reported "exponent has no digits"
+        const source = 'base = writeBytecode(state, { 0x9E, 16, 0 })';
+        const diagnostics = new DiagnosticCollector();
+        const lexer = new Lexer(source, luauLanguageConfig, testFile, diagnostics);
+
+        const tokens = lexer.tokenize();
+
+        assert.strictEqual(diagnostics.hasErrors(), false);
+        assert.strictEqual(diagnostics.getCount(), 0);
+
+        const numbers = tokens.filter(t => t.type === TokenType.NUMBER_LITERAL).map(t => t.value);
+        assert.deepStrictEqual(numbers, ['0x9E', '16', '0']);
+    });
+
+    test('Hex literals lex as a single token regardless of case', () => {
+        for (const literal of ['0x9e', '0X1E', '0x0E', '0xFF9E', '0xdeadBEEF']) {
+            for (const config of [lslLanguageConfig, luauLanguageConfig]) {
+                const diagnostics = new DiagnosticCollector();
+                const lexer = new Lexer(literal, config, testFile, diagnostics);
+
+                const tokens = lexer.tokenize();
+
+                assert.strictEqual(diagnostics.hasErrors(), false, `${literal} should not produce errors`);
+                const numbers = tokens.filter(t => t.type === TokenType.NUMBER_LITERAL);
+                assert.strictEqual(numbers.length, 1, `${literal} should be one number token`);
+                assert.strictEqual(numbers[0].value, literal);
+                assert.strictEqual(numbers[0].length, literal.length);
+            }
+        }
+    });
+
+    test('Binary literal lexes as a single token - Luau', () => {
+        const source = 'local flags = 0b1010';
+        const diagnostics = new DiagnosticCollector();
+        const lexer = new Lexer(source, luauLanguageConfig, testFile, diagnostics);
+
+        const tokens = lexer.tokenize();
+
+        assert.strictEqual(diagnostics.hasErrors(), false);
+        const numbers = tokens.filter(t => t.type === TokenType.NUMBER_LITERAL).map(t => t.value);
+        assert.deepStrictEqual(numbers, ['0b1010']);
+    });
+
+    test('Hex literal ending in E does not swallow a following sign', () => {
+        // "0x1E+2" is hex 0x1E plus 2, not the float "1E+2"
+        const source = '0x1E+2';
+        const diagnostics = new DiagnosticCollector();
+        const lexer = new Lexer(source, luauLanguageConfig, testFile, diagnostics);
+
+        const tokens = lexer.tokenize();
+
+        assert.strictEqual(diagnostics.hasErrors(), false);
+        const values = tokens
+            .filter(t => t.type !== TokenType.EOF && t.type !== TokenType.WHITESPACE)
+            .map(t => t.value);
+        assert.deepStrictEqual(values, ['0x1E', '+', '2']);
+    });
+
+    test('Bare hex prefix without digits keeps previous behaviour', () => {
+        const source = '0x;';
+        const diagnostics = new DiagnosticCollector();
+        const lexer = new Lexer(source, lslLanguageConfig, testFile, diagnostics);
+
+        const tokens = lexer.tokenize();
+
+        assert.strictEqual(diagnostics.hasErrors(), false);
+        const numbers = tokens.filter(t => t.type === TokenType.NUMBER_LITERAL).map(t => t.value);
+        assert.deepStrictEqual(numbers, ['0x']);
     });
 
     test('Unterminated vector literal - EOF', () => {

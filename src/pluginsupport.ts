@@ -3,21 +3,23 @@
  * Copyright (C) 2025, Linden Research, Inc.
  */
 import * as vscode from "vscode";
-import { HostInterface, StringUri, filePathToStringUri, resolveUri } from "./interfaces/hostinterface";
-import { ConfigKey } from "./interfaces/configinterface";
+import { HostInterface, StringUri, filePathToStringUri, resolveUri } from "#sl-script-preprocessor";
+import { ConfigKey, FullConfigInterface } from "./interfaces/configinterface";
 
 //=============================================================================
 abstract class BasePlugin {
     protected readonly host: HostInterface;
-    constructor(host: HostInterface) {
+    protected readonly config: FullConfigInterface;
+    constructor(host: HostInterface, config: FullConfigInterface) {
         this.host = host;
+        this.config = config;
     }
 }
 
 //#region Selene Plugin Support
 export class SelenePlugin extends BasePlugin {
-    constructor(host: HostInterface) {
-        super(host);
+    constructor(host: HostInterface, config: FullConfigInterface) {
+        super(host, config);
     }
 
     public static isEnabledHost(host: HostInterface): boolean {
@@ -53,7 +55,7 @@ export class SelenePlugin extends BasePlugin {
         }
 
         const basename = `slua_${version}`;
-        const configPath = await this.host.config.getWorkspaceConfigPath();
+        const configPath = await this.config.getWorkspaceConfigPath();
 
         const saved = await SelenePlugin.saveSLuaSeleneConfig(
             configPath,
@@ -106,8 +108,8 @@ export class SelenePlugin extends BasePlugin {
 
 //#region Lua LSP Plugin Support
 export class LuaLSPPlugin extends BasePlugin {
-    constructor(host: HostInterface) {
-        super(host);
+    constructor(host: HostInterface, config: FullConfigInterface) {
+        super(host, config);
     }
 
     public static isEnabledHost(host: HostInterface): boolean {
@@ -215,7 +217,7 @@ export class LuaLSPPlugin extends BasePlugin {
         viewerDLuau: string,
         viewerDocsJson: string,
     ): Promise<boolean> {
-        const configPath = await this.host.config.getWorkspaceConfigPath();
+        const configPath = await this.config.getWorkspaceConfigPath();
 
         const defsFiles: { [k: string]: string } = {};
 
@@ -225,7 +227,7 @@ export class LuaLSPPlugin extends BasePlugin {
             viewerDLuau,
         );
 
-        if (this.host.config.getConfig(ConfigKey.PreprocessorConstantsInSLua, false)) {
+        if (this.config.getConfig(ConfigKey.PreprocessorConstantsInSLua, false)) {
             defsFiles["sl-slua-consts"] = await this.saveLuauLSPConstantDefs(configPath);
         }
 

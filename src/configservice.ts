@@ -5,7 +5,7 @@
 import * as vscode from "vscode";
 import { hasWorkspace } from "./utils";
 import { ConfigKey, ConfigScope, FullConfigInterface } from "./interfaces/configinterface";
-import { filePathToStringUri, StringUri } from "./interfaces/hostinterface";
+import { filePathToStringUri, StringUri } from "#sl-script-preprocessor";
 
 /** Number of seconds to display status bar messages */
 export const STATUS_BAR_TIMEOUT_SECONDS = 3;
@@ -170,5 +170,3 @@ export class ConfigService implements vscode.Disposable, FullConfigInterface {
 
 
 }
-// Note: Free helper accessors removed; use injected host.config instead to
-// encourage explicit dependency wiring and simplify future decoupling.

@@ -5,13 +5,13 @@
  */
 
 import * as assert from 'assert';
-import { IncludeProcessor, IncludeState } from '../../shared/includeprocessor';
-import { DiagnosticCollector, DiagnosticSeverity, ErrorCodes } from '../../shared/diagnostics';
-import { StringUri, HostInterface, filePathToStringUri } from '../../interfaces/hostinterface';
-import { MacroProcessor } from '../../shared/macroprocessor';
-import { ConditionalProcessor } from '../../shared/conditionalprocessor';
-import { IncludeInfo } from '../../shared/parser';
-import { getLanguageConfig } from '../../shared/lexer';
+import { IncludeProcessor, IncludeState } from '#sl-script-preprocessor';
+import { DiagnosticCollector, DiagnosticSeverity, ErrorCodes } from '#sl-script-preprocessor';
+import { StringUri, HostInterface, filePathToStringUri } from '#sl-script-preprocessor';
+import { MacroProcessor } from '#sl-script-preprocessor';
+import { ConditionalProcessor } from '#sl-script-preprocessor';
+import { IncludeInfo } from '#sl-script-preprocessor';
+import { getLanguageConfig } from '#sl-script-preprocessor';
 
 const quickInclude = (file:string, line:number = 1) : IncludeInfo => {
     return {

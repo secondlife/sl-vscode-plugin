@@ -10,8 +10,9 @@
  * - File resolution via HostInterface
  */
 
-import { StringUri, HostInterface, UriSet, resolveUri, uriDirname, filePathToStringUri } from '../interfaces/hostinterface';
-import { LanguageLexerConfig, Lexer, Token } from './lexer';
+import { StringUri, HostInterface, UriSet, resolveUri, uriDirname, filePathToStringUri } from './interfaces';
+import { LanguageLexerConfig, Lexer } from './lexer';
+import { Token } from './token';
 import { MacroProcessor } from './macroprocessor';
 import { ConditionalProcessor } from './conditionalprocessor';
 import { DiagnosticCollector, DiagnosticSeverity, ErrorCodes } from './diagnostics';

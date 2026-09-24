@@ -22,9 +22,9 @@
  * ```
  */
 
-import { Token, TokenType } from './lexer';
+import { Token, TokenType } from './token';
 import { DiagnosticCollector, ErrorCodes, DiagnosticSeverity } from './diagnostics';
-import { StringUri } from '../interfaces/hostinterface';
+import { StringUri, PreprocessorLogger } from './interfaces';
 
 //#region Macro Definition
 
@@ -273,6 +273,7 @@ export class MacroProcessor {
      * @param sourceFile - Optional source file path for diagnostics
      * @param line - Optional line number for diagnostics
      * @param column - Optional column number for diagnostics
+     * @param logger - Optional logger for TRACE-level expansion tracing
      */
     public expandSimple(
         name: string,
@@ -281,7 +282,8 @@ export class MacroProcessor {
         diagnostics?: DiagnosticCollector,
         sourceFile?: StringUri,
         line?: number,
-        column?: number
+        column?: number,
+        logger?: PreprocessorLogger
     ): Token[] | null {
         if (!this.enabled) {
             return null;
@@ -337,6 +339,8 @@ export class MacroProcessor {
             } else if (value.startsWith('"') || value.startsWith("'")) {
                 tokenType = TokenType.STRING_LITERAL;
             }
+            logger?.trace?.(() =>
+                `[MACRO] expand ${name} at ${line ?? context?.line}:${column ?? context?.column} -> "${value}"`);
             return [new Token(
                 tokenType,
                 value,
@@ -353,7 +357,9 @@ export class MacroProcessor {
         const bodyTokens = macro.body.map(t => t.clone());
 
         // Recursively expand any macros in the body
-        const expanded = this.expandTokens(bodyTokens, context, expandingSet, diagnostics, sourceFile);
+        const expanded = this.expandTokens(bodyTokens, context, expandingSet, diagnostics, sourceFile, logger);
+        logger?.trace?.(() =>
+            `[MACRO] expand ${name} at ${line ?? context?.line}:${column ?? context?.column} -> "${expanded.map(t => t.value).join('')}"`);
 
         // Remove this macro from the expanding set
         expandingSet.delete(name);
@@ -373,6 +379,7 @@ export class MacroProcessor {
      * @param sourceFile - Optional source file path for diagnostics
      * @param line - Optional line number for diagnostics
      * @param column - Optional column number for diagnostics
+     * @param logger - Optional logger for TRACE-level expansion tracing
      */
     public expandFunction(
         name: string,
@@ -382,7 +389,8 @@ export class MacroProcessor {
         diagnostics?: DiagnosticCollector,
         sourceFile?: StringUri,
         line?: number,
-        column?: number
+        column?: number,
+        logger?: PreprocessorLogger
     ): Token[] | null {
         if (!this.enabled) {
             return null;
@@ -433,7 +441,12 @@ export class MacroProcessor {
         );
 
         // Recursively expand any macros in the substituted body
-        const expanded = this.expandTokens(bodyTokens, context, expandingSet, diagnostics, sourceFile);
+        const expanded = this.expandTokens(bodyTokens, context, expandingSet, diagnostics, sourceFile, logger);
+        logger?.trace?.(() => {
+            const argsText = args.map(a => a.map(t => t.value).join('')).join(', ');
+            const resultText = expanded.map(t => t.value).join('');
+            return `[MACRO] expand ${name}(${argsText}) at ${line ?? context?.line}:${column ?? context?.column} -> "${resultText}"`;
+        });
 
         // Remove this macro from the expanding set
         expandingSet.delete(name);
@@ -450,7 +463,8 @@ export class MacroProcessor {
         context?: MacroExpansionContext,
         expanding?: Set<string>,
         diagnostics?: DiagnosticCollector,
-        sourceFile?: StringUri
+        sourceFile?: StringUri,
+        logger?: PreprocessorLogger
     ): Token[] {
         const result: Token[] = [];
         const expandingSet = expanding || new Set<string>();
@@ -499,7 +513,8 @@ export class MacroProcessor {
                         diagnostics,
                         sourceFile,
                         token.line,
-                        token.column
+                        token.column,
+                        logger
                     );
                     if (expanded) {
                         result.push(...expanded);
@@ -526,7 +541,8 @@ export class MacroProcessor {
                     diagnostics,
                     sourceFile,
                     token.line,
-                    token.column
+                    token.column,
+                    logger
                 );
                 if (expanded) {
                     result.push(...expanded);

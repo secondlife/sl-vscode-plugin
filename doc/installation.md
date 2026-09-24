@@ -50,6 +50,31 @@ require changing the extension's WebSocket port setting.
 
 Start Visual Studio Code after installation, unless you plan to use **VS Code Tight Integration**. With Tight Integration enabled, selecting **Explore in IDE** can launch VS Code automatically.
 
+## Install a Development Build from GitHub Actions
+
+Development builds let you try unreleased changes before they reach the
+Marketplace. Every push to the [sl-vscode-plugin](https://github.com/secondlife/sl-vscode-plugin)
+repository builds a `.vsix` package; the `develop` branch generally has the
+most up-to-date pre-release build.
+
+1. Go to the repository's [Actions tab](https://github.com/secondlife/sl-vscode-plugin/actions/workflows/ci.yml).
+2. Select **Branch: develop** from the branch filter (or the branch you want
+   to test) and open the most recent successful (green) **CI** run.
+3. Under **Artifacts**, download `vscode-extension-<commit-sha>`. This
+   downloads a `.zip` file — you must be signed in to GitHub to see the
+   Artifacts section.
+4. Extract the `.zip`. It contains a single `.vsix` file.
+5. In VS Code, open the Extensions view with `Ctrl+Shift+X`, select the `...`
+   menu in the top-right corner, and choose **Install from VSIX...**. Select
+   the extracted `.vsix` file.
+   - Alternatively, from a terminal: `code --install-extension path\to\extension.vsix`.
+6. If the Marketplace version of the extension is already installed, VS Code
+   replaces it with the VSIX build. Reload the window if prompted.
+
+Development builds are unsigned pre-release artifacts and are not intended
+for production use. To return to the Marketplace release, uninstall the
+extension and reinstall it from the Marketplace as described above.
+
 ## Enable Viewer Integration
 
 1. Start the Second Life viewer.

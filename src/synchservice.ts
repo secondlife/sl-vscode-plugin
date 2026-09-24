@@ -6,7 +6,7 @@ import * as vscode from "vscode";
 import * as path from "path";
 import * as fs from "fs";
 import { SCRIPT_FILE_PATTERN, ConfigService, NOTECARD_FILE_PATTERN } from "./configservice";
-import { ConfigKey } from "./interfaces/configinterface";
+import { ConfigKey, FullConfigInterface } from "./interfaces/configinterface";
 import {
     ViewerEditWSClient,
     CompilationResult,
@@ -19,15 +19,13 @@ import {
     SyntaxChange,
     RuntimeDebug,
     RuntimeError,
-} from "./viewereditwsclient";
-import { JSONRPCError } from "./websockclient";
-import {
+    JSONRPCError,
     ObjectPublishMessage,
     ObjectUnpublishMessage,
     ObjectUpdateMessage,
     ObjectInventoryItem,
     PublishedObject,
-} from "./vscode/objectcontentinterfaces";
+} from "#sl-ide-ws-client";
 import {
     hasWorkspace,
     showInfoMessage,
@@ -42,6 +40,7 @@ import {
     closeTextDocument,
     vscodeUriToStringUri,
     resolveProtonPath,
+    pluginLogSink,
 } from "./utils";
 import { maybe } from "./shared/sharedutils"; // TODO: migrate needed utilities from sharedutils if required
 import { CommandRegistry } from "./commandregistry";
@@ -49,13 +48,17 @@ import {
     CommandExecuteParams,
     CommandExecuteResponse,
     CommandListResponse,
-} from "./viewereditwsclient";
-import { ScriptLanguage, LanguageService } from "./shared/languageservice";
-import { ScriptIdentity, ScriptSync } from "./scriptsync";
-import { getLanguageConfig } from "./shared/lexer";
-import { HostInterface } from "./interfaces/hostinterface";
+} from "#sl-ide-ws-client";
+import {LanguageService } from "./shared/languageservice";
+import { buildPreprocessorConfig, ScriptIdentity, ScriptSync } from "./scriptsync";
+import {
+    canonicalFileUri,
+    virtualIdentityKey,
+} from "./shared/filelinkidentity";
+import { FileLinkIndex } from "./shared/filelinkindex";
+import { getLanguageConfig, HostInterface, ScriptLanguage } from "#sl-script-preprocessor";
 import { SyncedFileDecorator } from "./vscode/SyncedFileDecorator";
-import { ObjectContentChangeEvent, ObjectContentService, ObjectTreeChangeEvent } from "./vscode/objectcontentservice";
+import { ObjectContentChangeEvent, ObjectContentService, ObjectTreeChangeEvent } from "#sl-ide-ws-client";
 import { ObjectPinStore } from "./vscode/objectpinstore";
 import { SL_SCHEME, SL_AUTHORITY, displayName, itemUri, languageForItem, extractJsonRpcErrorCode, JSONRPC_INVALID_PARAMS, JSONRPC_FORBIDDEN } from "./vscode/objectcontentprovider";
 
@@ -73,11 +76,33 @@ type ParsedTempFile = {
     itemId?: string;
 };
 
-interface SlLinkResult {
-    outcome: "linked" | "already-linked" | "no-match" | "skipped-no-modify" | "error";
+type LinkOutcome =
+    | "linked"
+    | "already-linked"
+    | "moved"
+    | "no-match"
+    | "skipped-no-modify"
+    | "rejected"
+    | "error"
+    | "failed";
+
+interface LinkOperationResult
+{
+    outcome: LinkOutcome;
+    endpointUri?: vscode.Uri;
     masterUri?: vscode.Uri;
+    previousMasterUri?: vscode.Uri;
+    changed: boolean;
+    reason?: string;
     mismatch?: boolean;
 }
+
+interface SlLinkResult extends LinkOperationResult
+{
+    outcome: LinkOutcome;
+}
+
+type TemporaryMoveResult = LinkOperationResult;
 
 interface AutoLinkSummary {
     linked: number;
@@ -88,8 +113,10 @@ interface AutoLinkSummary {
     mismatches: number;
 }
 
+type VirtualMoveResult = LinkOperationResult;
+
 function isUuidSegment(segment: string): boolean {
-    return /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(segment);
+    return /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(segment);
 }
 
 function describeRequestObjectError(err: unknown): string {
@@ -109,6 +136,9 @@ function describeRequestObjectError(err: unknown): string {
 export class SynchService implements vscode.Disposable {
     // Tracks all active sync relationships, keyed by master file uri.toString()
     private activeSyncs: Map<string, ScriptSync> = new Map();
+    private readonly fileLinkIndex = new FileLinkIndex<ScriptSync>();
+    private readonly endpointOperations = new Map<string, Promise<void>>();
+    private stopping = false;
     private context: vscode.ExtensionContext;
     private static instance: SynchService;
     private websocket: ViewerEditWSClient | undefined;
@@ -118,6 +148,7 @@ export class SynchService implements vscode.Disposable {
     private lastActiveChange: number = 0;
     private activeSync: ScriptSync | undefined;
     private host: HostInterface;
+    private config: FullConfigInterface;
     private readonly commandRegistry = new CommandRegistry();
     private initialGenerationDone: boolean = false;
     private pendingLaunchObjectId?: string;
@@ -143,9 +174,10 @@ export class SynchService implements vscode.Disposable {
 
     private disposables: vscode.Disposable[] = [];
 
-    private constructor(context: vscode.ExtensionContext) {
+    private constructor(context: vscode.ExtensionContext, config: FullConfigInterface) {
         this.context = context;
         this.host = new VSCodeHost();
+        this.config = config;
         this.syncedFileDecorator = new SyncedFileDecorator(this);
         this.commandRegistry.register(
             {
@@ -202,12 +234,13 @@ export class SynchService implements vscode.Disposable {
                     "SynchService not initialized. Context is required for first initialization.",
                 );
             }
-            SynchService.instance = new SynchService(context);
+            SynchService.instance = new SynchService(context, ConfigService.getInstance());
         }
         return SynchService.instance;
     }
 
     dispose(): void {
+        this.stopping = true;
         // Dispose of all active script syncs
         for (const [masterUriKey, scriptSync] of this.activeSyncs) {
             try {
@@ -217,6 +250,7 @@ export class SynchService implements vscode.Disposable {
             }
         }
         this.activeSyncs.clear();
+        this.endpointOperations.clear();
         for (const disposable of this.disposables) {
             disposable.dispose();
         }
@@ -240,6 +274,14 @@ export class SynchService implements vscode.Disposable {
 
         const onDidDeleteListener = vscode.workspace.onDidDeleteFiles(
             (event: vscode.FileDeleteEvent) => this.onDeleteFiles(event),
+        );
+
+        const onWillRenameListener = vscode.workspace.onWillRenameFiles(
+            (event: vscode.FileWillRenameEvent) => this.onWillRenameFiles(event),
+        );
+
+        const onDidRenameListener = vscode.workspace.onDidRenameFiles(
+            (event: vscode.FileRenameEvent) => this.onDidRenameFiles(event),
         );
 
         const onDidCloseWorkspace = vscode.workspace.onDidChangeWorkspaceFolders((e) => {
@@ -284,6 +326,8 @@ export class SynchService implements vscode.Disposable {
         // this.disposables.push(onDidCloseListener);
         this.disposables.push(onDidCloseWorkspace);
         this.disposables.push(onDidDeleteListener);
+        this.disposables.push(onWillRenameListener);
+        this.disposables.push(onDidRenameListener);
         this.disposables.push(onDidSaveListener);
         this.disposables.push(onDidChangeWindowState);
         this.disposables.push(onDidChangeActiveTextEditor);
@@ -383,16 +427,12 @@ export class SynchService implements vscode.Disposable {
             }
         });
 
-        const masterSync = this.findSyncByMasterFilePath(masterPath);
-        const syncs : ScriptSync[] = [];
+        const sync = await this.getOrCreateSync(
+            masterDoc,
+            parsed.extension as ScriptLanguage,
+        );
 
-        if(masterSync) {
-            syncs.push(masterSync);
-        } else {
-            syncs.push(...this.findSyncsByTempFilePath(viewerFilePath));
-        }
-
-        if(!this.host.config.getConfig(ConfigKey.KeepViewerFileOpen, true) && masterFound) {
+        if(!this.config.getConfig(ConfigKey.KeepViewerFileOpen, true) && masterFound) {
             void closeTextDocument(viewerDocument).catch((error) => {
                 logInfo(
                     `Failed to auto-close viewer document ${viewerDocument.uri.fsPath}: ${error instanceof Error ? error.message : String(error)}`,
@@ -400,23 +440,24 @@ export class SynchService implements vscode.Disposable {
             });
         }
 
-        if(syncs.length) {
-            // Already syncing the master, add another id and viewer file
-            syncs.forEach(sync => sync.subscribe(parsed.scriptId, viewerDocument));
-        } else {
-            const sync = await this.getOrCreateSync(masterDoc, parsed.extension as ScriptLanguage);
-            sync.subscribe(parsed.scriptId, viewerDocument);
-            syncs.push(sync);
+        const linkResult = await this.moveTemporaryFile(
+            masterUri,
+            parsed.extension as ScriptLanguage,
+            parsed.scriptId,
+            viewerDocument,
+        );
+        if (linkResult.outcome === "failed") {
+            return false;
         }
 
-        syncs.forEach(sync => this.syncedFileDecorator.refresh(sync.getMasterDocument().uri));
+        this.syncedFileDecorator.refresh(sync.getMasterDocument().uri);
 
         if (this.websocket && this.websocket.isConnected()) {
-            syncs.forEach(sync => this.sendSyncSubscription(sync));
+            this.sendSyncSubscription(sync);
         } else {
             viewerConnecting.then((connected) => {
                 if (connected) {
-                    syncs.forEach(sync=>this.sendSyncSubscription(sync));
+                    this.sendSyncSubscription(sync);
                 }
             });
         }
@@ -430,15 +471,37 @@ export class SynchService implements vscode.Disposable {
         masterDoc: vscode.TextDocument,
         language: ScriptLanguage,
     ): Promise<ScriptSync> {
-        const key = masterDoc.uri.toString();
+        await this.validateMasterUri(masterDoc.uri);
+        const key = this.masterKey(masterDoc.uri);
         const existing = this.activeSyncs.get(key);
         if (existing) return existing;
 
         const config = ConfigService.getInstance();
         const sync = new ScriptSync(masterDoc, language, config, '', undefined, this);
-        await sync.initialize();
+        try {
+            await sync.initialize();
+        } catch (error) {
+            sync.dispose();
+            throw error;
+        }
         this.activeSyncs.set(key, sync);
         return sync;
+    }
+
+    public async validateMasterUri(uri: vscode.Uri): Promise<void>
+    {
+        try {
+            const stat = await vscode.workspace.fs.stat(uri);
+            if (stat.type !== vscode.FileType.File) {
+                throw new Error(`Master URI is not a file: ${uri.toString()}`);
+            }
+        } catch (error) {
+            if (error instanceof vscode.FileSystemError &&
+                error.code === "FileNotFound") {
+                this.removeMasterLink(uri);
+            }
+            throw error;
+        }
     }
 
     private async setupSyncForSlUri(
@@ -459,18 +522,18 @@ export class SynchService implements vscode.Disposable {
         viewerDocument?: vscode.TextDocument,
     ): Promise<SlLinkResult> {
         if (!hasWorkspace()) {
-            return { outcome: "error" };
+            return { outcome: "error", endpointUri: uri, changed: false };
         }
         if (!this.websocket?.isConnected()) {
             if (options.reveal) {
                 showWarningMessage(`Cannot link sl:// script: not connected to Second Life viewer.`);
             }
-            return { outcome: "error" };
+            return { outcome: "error", endpointUri: uri, changed: false };
         }
         const parsed = SynchService.parseSlFileInfo(uri);
         if (!parsed) {
             logInfo(`[setupSyncForSlUri] Could not parse sl:// URI: ${uri.toString()}`);
-            return { outcome: "error" };
+            return { outcome: "error", endpointUri: uri, changed: false };
         }
         // Skip filesystem linking for no-modify items (they can still be viewed but not synced)
         const canModify = !parsed.item?.permissions || (parsed.item.permissions.owner & PERM_MODIFY) !== 0;
@@ -478,7 +541,7 @@ export class SynchService implements vscode.Disposable {
             logInfo(
                 `[setupSyncForSlUri] Skipping filesystem link for no-modify item "${parsed.scriptName}.${parsed.extension}"`,
             );
-            return { outcome: "skipped-no-modify" };
+            return { outcome: "skipped-no-modify", endpointUri: uri, changed: false };
         }
         const masterUri = await SynchService.findMasterFile(parsed, content);
         if (!masterUri) {
@@ -486,18 +549,17 @@ export class SynchService implements vscode.Disposable {
                 `[setupSyncForSlUri] No master found for "${parsed.scriptName}.${parsed.extension}"; ` +
                 `editing directly via viewer.`,
             );
-            return { outcome: "no-match" };
+            return { outcome: "no-match", endpointUri: uri, changed: false };
         }
         const masterDoc = await vscode.workspace.openTextDocument(masterUri);
         const masterEditor = options.reveal
             ? await vscode.window.showTextDocument(masterDoc, { preview: false })
             : undefined;
-        const sync = await this.getOrCreateSync(masterDoc, parsed.language);
         if (!parsed.rootId || !parsed.itemId) {
             logInfo(
                 `[setupSyncForSlUri] Missing canonical identity for "${uri.toString()}"`,
             );
-            return { outcome: "error" };
+            return { outcome: "error", endpointUri: uri, changed: false };
         }
 
         const identity: ScriptIdentity = {
@@ -505,16 +567,10 @@ export class SynchService implements vscode.Disposable {
             primId: parsed.primId ?? null,
             itemId: parsed.itemId,
         };
-        const existingSync = [...this.activeSyncs.values()]
-            .find((sync) => sync.isTrackingIdentity(identity));
-        if (existingSync) {
-            return {
-                outcome: "already-linked",
-                masterUri: existingSync.getMasterUri(),
-            };
-        }
 
-        sync.subscribeVirtual(
+        const linkResult = await this.moveVirtualFile(
+            masterUri,
+            parsed.language,
             uri,
             content,
             identity,
@@ -526,12 +582,12 @@ export class SynchService implements vscode.Disposable {
         }
         this.syncedFileDecorator.refresh(masterDoc.uri);
         logInfo(
-            `[setupSyncForSlUri] Linked "${parsed.scriptName}" ` +
+            `[setupSyncForSlUri] ${linkResult.outcome === "moved" ? "Moved" : "Linked"} "${parsed.scriptName}" ` +
             `(${uri.toString()}) \u2192 ${masterUri.fsPath}`,
         );
         // Do NOT call setupConnection() — already connected
         // Do NOT call sendSyncSubscription() — sl:// content travels via object.content.save
-        return { outcome: "linked", masterUri, mismatch };
+        return { ...linkResult, endpointUri: uri, masterUri, mismatch };
     }
 
     public async autoLinkObject(objectId: string): Promise<AutoLinkSummary> {
@@ -593,6 +649,7 @@ export class SynchService implements vscode.Disposable {
 
                         switch (result.outcome) {
                             case "linked":
+                            case "moved":
                                 summary.linked++;
                                 if (result.mismatch) {
                                     summary.mismatches++;
@@ -607,8 +664,14 @@ export class SynchService implements vscode.Disposable {
                             case "skipped-no-modify":
                                 summary.skippedNoModify++;
                                 break;
+                            case "rejected":
+                            case "failed":
                             case "error":
                                 summary.errors++;
+                                logWarning(
+                                    `[autoLinkObject] Failed to link ${displayName(item)}: ` +
+                                    `${result.reason ?? "Unknown link failure."}`,
+                                );
                                 break;
                         }
                     } catch (error) {
@@ -632,33 +695,49 @@ export class SynchService implements vscode.Disposable {
     }
 
     public removeSync(filePath: string): void {
-        // seeing if we closed a temp file or a master file
-        let sync = this.findSyncByMasterFilePath(filePath);
-        if (!sync) {
-            // No sync found for this file, we are not tracking it
-            return;
-        }
-
-        this.activeSyncs.delete(sync.getMasterUri().toString());
-        this.syncedFileDecorator.refresh(sync.getMasterDocument().uri);
-        sync.dispose();
-
-        this.clearEmptySyncs();
+        this.removeMasterLink(vscode.Uri.file(filePath));
     }
 
     public evictSlSyncs(object_id: string): void {
-        for (const [, sync] of this.activeSyncs) {
-            sync.evictVirtualMappingsForObject(object_id);
+        const identities = [...this.activeSyncs.values()]
+            .flatMap((sync) => sync.getTrackedVirtualItemsInObject(object_id))
+            .map((mapping) => mapping.identity);
+
+        for (const identity of identities) {
+            this.detachVirtualFile(identity);
         }
         this.clearEmptySyncs();
     }
 
+    public evictSlSyncsForPrim(rootId: string, primId: string): void {
+        const identities = [...this.activeSyncs.values()]
+            .flatMap((sync) => sync.getTrackedVirtualItemsInObject(rootId))
+            .filter((mapping) => mapping.identity.primId === primId)
+            .map((mapping) => mapping.identity);
+
+        for (const identity of identities) {
+            this.detachVirtualFile(identity);
+        }
+        this.clearEmptySyncs();
+    }
+
+    public detachByScriptId(scriptId: string, close = false): boolean {
+        let detached = false;
+        for (const sync of [...this.activeSyncs.values()]) {
+            if (!sync.isTrackingId(scriptId)) {
+                continue;
+            }
+            sync.unsubscribeById(scriptId, close);
+            detached = true;
+        }
+        this.clearEmptySyncs();
+        return detached;
+    }
+
     public clearEmptySyncs() : void {
-        for(const [key,sync] of this.activeSyncs) {
+        for(const sync of [...this.activeSyncs.values()]) {
             if(!sync.hasFilesToTrack()) {
-                this.activeSyncs.delete(key);
-                this.syncedFileDecorator.refresh(sync.getMasterDocument().uri);
-                sync.dispose();
+                this.disposeSync(sync);
             }
         }
 
@@ -691,17 +770,7 @@ export class SynchService implements vscode.Disposable {
                 const service = ObjectContentService.getInstance();
                 service.handlePublish(msg);
 
-                const autoLinkEnabled = ConfigService.getInstance()
-                    .getConfig<boolean>(ConfigKey.AutoLinkOnPublish, false);
-                const objectId = msg.object.object_id;
-                if (
-                    autoLinkEnabled &&
-                    hasWorkspace() &&
-                    !this.autoLinkedObjectIds.has(objectId)
-                ) {
-                    this.autoLinkedObjectIds.add(objectId);
-                    void this.autoLinkObject(objectId);
-                }
+                void this.autoLinkObjectIfEnabled(msg.object.object_id);
             },
             onObjectUnpublish: (msg: ObjectUnpublishMessage): any => {
                 logDebug(`[object.unpublish] object_id=${msg.object_id}`);
@@ -737,12 +806,29 @@ export class SynchService implements vscode.Disposable {
         showStatusMessage("Connecting to Second Life viewer...", handshake);
 
         const port = portOverride
-            ?? this.host.config.getConfig<number>(ConfigKey.NetworkWebsocketPort, 9020);
-        this.websocket = new ViewerEditWSClient(
-            this.context,
-            `ws://localhost:${port}`
-        );
-        this.websocket.setup(handlers);
+            ?? this.config.getConfig<number>(ConfigKey.NetworkWebsocketPort, 9020);
+        const packageJson = this.context.extension.packageJSON as {
+            name?: string;
+            version?: string;
+        };
+        this.websocket = new ViewerEditWSClient({
+            url: `ws://localhost:${port}`,
+            clientInfo: {
+                name: packageJson.name ?? "sl-vscode-plugin",
+                version: packageJson.version ?? "0.0.0",
+            },
+            logger: pluginLogSink,
+            notify: (message, kind): void => {
+                if (kind === "status") {
+                    showStatusMessage(message);
+                } else {
+                    showInfoMessage(message);
+                }
+            },
+            disconnectDelayMs: (): number =>
+                this.config.getConfig<number>(ConfigKey.NetworkDisconnectDelayMs, 1000),
+        });
+        this.context.subscriptions.push(this.websocket.setup(handlers));
         let connected = await this.websocket.connect();
 
         if (!connected.success) {
@@ -863,6 +949,21 @@ export class SynchService implements vscode.Disposable {
         await this.restorePinnedObjects();
     }
 
+    private async autoLinkObjectIfEnabled(objectId: string): Promise<void> {
+        const autoLinkEnabled = ConfigService.getInstance()
+            .getConfig<boolean>(ConfigKey.AutoLinkOnPublish, false);
+        if (
+            !autoLinkEnabled ||
+            !hasWorkspace() ||
+            this.autoLinkedObjectIds.has(objectId)
+        ) {
+            return;
+        }
+
+        this.autoLinkedObjectIds.add(objectId);
+        await this.autoLinkObject(objectId);
+    }
+
     private onDisconnect(params: SessionDisconnect): void {
         // Graceful disconnect - just show the message with reason
         // Actual cleanup happens in onConnectionClosed which fires after socket closes
@@ -885,16 +986,21 @@ export class SynchService implements vscode.Disposable {
         }
 
         this.setSessionConnected(false);
+        this.destroyAllLinks();
         // Collapse explorer folders instead of removing tracked objects
         vscode.commands.executeCommand("workbench.files.action.collapseExplorerFolders");
     }
 
-    private onScriptUnsubscribe(message: ScriptUnsubscribe): void {
-        const scriptId = message.script_id;
-        const sync = this.findSyncByScriptId(scriptId);
-        if (sync) {
-            sync.unsubscribeById(scriptId, true);
+    private destroyAllLinks(): void
+    {
+        for (const sync of [...this.activeSyncs.values()]) {
+            this.disposeSync(sync);
         }
+        this.clearEmptySyncs();
+    }
+
+    private onScriptUnsubscribe(message: ScriptUnsubscribe): void {
+        this.detachByScriptId(message.script_id, true);
     }
 
     private async onSyntaxChange(params: SyntaxChange): Promise<void> {
@@ -944,8 +1050,7 @@ export class SynchService implements vscode.Disposable {
     }
 
     public findSyncByIdentity(identity: ScriptIdentity): ScriptSync | undefined {
-        return [...this.activeSyncs.values()]
-            .find((sync) => sync.isTrackingIdentity(identity));
+        return this.findIndexedSyncByVirtualIdentity(identity);
     }
 
     public findSyncByItemRef(
@@ -1193,16 +1298,7 @@ export class SynchService implements vscode.Disposable {
         let prim_id: string | null = null;
         let item_id: string | undefined;
 
-        if (
-
-            pathSegments.length >= 2 &&
-
-            isUuidSegment(pathSegments[0]) &&
-
-            isUuidSegment(pathSegments[1])
-
-        ) {
-
+        if (pathSegments.length >= 2 && isUuidSegment(pathSegments[0])) {
             prim_id = pathSegments[0];
             item_id = pathSegments[1];
         }
@@ -1273,17 +1369,318 @@ export class SynchService implements vscode.Disposable {
         );
     }
 
-    public findSyncsByTempFilePath(filePath: string): ScriptSync[] {
+    private rebuildFileLinkIndex(): void
+    {
+        this.fileLinkIndex.clear();
+
+        for (const sync of this.activeSyncs.values()) {
+            this.fileLinkIndex.setMaster(
+                canonicalFileUri(sync.getMasterFilePath()),
+                sync,
+            );
+
+            for (const snapshot of sync.getTrackedFileSnapshots()) {
+                if (snapshot.kind === "local" && snapshot.fileUri) {
+                    this.fileLinkIndex.setTemporaryFile(
+                        canonicalFileUri(snapshot.fileUri.fsPath),
+                        sync,
+                    );
+                } else if (snapshot.kind === "virtual" && snapshot.identity) {
+                    this.fileLinkIndex.setVirtualFile(
+                        virtualIdentityKey(snapshot.identity),
+                        sync,
+                    );
+                }
+            }
+        }
+    }
+
+    public findIndexedSyncByMasterFilePath(
+        masterFilePath: string,
+    ): ScriptSync | undefined
+    {
+        this.rebuildFileLinkIndex();
+        return this.fileLinkIndex.getMaster(
+            canonicalFileUri(masterFilePath),
+        );
+    }
+
+    public findIndexedSyncByTemporaryFilePath(
+        temporaryFilePath: string,
+    ): ScriptSync | undefined
+    {
+        this.rebuildFileLinkIndex();
+        return this.fileLinkIndex.getTemporaryFile(
+            canonicalFileUri(temporaryFilePath),
+        );
+    }
+
+    public findIndexedSyncByVirtualIdentity(
+        identity: ScriptIdentity,
+    ): ScriptSync | undefined
+    {
+        this.rebuildFileLinkIndex();
+        return this.fileLinkIndex.getVirtualFile(
+            virtualIdentityKey(identity),
+        );
+    }
+
+    public async runEndpointOperation<T>(
+        endpointKey: string,
+        operation: () => Promise<T> | T,
+    ): Promise<T>
+    {
+        if (this.stopping) {
+            throw new Error("SynchService is stopping.");
+        }
+
+        const previous = this.endpointOperations.get(endpointKey) ?? Promise.resolve();
+        const operationPromise = previous
+            .catch(() => undefined)
+            .then(operation);
+        const settled = operationPromise.then(
+            () => undefined,
+            () => undefined,
+        );
+
+        this.endpointOperations.set(endpointKey, settled);
+        try {
+            return await operationPromise;
+        } finally {
+            if (this.endpointOperations.get(endpointKey) === settled) {
+                this.endpointOperations.delete(endpointKey);
+            }
+        }
+    }
+
+    public async moveTemporaryFile(
+        masterUri: vscode.Uri,
+        language: ScriptLanguage,
+        scriptId: string,
+        viewerDocument: vscode.TextDocument,
+    ): Promise<TemporaryMoveResult>
+    {
+        const endpointKey = canonicalFileUri(viewerDocument.uri.fsPath);
+        return this.runEndpointOperation(
+            endpointKey,
+            async () => {
+                const previousSync = this.findIndexedSyncByTemporaryFilePath(
+                    viewerDocument.uri.fsPath,
+                );
+                const previousMasterUri = previousSync?.getMasterUri();
+                const masterDocument = await vscode.workspace.openTextDocument(masterUri);
+                const destinationSync = await this.getOrCreateSync(
+                    masterDocument,
+                    language,
+                );
+
+                if (previousSync === destinationSync) {
+                    return {
+                        outcome: "already-linked",
+                        endpointUri: viewerDocument.uri,
+                        previousMasterUri,
+                        masterUri,
+                        changed: false,
+                    };
+                }
+
+                const attached = destinationSync.subscribe(
+                    scriptId,
+                    viewerDocument,
+                );
+                if (!attached) {
+                    this.clearEmptySyncs();
+                    return {
+                        outcome: "failed",
+                        endpointUri: viewerDocument.uri,
+                        previousMasterUri,
+                        masterUri,
+                        changed: false,
+                        reason: "Destination rejected the temporary endpoint.",
+                    };
+                }
+
+                if (previousSync) {
+                    const wasTracked = previousSync.isTrackingFile(
+                        viewerDocument.uri.fsPath,
+                    );
+                    previousSync.unsubscribeByFile(
+                        viewerDocument.uri.fsPath,
+                    );
+                    if (!wasTracked) {
+                        destinationSync.unsubscribeByFile(
+                            viewerDocument.uri.fsPath,
+                        );
+                        this.clearEmptySyncs();
+                        return {
+                            outcome: "failed",
+                            endpointUri: viewerDocument.uri,
+                            previousMasterUri,
+                            masterUri,
+                            changed: false,
+                            reason: "The previous temporary endpoint was no longer owned.",
+                        };
+                    }
+                }
+
+                this.clearEmptySyncs();
+                return {
+                    outcome: previousSync ? "moved" : "linked",
+                    endpointUri: viewerDocument.uri,
+                    previousMasterUri,
+                    masterUri,
+                    changed: true,
+                };
+            },
+        );
+    }
+
+    public async moveVirtualFile(
+        masterUri: vscode.Uri,
+        language: ScriptLanguage,
+        uri: vscode.Uri,
+        content: string | undefined,
+        identity: ScriptIdentity,
+        item?: ObjectInventoryItem,
+    ): Promise<VirtualMoveResult>
+    {
+        return this.runEndpointOperation(
+            virtualIdentityKey(identity),
+            async () => {
+                const previousSync = this.findIndexedSyncByVirtualIdentity(identity);
+                const previousMasterUri = previousSync?.getMasterUri();
+
+                const masterDocument = await vscode.workspace.openTextDocument(masterUri);
+                const destinationSync = await this.getOrCreateSync(
+                    masterDocument,
+                    language,
+                );
+
+                if (previousSync === destinationSync) {
+                    return {
+                        outcome: "already-linked",
+                        endpointUri: uri,
+                        previousMasterUri,
+                        masterUri,
+                        changed: false,
+                    };
+                }
+
+                const attached = destinationSync.subscribeVirtual(
+                    uri,
+                    content,
+                    identity,
+                    item,
+                );
+                if (!attached) {
+                    this.clearEmptySyncs();
+                    return {
+                        outcome: "failed",
+                        endpointUri: uri,
+                        previousMasterUri,
+                        masterUri,
+                        changed: false,
+                        reason: "Destination rejected the virtual endpoint.",
+                    };
+                }
+
+                if (previousSync) {
+                    const wasTracked = previousSync.isTrackingIdentity(identity);
+                    previousSync.unsubscribeVirtualMappingByIdentity(identity);
+                    if (!wasTracked) {
+                        destinationSync.unsubscribeVirtualMappingByIdentity(identity);
+                        this.clearEmptySyncs();
+                        return {
+                            outcome: "failed",
+                            endpointUri: uri,
+                            previousMasterUri,
+                            masterUri,
+                            changed: false,
+                            reason: "The previous virtual endpoint was no longer owned.",
+                        };
+                    }
+                }
+
+                this.clearEmptySyncs();
+                return {
+                    outcome: previousSync ? "moved" : "linked",
+                    endpointUri: uri,
+                    previousMasterUri,
+                    masterUri,
+                    changed: true,
+                };
+            },
+        );
+    }
+
+    public detachTemporaryFile(
+        temporaryFilePath: string,
+        close = false,
+    ): boolean
+    {
+        let detached = false;
+        for (const sync of this.activeSyncs.values()) {
+            const wasTracked = sync.isTrackingFile(temporaryFilePath);
+            sync.unsubscribeByFile(temporaryFilePath, close);
+            detached = detached || wasTracked;
+        }
+        this.clearEmptySyncs();
+        return detached;
+    }
+
+    public detachVirtualFile(identity: ScriptIdentity): boolean
+    {
+        let detached = false;
+        for (const sync of this.activeSyncs.values()) {
+            const wasTracked = sync.isTrackingIdentity(identity);
+            sync.unsubscribeVirtualMappingByIdentity(identity);
+            detached = detached || wasTracked;
+        }
+        this.clearEmptySyncs();
+        return detached;
+    }
+
+    public removeMasterLink(masterUri: vscode.Uri): boolean
+    {
+        const sync = this.findSyncByMasterFilePath(masterUri.fsPath);
+        if (!sync) {
+            return false;
+        }
+
+        this.disposeSync(sync);
+        this.clearEmptySyncs();
+        return true;
+    }
+
+    private disposeSync(sync: ScriptSync): boolean
+    {
+        const key = this.masterKey(sync.getMasterUri());
+        if (this.activeSyncs.get(key) !== sync) {
+            return false;
+        }
+
+        this.activeSyncs.delete(key);
+        this.syncedFileDecorator.refresh(sync.getMasterDocument().uri);
+        sync.dispose();
+        return true;
+    }
+
+    public findSyncByTempFilePath(filePath: string): ScriptSync | undefined {
         filePath = path.normalize(filePath);
-        return [...this.activeSyncs.values()].filter((sync) =>
+        return [...this.activeSyncs.values()].find((sync) =>
             sync.isTrackingFile(filePath),
         );
+    }
+
+    /** Master identity key; must match the canonical form used by the link index. */
+    private masterKey(uri: vscode.Uri | string): string {
+        return canonicalFileUri(typeof uri === "string" ? uri : uri.fsPath);
     }
 
     public findSyncByMasterFilePath(
         masterFilePath: string,
     ): ScriptSync | undefined {
-        return this.activeSyncs.get(vscode.Uri.file(masterFilePath).toString());
+        return this.activeSyncs.get(this.masterKey(masterFilePath));
     }
 
     public findSyncByIncludeFilePath(
@@ -1399,7 +1796,7 @@ export class SynchService implements vscode.Disposable {
     ) : Promise<vscode.Uri | null> {
         const config =  ConfigService.getInstance()
 
-        const cmt = getLanguageConfig(script.language,config).lineCommentPrefix;
+        const cmt = getLanguageConfig(script.language,buildPreprocessorConfig(script.language, config)).lineCommentPrefix;
 
         if(cmt.length < 1) return null;
 
@@ -1473,7 +1870,9 @@ export class SynchService implements vscode.Disposable {
             if (this.websocket.isConnected()) {
                 this.websocket.disconnect();
             }
-            this.setSessionConnected(false);
+            // Explicit disposal may prevent the transport close callback from
+            // running, so perform the same cleanup synchronously.
+            this.onConnectionClosed();
             this.websocket.dispose();
             this.websocket = undefined;
         }
@@ -1534,16 +1933,110 @@ export class SynchService implements vscode.Disposable {
         for (const document of vscode.workspace.textDocuments) {
             const filePath = path.normalize(document.fileName);
             if (filePath === workspacePath || filePath.startsWith(workspacePrefix)) {
-                this.removeSync(filePath);
+                this.removeMasterLink(vscode.Uri.file(filePath));
             }
         }
     }
 
     private onDeleteFiles(event: vscode.FileDeleteEvent): void {
-        const uris = event.files;
-        uris.forEach((uri) => {
-            this.removeSync(uri.fsPath);
-        });
+        for (const uri of event.files) {
+            const masterSync = this.findIndexedSyncByMasterFilePath(uri.fsPath);
+            if (masterSync) {
+                this.removeMasterLink(uri);
+                continue;
+            }
+
+            this.detachTemporaryFile(uri.fsPath);
+        }
+    }
+
+    private onWillRenameFiles(event: vscode.FileWillRenameEvent): void {
+        for (const file of event.files) {
+            const masterSync = this.findIndexedSyncByMasterFilePath(file.oldUri.fsPath);
+            const temporarySync = this.findIndexedSyncByTemporaryFilePath(
+                file.oldUri.fsPath,
+            );
+
+            if (!masterSync && !temporarySync) {
+                continue;
+            }
+
+            if (masterSync &&
+                this.findIndexedSyncByMasterFilePath(file.newUri.fsPath)) {
+                event.waitUntil(Promise.reject(
+                    new Error("The destination master file is already linked."),
+                ));
+                return;
+            }
+
+            if (temporarySync &&
+                this.findIndexedSyncByTemporaryFilePath(file.newUri.fsPath)) {
+                event.waitUntil(Promise.reject(
+                    new Error("The destination temporary file is already linked."),
+                ));
+                return;
+            }
+        }
+    }
+
+    private async onDidRenameFiles(event: vscode.FileRenameEvent): Promise<void> {
+        for (const file of event.files) {
+            const masterSync = this.findIndexedSyncByMasterFilePath(file.oldUri.fsPath);
+            if (masterSync) {
+                await this.renameMasterLink(file.oldUri, file.newUri);
+                continue;
+            }
+
+            const temporarySync = this.findIndexedSyncByTemporaryFilePath(
+                file.oldUri.fsPath,
+            );
+            if (temporarySync) {
+                await this.renameTemporaryLink(file.oldUri, file.newUri);
+            }
+        }
+    }
+
+    private async renameMasterLink(
+        oldUri: vscode.Uri,
+        newUri: vscode.Uri,
+    ): Promise<boolean> {
+        const sync = this.findSyncByMasterFilePath(oldUri.fsPath);
+        if (!sync || this.findIndexedSyncByMasterFilePath(newUri.fsPath)) {
+            return false;
+        }
+
+        const masterDocument = await vscode.workspace.openTextDocument(newUri);
+        if (!this.rekeyMasterSync(sync, newUri)) {
+            return false;
+        }
+        sync.renameMasterDocument(masterDocument);
+        this.syncedFileDecorator.refresh(newUri);
+        return true;
+    }
+
+    /** Sole path that re-keys a live sync; removal must still go through disposeSync(). */
+    private rekeyMasterSync(sync: ScriptSync, newUri: vscode.Uri): boolean {
+        const oldKey = this.masterKey(sync.getMasterUri());
+        const newKey = this.masterKey(newUri);
+        if (this.activeSyncs.get(oldKey) !== sync || this.activeSyncs.has(newKey)) {
+            return false;
+        }
+
+        this.activeSyncs.delete(oldKey);
+        this.activeSyncs.set(newKey, sync);
+        return true;
+    }
+
+    private async renameTemporaryLink(
+        oldUri: vscode.Uri,
+        newUri: vscode.Uri,
+    ): Promise<boolean> {
+        const sync = this.findIndexedSyncByTemporaryFilePath(oldUri.fsPath);
+        if (!sync || this.findIndexedSyncByTemporaryFilePath(newUri.fsPath)) {
+            return false;
+        }
+
+        return sync.renameTemporaryFile(oldUri, newUri);
     }
 
     private async onSaveTextDocument(document: vscode.TextDocument): Promise<void> {
@@ -1579,13 +2072,13 @@ export class SynchService implements vscode.Disposable {
         // if the viewer launched it we will soon get a foucus event (onChangeWindowState)
         // Find the sync for this file, if any and then record the time.
         const filePath = path.normalize(editor.document.fileName);
-        const syncs = this.findSyncsByTempFilePath(filePath);
-        if (syncs.length) {
+        const sync = this.findSyncByTempFilePath(filePath);
+        if (sync) {
             // We have a sync for this file, record the time
             // We'll use this to see if a focus event happens very soon after
             // this event, if so we can assume the viewer launched us
             this.lastActiveChange = Date.now();
-            this.activeSync = syncs.pop();
+            this.activeSync = sync;
         }
     }
 
@@ -1593,16 +2086,41 @@ export class SynchService implements vscode.Disposable {
         const objectcontentservice = ObjectContentService.getInstance();
         const item = objectcontentservice.getItem(e.object_id,e.prim_id,e.item_id);
         if(!item)return;
-        const uri = itemUri(e.object_id, e.prim_id, displayName(item));
+        const uri = itemUri(e.object_id, e.prim_id, item.item_id);
+        const identity: ScriptIdentity = {
+            rootId: e.object_id,
+            primId: e.prim_id === e.object_id ? null : e.prim_id,
+            itemId: e.item_id,
+        };
         for(const sync of this.activeSyncs.values()) {
-            if(sync.isTrackingVirtualItem(item)) {
-                sync.updateVirtualItem(uri,item);
+            if(sync.isTrackingIdentity(identity)) {
+                sync.updateVirtualItem(uri, identity, item);
             }
         }
     }
 
     private onViewerDidChangeObjects(e: ObjectTreeChangeEvent): void {
         const objectContentService = ObjectContentService.getInstance();
+
+        if (e.type === "removed") {
+            this.evictSlSyncs(e.object_id);
+            return;
+        }
+
+        for (const removedItem of e.removed_items ?? []) {
+            this.detachVirtualFile({
+                rootId: e.object_id,
+                primId: removedItem.prim_id === e.object_id
+                    ? null
+                    : removedItem.prim_id,
+                itemId: removedItem.item_id,
+            });
+        }
+
+        for (const primId of e.removed_link_ids ?? []) {
+            this.evictSlSyncsForPrim(e.object_id, primId);
+        }
+
         for(const sync of this.activeSyncs.values()) {
             if(!sync.isTrackingVirtualItemInObject(e.object_id)) continue;
             const mappings = sync.getTrackedVirtualItemsInObject(e.object_id);
@@ -1610,8 +2128,12 @@ export class SynchService implements vscode.Disposable {
                 if(!mapping.item) continue;
                 const newItem = objectContentService.getItemInObject(e.object_id, undefined, mapping.item.item_id)
                 if(newItem) {
-                    const uri = itemUri(newItem.object_id, newItem.prim_id, displayName(newItem.item));
-                    sync.updateVirtualItem(uri, newItem.item);
+                    const uri = itemUri(newItem.object_id, newItem.prim_id, newItem.item.item_id);
+                    sync.updateVirtualItem(
+                        uri,
+                        mapping.identity,
+                        newItem.item,
+                    );
                 }
             }
         }
@@ -1640,12 +2162,18 @@ export class SynchService implements vscode.Disposable {
         // Step 1: restore/refresh objects the viewer currently has published
         try {
             const result = await this.websocket.getObjectList();
-            for (const obj of result.objects ?? []) {
+            const objects = result.objects ?? [];
+            for (const obj of objects) {
                 // Always call handlePublish — this is authoritative state from the viewer.
                 // If the object is already known, handlePublish is a no-op for the workspace
                 // folder (slIdx !== -1 guard in extension.ts), but refreshes the service data.
                 service.handlePublish({ object: obj });
                 logDebug(`[object.list] refreshed ${obj.object_id} (${obj.object_name})`);
+            }
+
+            // Run once for every object after the complete object list is available.
+            for (const obj of objects) {
+                await this.autoLinkObjectIfEnabled(obj.object_id);
             }
         } catch (err) {
             logDebug(`[object.list] failed: ${err}`);
@@ -1782,6 +2310,7 @@ export class SynchService implements vscode.Disposable {
 
     public activate(): void {
         this.deactivate();
+        this.stopping = false;
         this.initialize();
     }
 

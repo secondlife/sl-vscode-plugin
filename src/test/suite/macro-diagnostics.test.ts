@@ -7,10 +7,10 @@
  */
 
 import * as assert from 'assert';
-import { MacroProcessor, MacroExpansionContext } from '../../shared/macroprocessor';
-import { getLanguageConfig, Lexer } from '../../shared/lexer';
-import { DiagnosticCollector, DiagnosticSeverity, ErrorCodes } from '../../shared/diagnostics';
-import { filePathToStringUri } from '../../interfaces/hostinterface';
+import { MacroProcessor, MacroExpansionContext } from '#sl-script-preprocessor';
+import { getLanguageConfig, Lexer } from '#sl-script-preprocessor';
+import { DiagnosticCollector, DiagnosticSeverity, ErrorCodes } from '#sl-script-preprocessor';
+import { filePathToStringUri } from '#sl-script-preprocessor';
 
 suite('MacroProcessor Diagnostics', () => {
     let processor: MacroProcessor;

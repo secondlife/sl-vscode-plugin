@@ -6,7 +6,7 @@
  * any direct dependency on VS Code types. All paths are returned as StringUri.
  */
 
-import { StringUri } from './hostinterface';
+import { StringUri } from '#sl-script-preprocessor';
 
 /** Keys used by configuration (mirrors LLConfigNames). */
 export enum ConfigKey {
@@ -23,6 +23,7 @@ export enum ConfigKey {
   NetworkDisposeDelayMs = 'network.disposeDelayMs',
   NetworkWebsocketPort = 'network.websocketPort',
   NetworkWinePrefixPath = 'network.winePrefixPath',
+  LoggingLevel = 'logging.level',
   Preprocessor = 'preprocessor',
   PreprocessorEnable = 'preprocessor.enable',
   PreprocessorOptions = 'preprocessor.options',

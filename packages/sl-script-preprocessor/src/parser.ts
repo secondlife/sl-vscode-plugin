@@ -6,9 +6,9 @@
  * Consumes token stream from lexer and produces preprocessed output.
  */
 
-import { LanguageLexerConfig, Token, TokenType } from './lexer';
-import { StringUri, HostInterface, uriDirname } from '../interfaces/hostinterface';
-import { FullConfigInterface, ConfigKey } from '../interfaces/configinterface';
+import { LanguageLexerConfig} from './lexer';
+import { Token, TokenType } from './token';
+import { StringUri, HostInterface, uriDirname, PreprocessorOptions } from './interfaces';
 import { LineMapping } from './linemapper';
 import type { DirectiveImplementations } from './lexingpreprocessor';
 import { MacroProcessor, MacroExpansionContext } from './macroprocessor';
@@ -172,7 +172,7 @@ export class Parser {
     private host?: HostInterface;
 
     // Configuration interface for reading settings
-    private config?: FullConfigInterface;
+    private config?: PreprocessorOptions;
 
     // Track whether this is the top-level parser (for emitting require table)
     private isTopLevelParser: boolean;
@@ -197,7 +197,7 @@ export class Parser {
         isTopLevel: boolean = true,
         workspaceRoots?: StringUri[],
         diagnostics?: DiagnosticCollector,
-        config?: FullConfigInterface
+        config?: PreprocessorOptions
     ) {
         this.tokens = tokens;
         this.position = 0;
@@ -217,8 +217,8 @@ export class Parser {
         this.workspaceRoots = workspaceRoots || [uriDirname(sourceFile)];
 
         // Read configuration values for include processing from individual config keys
-        const maxIncludeDepth = config?.getConfig<number>(ConfigKey.PreprocessorMaxIncludeDepth) ?? 5;
-        const includePaths = config?.getConfig<string[]>(ConfigKey.PreprocessorIncludePaths) ?? ['.'];
+        const maxIncludeDepth = this.config?.include?.maxDepth ?? 5;
+        const includePaths = this.config?.include?.paths ?? ['.'];
 
         // Initialize parser state
         this.state = {
@@ -423,6 +423,9 @@ export class Parser {
 
         // Get the handler from the implementations map
         const handler = this.directives[directiveName as keyof DirectiveImplementations];
+
+        this.config?.logger?.trace?.(() =>
+            `[PARSER] directive #${directiveName} at ${token.line}:${token.column} in ${this.sourceFile}`);
 
         if (handler) {
             // Call the handler, passing this parser instance
@@ -670,6 +673,12 @@ export class Parser {
             isFunctionLike,
         });
 
+        parser.config?.logger?.trace?.(() => {
+            const paramsPart = isFunctionLike ? `(${(parameters ?? []).join(', ')})` : '';
+            const bodyText = body.map(t => t.value).join('');
+            return `[PARSER] #define ${macroName}${paramsPart} at ${nameToken.line}:${nameToken.column} -> "${bodyText}"`;
+        });
+
         parser.macroInfos.push({
             name: macroName,
             line: nameToken.line,
@@ -750,6 +759,9 @@ export class Parser {
                 ? parser.state.conditionals.processIfndef('', parser.state.macros, directiveToken.line, parser.sourceFile, column)
                 : parser.state.conditionals.processIfdef('', parser.state.macros, directiveToken.line, parser.sourceFile, column);
 
+            parser.config?.logger?.trace?.(() =>
+                `[PARSER] ${directiveName} '' at ${directiveToken.line}:${column} -> ${result.shouldInclude}`);
+
             if (result.diagnostic) {
                 parser.diagnostics?.add(result.diagnostic);
             }
@@ -762,6 +774,9 @@ export class Parser {
         const result = negate
             ? parser.state.conditionals.processIfndef(macroName, parser.state.macros, line, parser.sourceFile, column)
             : parser.state.conditionals.processIfdef(macroName, parser.state.macros, line, parser.sourceFile, column);
+
+        parser.config?.logger?.trace?.(() =>
+            `[PARSER] ${directiveName} ${macroName} at ${line}:${column} -> ${result.shouldInclude}`);
 
         if (result.diagnostic) {
             parser.diagnostics?.add(result.diagnostic);
@@ -832,6 +847,10 @@ export class Parser {
             });
         }
         const defaultCase = cases.find(c=>c.defaultCase);
+        // #switch has no preprocess-time result: it transpiles to a runtime
+        // if/jump chain, so only structural facts are known at this point.
+        parser.config?.logger?.trace?.(() =>
+            `[PARSER] #switch at ${directiveToken.line}: ${cases.length} case(s)${defaultCase ? ' + default' : ''}`);
         const outJump = parser.generateUniqueIdentifier(5,"s");
         if(commentsBefore.length > 0) {
             parser.emitTokens(commentsBefore);
@@ -1074,6 +1093,8 @@ export class Parser {
         }
 
         const result = parser.state.conditionals.processIf(conditionTokens, parser.state.macros, line, parser.sourceFile, column);
+        parser.config?.logger?.trace?.(() =>
+            `[PARSER] #if at ${line}:${column} -> ${result.shouldInclude}`);
         if (result.diagnostic) {
             parser.diagnostics?.add(result.diagnostic);
         }
@@ -1102,6 +1123,8 @@ export class Parser {
         }
 
         const result = parser.state.conditionals.processElif(conditionTokens, parser.state.macros, line, parser.sourceFile, column);
+        parser.config?.logger?.trace?.(() =>
+            `[PARSER] #elif at ${line}:${column} -> ${result.shouldInclude}`);
         if (result.diagnostic) {
             parser.diagnostics?.add(result.diagnostic);
         }
@@ -1116,6 +1139,8 @@ export class Parser {
         const column = directiveToken.column;
 
         const result = parser.state.conditionals.processElse(line, parser.sourceFile, column);
+        parser.config?.logger?.trace?.(() =>
+            `[PARSER] #else at ${line}:${column} -> ${result.shouldInclude}`);
         if (result.diagnostic) {
             parser.diagnostics?.add(result.diagnostic);
         }
@@ -1130,6 +1155,8 @@ export class Parser {
         const column = directiveToken.column;
 
         const result = parser.state.conditionals.processEndif(line, parser.sourceFile, column);
+        parser.config?.logger?.trace?.(() =>
+            `[PARSER] #endif at ${line}:${column} -> ${result.shouldInclude}`);
         if (result.diagnostic) {
             parser.diagnostics?.add(result.diagnostic);
         }
@@ -1301,7 +1328,8 @@ export class Parser {
                 this.diagnostics,
                 this.sourceFile,
                 token.line,
-                token.column
+                token.column,
+                this.config?.logger
             );
             if (expanded) {
                 for (const expandedToken of expanded) {
@@ -1329,7 +1357,8 @@ export class Parser {
                 this.diagnostics,  // Pass diagnostics collector
                 this.sourceFile,
                 token.line,
-                token.column
+                token.column,
+                this.config?.logger
             );
             if (expanded) {
                 for (const expandedToken of expanded) {
@@ -1713,7 +1742,9 @@ export class Parser {
                     requireState: this.state.requireState, // Share by reference
                 },
                 false, // isTopLevel = false for included files
-                this.workspaceRoots // Pass workspace roots to child parser
+                this.workspaceRoots, // Pass workspace roots to child parser
+                undefined, // diagnostics: keep an independent collector, merged into parent below
+                this.config // Pass config so nested-file logging (e.g. TRACE) works
             );
 
             // Parse the included file
@@ -1841,7 +1872,9 @@ export class Parser {
                         requireState: this.state.requireState, // Share the entire requireState object
                     },
                     false, // Nested parser is NOT top-level
-                    this.workspaceRoots // Pass workspace roots to child parser
+                    this.workspaceRoots, // Pass workspace roots to child parser
+                    undefined, // diagnostics: keep an independent collector, merged into parent below
+                    this.config // Pass config so nested-file logging (e.g. TRACE) works
                 );
                 // Pass on this setting so that external files can perform requires
                 requireParser.allowExternalRequire(result.external ?? false);

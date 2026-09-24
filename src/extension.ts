@@ -5,7 +5,7 @@
 import * as vscode from "vscode";
 import { SynchService } from "./synchservice";
 import { LanguageService } from "./shared/languageservice";
-import { ObjectContentService } from "./vscode/objectcontentservice";
+import { ObjectContentService, ViewerEditWSClient } from "#sl-ide-ws-client";
 import { ObjectContentProvider, SL_SCHEME, displayName } from "./vscode/objectcontentprovider";
 import { ObjectContentDecorator } from "./vscode/ObjectContentDecorator";
 import { ExplorerNode } from "./vscode/objectexplorerprovider";
@@ -20,10 +20,10 @@ import {
     logDebug,
     showStatusMessage,
     hasWorkspace,
-    showErrorMessage
+    showErrorMessage,
+    initializeLogging
 } from "./utils";
 import { ConfigKey } from "./interfaces/configinterface";
-import { ViewerEditWSClient } from "./viewereditwsclient";
 import path from "path";
 
 /**
@@ -72,6 +72,7 @@ async function renameNode(
 // Your extension is activated the very first time the command is executed
 export function activate(context: vscode.ExtensionContext): void {
     const configService = ConfigService.getInstance(context);
+    initializeLogging(configService);
     const host = new VSCodeHost(context);
     // Initialize shared LSP services with injected host
     const languageService = LanguageService.getInstance(host);
@@ -324,15 +325,6 @@ export function activate(context: vscode.ExtensionContext): void {
     );
     // Set initial connection state
     vscode.commands.executeCommand("setContext", "slVscodeEdit:connected", synchService.isConnected());
-
-    // Clean up syncs when objects are unpublished
-    context.subscriptions.push(
-        objectContentService.onDidChangeObjects(({ type, object_id }) => {
-            if (type === "removed") {
-                synchService.evictSlSyncs(object_id);
-            }
-        })
-    );
 
     // Register URI handler so the viewer can launch VS Code and trigger a connection.
     // URI format: vscode://lindenlab.sl-vscode-plugin/connect?port=9020[&object=<uuid>][&script=<uuid>]

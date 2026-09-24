@@ -6,34 +6,29 @@ import * as vscode from "vscode";
 import * as fs from "fs";
 import * as path from "path";
 import { ConfigService } from "./configservice";
-import { ConfigKey } from "./interfaces/configinterface";
+import { ConfigKey, FullConfigInterface } from "./interfaces/configinterface";
 import {
+    LineMapping, LineMapper,
     LexingPreprocessor,
     PreprocessorResult,
-    PreprocessorError
-} from "./shared/lexingpreprocessor";
-import { MacroProcessor } from './shared/macroprocessor';
-import { LineMapping, LineMapper } from "./shared/linemapper";
+    PreprocessorError,
+    ScriptLanguage,
+    MacroProcessor,
+    resolveUri, StringUri, uriDirname, uriEquals,
+    getLanguageConfig, isProccessedLanguage, LanguageLexerConfig,
+    IncludeInfo,
+    PreprocessorOptions
+} from "#sl-script-preprocessor";
 import {
-    showStatusMessage,
-    createFileWatcher,
-    closeTextDocument,
-    errorLevelToSeverity,
-    VSCodeHost,
-    logInfo,
-    logRuntimeInfo,
-    logRuntimeError,
-    logError
-} from "./utils";
-import { ScriptLanguage } from "./shared/languageservice";
-import { CompilationResult, Diagnostic, RuntimeDebug, RuntimeError } from "./viewereditwsclient";
-import { resolveUri, StringUri, uriDirname, uriEquals } from "./interfaces/hostinterface";
-import { stringUriToVscodeUri, vscodeUriToStringUri } from "./utils";
+    CompilationResult,
+    Diagnostic,
+    ObjectInventoryItem,
+    RuntimeDebug,
+    RuntimeError,
+} from "#sl-ide-ws-client";
+import { stringUriToVscodeUri, vscodeUriToStringUri, createFileWatcher, closeTextDocument, showStatusMessage, errorLevelToSeverity, logRuntimeInfo, logRuntimeError, VSCodeHost, logError, logWarning, showErrorMessage, showOutputChannel, pluginLogSink } from "./utils";
 import { SynchService } from "./synchservice";
-import { IncludeInfo } from "./shared/parser";
 import { sha256 } from "js-sha256";
-import { getLanguageConfig, isProccessedLanguage, LanguageLexerConfig } from "./shared/lexer";
-import { ObjectInventoryItem } from "./vscode/objectcontentinterfaces";
 
 
 //====================================================================
@@ -43,9 +38,17 @@ export interface ScriptIdentity {
     itemId: string;
 }
 
+export interface TrackedFileSnapshot
+{
+    kind: "local" | "virtual";
+    fileUri?: vscode.Uri;
+    identity?: ScriptIdentity;
+}
+
 interface TrackedLocalFile {
     kind: 'local';
     id: string;
+    fileUri: vscode.Uri;
     viewerDocument: vscode.TextDocument;
     identity?: ScriptIdentity;
     watcher?: vscode.FileSystemWatcher;
@@ -63,13 +66,31 @@ interface TrackedVirtualFile {
 
 type TrackedFile = TrackedLocalFile | TrackedVirtualFile;
 
+export function buildPreprocessorConfig(language: ScriptLanguage, config: FullConfigInterface) : PreprocessorOptions {
+    return {
+        enabled: true,
+        language: language,
+        flags: {
+            generateWarnings: true,
+            generateDecls: true,
+        },
+        notecard: {
+            commentPrefix: config.getConfig<string>(ConfigKey.NotecardSyncComment, "//"),
+        },
+        include: {
+            maxDepth: config.getConfig<number>(ConfigKey.PreprocessorMaxIncludeDepth, 5),
+            paths: config.getConfig<string[]>(ConfigKey.PreprocessorIncludePaths, ["."]),
+        },
+        logger: pluginLogSink,
+    };
+}
+
 export class ScriptSync implements vscode.Disposable {
     private saveListener: vscode.Disposable | undefined;
     private masterDocument: vscode.TextDocument;
     private language: ScriptLanguage;
     private fileMappings: TrackedFile[] = [];
     private macros: MacroProcessor;
-    private preprocessor: LexingPreprocessor | undefined;
     private disposed: boolean = false;
     private diagnosticCollection: vscode.DiagnosticCollection;
     private diagnosticSources: Set<string> = new Set();
@@ -97,12 +118,6 @@ export class ScriptSync implements vscode.Disposable {
         this.initializeSystemMacros(language);
 
         this.syncService = syncService;
-
-        // Initialize preprocessor with macro processor
-        const enabled = config.getConfig<boolean>(ConfigKey.PreprocessorEnable, true);
-        if (enabled && isProccessedLanguage(this.language)) {
-            this.preprocessor = new LexingPreprocessor(this.syncService.getHost(), config, this.macros);
-        }
 
         this.masterDocument = masterDocument;
         this.diagnosticCollection = vscode.languages.createDiagnosticCollection(
@@ -144,11 +159,16 @@ export class ScriptSync implements vscode.Disposable {
             return false;
         }
 
-        let mapping: TrackedLocalFile = { kind: 'local', id, viewerDocument };
+        let mapping: TrackedLocalFile = {
+            kind: 'local',
+            id,
+            fileUri: viewerDocument.uri,
+            viewerDocument,
+        };
 
         mapping.watcher = createFileWatcher(viewerDocument);
         mapping.watcher.onDidDelete((e) => {
-            this.unsubscribeByFile(e.fsPath, true);
+            this.syncService.detachTemporaryFile(e.fsPath, true);
         });
 
         this.fileMappings.push(mapping);
@@ -227,27 +247,66 @@ export class ScriptSync implements vscode.Disposable {
         return this.fileMappings.length;
     }
 
-    public unsubscribeVirtualByUri(uri: vscode.Uri, close?: boolean): void {
-        this.unsubscribeById(uri.toString(), close);
+    public async renameTemporaryFile(
+        oldUri: vscode.Uri,
+        newUri: vscode.Uri,
+    ): Promise<boolean>
+    {
+        const mapping = this.fileMappings.find(
+            (candidate): candidate is TrackedLocalFile =>
+                candidate.kind === "local" &&
+                candidate.fileUri.toString() === oldUri.toString(),
+        );
+        if (!mapping) {
+            return false;
+        }
+
+        const renamedDocument = await vscode.workspace.openTextDocument(newUri);
+        mapping.watcher?.dispose();
+        mapping.fileUri = newUri;
+        mapping.viewerDocument = renamedDocument;
+        mapping.watcher = createFileWatcher(renamedDocument);
+        mapping.watcher.onDidDelete((event) => {
+            this.syncService.detachTemporaryFile(event.fsPath, true);
+        });
+        return true;
     }
 
-    public updateVirtualItem(uri: vscode.Uri, item: ObjectInventoryItem): void {
+    public unsubscribeVirtualMappingByIdentity(identity: ScriptIdentity): void
+    {
+        const virtualIds = this.fileMappings
+            .filter(
+                (mapping): mapping is TrackedVirtualFile =>
+                    mapping.kind === "virtual" &&
+                    mapping.identity.rootId === identity.rootId &&
+                    mapping.identity.primId === identity.primId &&
+                    mapping.identity.itemId === identity.itemId,
+            )
+            .map((mapping) => mapping.id);
+        for (const id of virtualIds) {
+            this.unsubscribeById(id);
+        }
+    }
+
+    public updateVirtualItem(
+        uri: vscode.Uri,
+        identity: ScriptIdentity,
+        item: ObjectInventoryItem,
+    ): void {
         const original = this.fileMappings.find(
             (m): m is TrackedVirtualFile =>
-                m.kind === 'virtual' && m.item?.item_id === item.item_id,
+                m.kind === 'virtual' &&
+                m.identity.rootId === identity.rootId &&
+                m.identity.primId === identity.primId &&
+                m.identity.itemId === identity.itemId,
         );
-        if(!original) return;
-        const mapping = this.unsubscribeInternal(original.id);
-        if(!mapping) return;
-        this.subscribeVirtual(uri, undefined, original.identity, item);
-    }
+        if (!original) {
+            return;
+        }
 
-    public evictVirtualMappingsForObject(object_id: string): void {
-        const prefix = `/${object_id}/`;
-        this.fileMappings = this.fileMappings.filter(
-            (m) => m.kind !== 'virtual' ||
-                   (!m.uri.path.startsWith(prefix) && m.uri.path !== `/${object_id}`)
-        );
+        original.uri = uri;
+        original.id = uri.toString();
+        original.item = item;
     }
 
     //#endregion
@@ -258,11 +317,10 @@ export class ScriptSync implements vscode.Disposable {
     }
 
     public isTrackingFile(viewerFile: string): boolean {
-        // TODO: revisit use of fileName for comparison — for remote/virtual workspace
-        // support this should use viewerDocument.uri.toString() instead.
         return this.fileMappings.some(
             (m): m is TrackedLocalFile =>
-                m.kind === 'local' && m.viewerDocument.fileName === viewerFile,
+                m.kind === 'local' &&
+                m.fileUri.fsPath === path.normalize(viewerFile),
         );
     }
 
@@ -274,24 +332,19 @@ export class ScriptSync implements vscode.Disposable {
         );
     }
 
-    public isTrackingVirtualItem(item: ObjectInventoryItem): boolean {
-        return this.fileMappings.some(
-            (m): m is TrackedVirtualFile =>
-                m.kind === 'virtual' && m.item?.item_id === item.item_id,
-        );
-    }
-
     public isTrackingVirtualItemInObject(object_id: string) : boolean {
         return this.fileMappings.some(
             (m): m is TrackedVirtualFile =>
-                m.kind === "virtual" && m.id.includes(object_id)
+                m.kind === "virtual" &&
+                m.identity.rootId === object_id
         );
     }
 
     public getTrackedVirtualItemsInObject(object_id: string) : TrackedVirtualFile[] {
         return this.fileMappings.filter(
             (m): m is TrackedVirtualFile =>
-                m.kind === "virtual" && m.id.includes(object_id)
+                m.kind === "virtual" &&
+                m.identity.rootId === object_id
         )
     }
 
@@ -322,6 +375,11 @@ export class ScriptSync implements vscode.Disposable {
         return this.masterDocument.uri;
     }
 
+    public renameMasterDocument(document: vscode.TextDocument): void
+    {
+        this.masterDocument = document;
+    }
+
     public getLanguage(): string {
         return this.language;
     }
@@ -332,6 +390,24 @@ export class ScriptSync implements vscode.Disposable {
         return this.fileMappings
             .filter((m): m is TrackedLocalFile => m.kind === 'local')
             .map((m) => m.id);
+    }
+
+    public getTrackedFileSnapshots(): TrackedFileSnapshot[]
+    {
+        return this.fileMappings.map((mapping) => {
+            if (mapping.kind === "local") {
+                return {
+                    kind: "local",
+                    fileUri: mapping.fileUri,
+                };
+            }
+
+            return {
+                kind: "virtual",
+                fileUri: mapping.uri,
+                identity: mapping.identity,
+            };
+        });
     }
     //#endregion
 
@@ -611,8 +687,12 @@ export class ScriptSync implements vscode.Disposable {
 
     public async preProcessContent(originalContent: string): Promise<string> {
         // Check if preprocessing is enabled
-        if(!this.preprocessor) return originalContent;
-        if(!this.config.getConfig<boolean>(ConfigKey.PreprocessorEnable)) return originalContent;
+        const enabled = this.config.getConfig<boolean>(ConfigKey.PreprocessorEnable, true);
+        if (!enabled || !isProccessedLanguage(this.language)) {
+            return originalContent;
+        }
+        const config = buildPreprocessorConfig(this.language, this.config);
+        const preprocessor = new LexingPreprocessor(this.syncService.getHost(), config, this.macros);
 
         this.clearDiagnostics();
 
@@ -625,7 +705,7 @@ export class ScriptSync implements vscode.Disposable {
 
             this.macros.clearNonSystemMacros();
             const languageConfig = this.getLanguageConfig();
-            preprocessorResult = await this.preprocessor.process(
+            preprocessorResult = await preprocessor.process(
                 originalContent,
                 vscodeUriToStringUri(this.masterDocument.uri),
                 languageConfig,
@@ -654,20 +734,59 @@ export class ScriptSync implements vscode.Disposable {
                 // Preprocessing failed, use original content and show error
                 finalContent = originalContent;
 
-                vscode.window.showErrorMessage("Preprocessing failed");
+                this.reportPreprocessorFailure(baseName, preprocessorResult);
             }
         } catch (error) {
             // Fallback to original content on any unexpected errors
             finalContent = originalContent;
             const errorMessage = `Preprocessing error for ${baseName}: ${error instanceof Error ? error.message : String(error)}`;
-            console.error(errorMessage);
+            logError(errorMessage, error instanceof Error ? error : undefined);
             vscode.window.showErrorMessage(errorMessage);
         }
         return finalContent;
     }
 
+    /**
+     * Report a failed preprocess: log every issue to the plugin log and show
+     * a toast naming the first error, with shortcuts to the Problems panel and log.
+     */
+    private reportPreprocessorFailure(baseName: string, result: PreprocessorResult): void {
+        for (const issue of result.issues) {
+            const where = `${issue.file ?? baseName}:${issue.lineNumber}` +
+                (issue.columnNumber ? `:${issue.columnNumber}` : "");
+            const text = `${where} ${issue.message}`;
+            if (issue.isWarning) {
+                logWarning(text);
+            } else {
+                logError(text);
+            }
+        }
+
+        const errors = result.issues.filter(i => !i.isWarning);
+        const first = errors[0];
+        let summary = `Preprocessing failed for ${baseName}`;
+        if (first) {
+            const file = first.file
+                ? path.basename(this.diagnosticSourceToVscodeUri(first.file).fsPath)
+                : baseName;
+            summary += `: ${first.message} (${file}:${first.lineNumber})`;
+            if (errors.length > 1) {
+                summary += ` (+${errors.length - 1} more)`;
+            }
+        }
+
+        // Don't await: a toast must not block the sync path
+        void showErrorMessage(summary, "Show Problems", "Show Log").then(choice => {
+            if (choice === "Show Problems") {
+                void vscode.commands.executeCommand("workbench.actions.view.problems");
+            } else if (choice === "Show Log") {
+                showOutputChannel();
+            }
+        });
+    }
+
     private getLanguageConfig(): LanguageLexerConfig {
-        const config = getLanguageConfig(this.language, this.config);
+        const config = getLanguageConfig(this.language, buildPreprocessorConfig(this.language, this.config));
         if(config.name === "lsl" && this.config.getConfig<boolean>(ConfigKey.PreprocessorLSLSwitchStatements, false)) {
             config.directiveKeywords.push("switch");
         }
@@ -678,6 +797,7 @@ export class ScriptSync implements vscode.Disposable {
         try {
             // Read the original content
             const masterFilePath: string = this.getMasterFilePath();
+            await this.syncService.validateMasterUri(this.masterDocument.uri);
 
             const originalContent = await fs.promises.readFile(
                 masterFilePath,

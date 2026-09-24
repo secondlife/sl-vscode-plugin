@@ -4,10 +4,11 @@
  */
 import * as vscode from "vscode";
 import path from "path";
-import { ConfigService } from "./configservice";
+import { ConfigService, configPrefix } from "./configservice";
 import { ConfigKey, FullConfigInterface } from "./interfaces/configinterface";
-import { fileExists, HostInterface, StringUri, filePathToStringUri, stringUriToFilePath } from "./interfaces/hostinterface";
+import { fileExists, HostInterface, StringUri, filePathToStringUri, stringUriToFilePath } from "#sl-script-preprocessor";
 import { writeJSONFile, readJSONFile, writeYAMLFile, writeTOMLFile, readYAMLFile, readTOMLFile } from "./shared/sharedutils";
+import { Logger, LogLevel, LogMessage, DEFAULT_LOG_LEVEL, parseLogLevel } from "./shared/logger";
 
 // Generic utilities for sl-vscode-plugin
 
@@ -35,6 +36,10 @@ export function getOutputChannel(): vscode.OutputChannel {
     return outputChannel;
 }
 
+const pluginLogger = new Logger({
+    sink: { write: (line: string): void => { getOutputChannel().appendLine(line); } },
+});
+
 export function logRuntimeInfo(message: string): void {
     const channel = getRuntimeOutputChannel();
     const timestamp = new Date().toLocaleTimeString();
@@ -50,45 +55,80 @@ export function logRuntimeError(message: string): void {
 /**
  * Log an informational message to the output channel
  */
-export function logInfo(message: string): void {
-    const channel = getOutputChannel();
-    const timestamp = new Date().toISOString();
-    channel.appendLine(`[${timestamp}] INFO: ${message}`);
+export function logInfo(message: LogMessage): void {
+    pluginLogger.info(message);
 }
 
 /**
- * Log a debug message to the output channel (only when debug logging is enabled)
+ * Log a debug message to the output channel (only when the configured log level permits it)
  */
-export function logDebug(message: string): void {
-    // TODO: Check a debug setting to conditionally log
-    // For now, always log debug messages
-    const channel = getOutputChannel();
-    const timestamp = new Date().toISOString();
-    channel.appendLine(`[${timestamp}] DEBUG: ${message}`);
+export function logDebug(message: LogMessage): void {
+    pluginLogger.debug(message);
 }
 
 /**
  * Log a warning message to the output channel
  */
-export function logWarning(message: string): void {
-    const channel = getOutputChannel();
-    const timestamp = new Date().toISOString();
-    channel.appendLine(`[${timestamp}] WARN: ${message}`);
+export function logWarning(message: LogMessage): void {
+    pluginLogger.warn(message);
 }
 
 /**
  * Log an error message to the output channel
  */
-export function logError(message: string, error?: Error): void {
-    const channel = getOutputChannel();
-    const timestamp = new Date().toISOString();
-    channel.appendLine(`[${timestamp}] ERROR: ${message}`);
-    if (error) {
-        channel.appendLine(`  ${error.message}`);
-        if (error.stack) {
-            channel.appendLine(`  Stack: ${error.stack}`);
+export function logError(message: LogMessage, error?: unknown): void {
+    pluginLogger.error(message, error);
+}
+
+/**
+ * Log a trace message to the output channel (only when the configured log level permits it)
+ */
+export function logTrace(message: LogMessage): void {
+    pluginLogger.trace(message);
+}
+
+export function getLogLevel(): LogLevel {
+    return pluginLogger.getLevel();
+}
+
+export function isLogLevelEnabled(level: LogLevel): boolean {
+    return pluginLogger.isEnabled(level);
+}
+
+export function setLogLevel(level: LogLevel): void {
+    pluginLogger.setLevel(level);
+}
+
+/** Shared sink satisfying WsLogger and PreprocessorLogger structurally. */
+export const pluginLogSink = {
+    trace: logTrace,
+    debug: logDebug,
+    info: logInfo,
+    warn: logWarning,
+    error: logError,
+};
+
+function applyConfiguredLogLevel(config: FullConfigInterface): void {
+    const raw = config.getConfig<string>(ConfigKey.LoggingLevel);
+    const parsed = parseLogLevel(raw);
+
+    if (parsed === undefined) {
+        pluginLogger.setLevel(DEFAULT_LOG_LEVEL);
+        if (raw !== undefined && raw !== "") {
+            logWarning(`Unrecognized ${configPrefix}.${ConfigKey.LoggingLevel} value "${raw}"; using INFO.`);
         }
+        return;
     }
+
+    pluginLogger.setLevel(parsed);
+}
+
+/**
+ * Prime the plugin log level from configuration and keep it in sync with changes.
+ */
+export function initializeLogging(config: ConfigService): void {
+    applyConfiguredLogLevel(config);
+    config.on(ConfigKey.LoggingLevel, applyConfiguredLogLevel);
 }
 
 /**
@@ -276,15 +316,12 @@ export function errorLevelToSeverity(level: string): vscode.DiagnosticSeverity {
 //#region Workspace/VScode file interface
 
 export class VSCodeHost implements HostInterface {
-    public readonly config: FullConfigInterface;
 
     constructor(private readonly context?: vscode.ExtensionContext) {
         // Adapt existing ConfigService singleton to FullConfigInterface implementation
         if (context) {
             ConfigService.getInstance(context); // ensure initialized
         }
-        const svc = ConfigService.getInstance();
-        this.config = svc;
     }
 
     /**

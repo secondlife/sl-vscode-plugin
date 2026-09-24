@@ -4,8 +4,8 @@
  */
 
 import * as assert from 'assert';
-import { LineMapper, LineMapping } from '../../shared/linemapper';
-import { filePathToStringUri, StringUri } from '../../interfaces/hostinterface';
+import { LineMapper, LineMapping } from '#sl-script-preprocessor';
+import { filePathToStringUri, StringUri } from '#sl-script-preprocessor';
 import { expectMapping } from './helpers/expectMapping';
 
 suite('Line Mapping Tests', () => {

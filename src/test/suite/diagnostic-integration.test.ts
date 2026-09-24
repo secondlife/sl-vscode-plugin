@@ -9,18 +9,16 @@
  */
 
 import * as assert from 'assert';
-import { LexingPreprocessor, PreprocessorOptions } from '../../shared/lexingpreprocessor';
-import { HostInterface, StringUri, filePathToStringUri } from '../../interfaces/hostinterface';
-import { ConfigKey } from '../../interfaces/configinterface';
-import { MockConfig } from './helpers/mockHost';
-import { getLanguageConfig } from '../../shared/lexer';
+import { LexingPreprocessor, PreprocessorOptions, ScriptLanguage } from '#sl-script-preprocessor';
+import { HostInterface, StringUri, filePathToStringUri } from '#sl-script-preprocessor';
+import { getLanguageConfig } from '#sl-script-preprocessor';
 
 /**
  * Create default preprocessor options for testing
  */
-function createDefaultOptions(): PreprocessorOptions {
+function createDefaultOptions(language: ScriptLanguage): PreprocessorOptions {
     return {
-        enable: true,
+        enabled: true,
         flags: {
             generateWarnings: true,
             generateDecls: false,
@@ -28,32 +26,20 @@ function createDefaultOptions(): PreprocessorOptions {
             disableMacros: false,
             disableConditionals: false,
         },
+        language: language,
     };
 }
 
 /**
  * Create a mock host with in-memory file system for testing
  */
-function createMockHostWithFiles(files: Map<string, string>, options?: PreprocessorOptions): HostInterface {
+function createMockHostWithFiles(files: Map<string, string>): HostInterface {
     const normalizedFiles = new Map<StringUri, string>();
     for (const [path, content] of files.entries()) {
         normalizedFiles.set(filePathToStringUri(path), content);
     }
 
-    // Set up default preprocessor options if not provided
-    if (!options) {
-        options = createDefaultOptions();
-    }
-
-    const configValues = new Map<ConfigKey, any>();
-    // Set individual config keys instead of PreprocessorOptions object
-    configValues.set(ConfigKey.PreprocessorEnable, options.enable);
-    configValues.set(ConfigKey.PreprocessorIncludePaths, options.includePaths ?? ['.']);
-    configValues.set(ConfigKey.PreprocessorMaxIncludeDepth, options.maxIncludeDepth ?? 5);
-    const config = new MockConfig(configValues);
-
     return {
-        config,
         async readFile(path: StringUri): Promise<string | null> {
             return normalizedFiles.get(path) ?? null;
         },
@@ -122,8 +108,9 @@ suite("Diagnostic Integration Test Suite", () => {
             const source = `string s = "unterminated string
 default { state_entry() {} }`;
 
+            const options = createDefaultOptions("lsl");
             const host = createMockHostWithFiles(new Map());
-            const preprocessor = new LexingPreprocessor(host, host.config);
+            const preprocessor = new LexingPreprocessor(host, options);
 
             const result = await preprocessor.process(
                 source,
@@ -143,8 +130,9 @@ default { state_entry() {} }`;
             const source = `#elif // elif without if
 default { state_entry() {} }`;
 
+            const options = createDefaultOptions("lsl");
             const host = createMockHostWithFiles(new Map());
-            const preprocessor = new LexingPreprocessor(host, host.config);
+            const preprocessor = new LexingPreprocessor(host, options);
 
             const result = await preprocessor.process(
                 source,
@@ -164,8 +152,9 @@ default { state_entry() {} }`;
 integer x = FUNC(1); // Too few arguments
 default { state_entry() {} }`;
 
+            const options = createDefaultOptions("lsl");
             const host = createMockHostWithFiles(new Map());
-            const preprocessor = new LexingPreprocessor(host, host.config);
+            const preprocessor = new LexingPreprocessor(host, options);
 
             const result = await preprocessor.process(
                 source,
@@ -186,8 +175,9 @@ default { state_entry() {} }`;
             const source = `#include "nonexistent.lsl"
 default { state_entry() {} }`;
 
+            const options = createDefaultOptions("lsl");
             const host = createMockHostWithFiles(new Map());
-            const preprocessor = new LexingPreprocessor(host, host.config);
+            const preprocessor = new LexingPreprocessor(host, options);
 
             const result = await preprocessor.process(
                 source,
@@ -215,8 +205,9 @@ integer z = 3;
 #endif
 default { state_entry() {} }`;
 
+            const options = createDefaultOptions("lsl");
             const host = createMockHostWithFiles(new Map());
-            const preprocessor = new LexingPreprocessor(host, host.config);
+            const preprocessor = new LexingPreprocessor(host, options);
 
             const result = await preprocessor.process(
                 source,
@@ -237,8 +228,9 @@ default { state_entry() {} }`;
             const source = `#elif
 default { state_entry() {} }`;
 
+            const options = createDefaultOptions("lsl");
             const host = createMockHostWithFiles(new Map());
-            const preprocessor = new LexingPreprocessor(host, host.config);
+            const preprocessor = new LexingPreprocessor(host, options);
 
             const result = await preprocessor.process(
                 source,
@@ -260,8 +252,9 @@ default { state_entry() {} }`;
 integer x = VALID;
 default { state_entry() {} }`;
 
+            const options = createDefaultOptions("lsl");
             const host = createMockHostWithFiles(new Map());
-            const preprocessor = new LexingPreprocessor(host, host.config);
+            const preprocessor = new LexingPreprocessor(host, options);
 
             const result = await preprocessor.process(
                 source,
@@ -286,8 +279,9 @@ default { state_entry() {} }`;
 integer y = ANOTHER;
 default { state_entry() {} }`;
 
+            const options = createDefaultOptions("lsl");
             const host = createMockHostWithFiles(new Map());
-            const preprocessor = new LexingPreprocessor(host, host.config);
+            const preprocessor = new LexingPreprocessor(host, options);
 
             const result = await preprocessor.process(
                 source,
@@ -305,8 +299,9 @@ default { state_entry() {} }`;
     suite("Diagnostic Collector Operations", () => {
 
         test("should clear diagnostics between runs", async () => {
+            const options = createDefaultOptions("lsl");
             const host = createMockHostWithFiles(new Map());
-            const preprocessor = new LexingPreprocessor(host, host.config);
+            const preprocessor = new LexingPreprocessor(host, options);
 
             // First run with error
             const errorResult = await preprocessor.process(

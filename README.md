@@ -2,7 +2,7 @@
 
 **Enhance your Second Life scripting workflow with advanced preprocessing and external editing capabilities!**
 
-[![Version](https://img.shields.io/badge/version-1.0.7-blue.svg)](https://github.com/secondlife/sl-vscode-plugin)
+[![Version](https://img.shields.io/badge/version-1.0.8-blue.svg)](https://github.com/secondlife/sl-vscode-plugin)
 [![License](https://img.shields.io/badge/license-MIT-green.svg)](LICENSE)
 [![VS Code](https://img.shields.io/badge/VS%20Code-1.85.0%2B-red.svg)](https://code.visualstudio.com/)
 
@@ -197,6 +197,20 @@ Customize viewer connection:
 }
 ```
 
+### Logging Settings
+
+Control how much detail reaches the `Second Life Plugin Log` output channel:
+
+```json
+{
+    "slVscodeEdit.logging.level": "INFO"
+}
+```
+
+Allowed values, from most to least severe: `ERROR`, `WARN`, `INFO` (default), `DEBUG`,
+`TRACE`. `TRACE` includes full JSON-RPC message bodies plus preprocessor directive
+and macro-expansion tracing, and is very noisy.
+
 ### Storage Settings
 
 Control where configuration files are stored:
@@ -384,8 +398,8 @@ Access these commands via the Command Palette (`Ctrl+Shift+P`):
 
 Comprehensive guides available in the `doc/` directory:
 
-- **[Preprocessor Guide](doc/preprocessor-guide.md)** - Complete preprocessing reference
-- **[Message Interfaces](doc/Message_Interfaces.md)** - WebSocket communication protocols
+- **[Preprocessor Guide](packages/sl-script-preprocessor/doc/preprocessor-guide.md)** - Complete preprocessing reference
+- **[Message Interfaces](packages/sl-ide-ws-client/doc/Message_Interfaces.md)** - WebSocket communication protocols
 
 ---
 
