@@ -10,6 +10,7 @@ import { ObjectContentProvider, SL_SCHEME, displayName } from "./vscode/objectco
 import { ObjectContentDecorator } from "./vscode/ObjectContentDecorator";
 import { ExplorerNode } from "./vscode/objectexplorerprovider";
 import { ObjectExplorerWebviewProvider } from "./vscode/objectexplorerwebview";
+import { ObjectContentSync } from "./vscode/objectcontentsync";
 import { ConfigService, configPrefix } from "./configservice";
 import {
     VSCodeHost,
@@ -18,6 +19,7 @@ import {
     showOutputChannel,
     logInfo,
     logDebug,
+    logWarning,
     showStatusMessage,
     hasWorkspace,
     showErrorMessage,
@@ -107,6 +109,15 @@ export function activate(context: vscode.ExtensionContext): void {
         objectContentDecorator,
     );
 
+    // Pull-to-workspace workflow (webview-only surface; see doc/plan-pull-object-to-workspace.md)
+    const objectContentSync = new ObjectContentSync(
+        objectContentService,
+        synchService,
+        () => synchService.isConnected(),
+        logInfo,
+        logWarning,
+    );
+
     // Register the "Second Life" webview in Explorer
     const objectExplorerWebview = new ObjectExplorerWebviewProvider(
         context.extensionUri,
@@ -114,6 +125,7 @@ export function activate(context: vscode.ExtensionContext): void {
         synchService.onDidChangeConnectionState,
         () => synchService.getWebSocket(),
         synchService,
+        objectContentSync,
     );
     context.subscriptions.push(
         vscode.window.registerWebviewViewProvider(ObjectExplorerWebviewProvider.viewType, objectExplorerWebview),

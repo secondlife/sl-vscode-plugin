@@ -86,7 +86,7 @@ suite("Endpoint operation serialization", () => {
         (service as any).disposables = [];
         (service as any).stopping = true;
 
-        (service as any).initialize = () => undefined;
+        (service as any).initialize = (): void => undefined;
         service.activate();
 
         assert.strictEqual((service as any).stopping, false);
@@ -95,27 +95,27 @@ suite("Endpoint operation serialization", () => {
     test("connection close destroys all active links", () => {
         const service = createQueueHost();
         (service as any).autoLinkedObjectIds = new Set();
-        (service as any).clearEmptySyncs = () => undefined;
-        (service as any).syncedFileDecorator = { refresh: () => undefined };
+        (service as any).clearEmptySyncs = (): void => undefined;
+        (service as any).syncedFileDecorator = { refresh: (): void => undefined };
         (service as any).sessionConnected = false;
 
         const sync = {
-            getMasterUri: () => ({
+            getMasterUri: (): { fsPath: string; toString: () => string } => ({
                 fsPath: "C:/tmp/master.luau",
-                toString: () => "file:///c%3A/tmp/master.luau",
+                toString: (): string => "file:///c%3A/tmp/master.luau",
             }),
-            getMasterDocument: () => ({
+            getMasterDocument: (): { uri: { fsPath: string } } => ({
                 uri: { fsPath: "C:/tmp/master.luau" },
             }),
-            dispose: () => undefined,
-            hasFilesToTrack: () => false,
+            dispose: (): void => undefined,
+            hasFilesToTrack: (): boolean => false,
         };
 
         const key = (service as any).masterKey(sync.getMasterUri());
         (service as any).activeSyncs = new Map([[key, sync]]);
 
         let destroyed = false;
-        (service as any).disposeSync = (target: any) => {
+        (service as any).disposeSync = (target: any): boolean => {
             if (target !== sync) {
                 return false;
             }

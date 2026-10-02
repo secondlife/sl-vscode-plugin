@@ -260,6 +260,33 @@ To run this automatically whenever an object is explored, enable
 `slVscodeEdit.sync.autoLinkOnPublish` in the **SL Scripting - Sync** settings.
 The setting is disabled by default.
 
+### Pulling an object's files into the workspace
+
+To copy an explored object's scripts and notecards into the workspace, open
+the object's context menu and select **Pull to Workspace**. Unlike **Link
+All**, which only matches *existing* workspace files, **Pull to Workspace**
+creates the files for you.
+
+The plugin asks for a destination: it uses the only workspace root
+automatically, or prompts you to choose one if more than one is open, then
+prompts for a folder name pre-filled with the object's name. Root prim items go
+directly in that folder; each linked prim gets its own subfolder, always
+named after the prim and its link number so a later pull cannot rename or
+orphan an earlier one.
+
+If none of the target files already exist, the pull proceeds immediately. If
+any do, the plugin shows one prompt listing them (or the count, if there are
+many) and asks whether to skip or overwrite them; it also warns about any that
+are open in the editor with unsaved changes, since those cannot be overwritten
+either way. Existing files you choose to skip are left completely untouched —
+the plugin does not read or compare them.
+
+Every file the pull writes is linked to the in-world item it came from,
+exactly as if you had opened and linked it individually, with no name
+matching involved. Items the object's permissions do not allow you to copy or
+modify are skipped; a readable notecard you cannot modify is still copied, but
+is not linked. The plugin reports one summary when the pull finishes.
+
 ## Pinning Objects
 
 You can pin explored objects in the **Second Life** view so they are restored
@@ -313,6 +340,9 @@ The available actions include:
   as a Luau script; otherwise, it is created as a notecard.
 - **Link All**: Attempts to link every script and notecard in the object,
   including items in linked prims, with matching workspace files.
+- **Pull to Workspace**: Copies every script and notecard in the object,
+  including items in linked prims, into a new workspace folder and links each
+  copied file to the in-world item it came from.
 - **Unexplore**: Removes the selected object from publication in the viewer.
 - **Save Back to Contents**: If the object was rezzed directly from another object,
   it is saved back to that rezzing object's inventory.

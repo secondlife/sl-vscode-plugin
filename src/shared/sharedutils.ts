@@ -220,3 +220,120 @@ export async function readTOMLFile(filePath: string): Promise<any | null> {
 }
 
 //#endregion
+//#region Path & Filename Utilities
+
+export const MAX_SEGMENT_LENGTH = 120;
+
+// eslint-disable-next-line no-control-regex
+const INVALID_SEGMENT_CHARACTERS = /[<>:"/\\|?*\x00-\x1F]/g;
+const RESERVED_DEVICE_NAMES = new Set([
+    "CON",
+    "PRN",
+    "AUX",
+    "NUL",
+    "COM1",
+    "COM2",
+    "COM3",
+    "COM4",
+    "COM5",
+    "COM6",
+    "COM7",
+    "COM8",
+    "COM9",
+    "LPT1",
+    "LPT2",
+    "LPT3",
+    "LPT4",
+    "LPT5",
+    "LPT6",
+    "LPT7",
+    "LPT8",
+    "LPT9",
+]);
+
+function splitExtension(name: string): { stem: string; extension: string }
+{
+    const extensionIndex = name.lastIndexOf(".");
+
+    if (extensionIndex <= 0)
+    {
+        return { stem: name, extension: "" };
+    }
+
+    return {
+        stem: name.slice(0, extensionIndex),
+        extension: name.slice(extensionIndex),
+    };
+}
+
+function truncateCharacters(value: string, maximumLength: number): string
+{
+    return Array.from(value).slice(0, maximumLength).join("");
+}
+
+function truncatePreservingExtension(name: string, suffix = ""): string
+{
+    const { stem, extension } = splitExtension(name);
+    const availableStemLength =
+        MAX_SEGMENT_LENGTH - Array.from(extension).length - Array.from(suffix).length;
+
+    if (availableStemLength <= 0)
+    {
+        return truncateCharacters(`${stem}${suffix}${extension}`, MAX_SEGMENT_LENGTH);
+    }
+
+    return `${truncateCharacters(stem, availableStemLength)}${suffix}${extension}`;
+}
+
+function isReservedDeviceName(name: string): boolean
+{
+    return RESERVED_DEVICE_NAMES.has(name.toUpperCase());
+}
+
+/** Sanitise one SL inventory name into a single, safe filesystem path segment. */
+export function sanitiseSegment(name: string): string
+{
+    let sanitised = name
+        .replace(INVALID_SEGMENT_CHARACTERS, "_")
+        .trim()
+        .replace(/\.+$/, "")
+        .trim();
+
+    if (sanitised.length === 0)
+    {
+        sanitised = "unnamed";
+    }
+
+    if (isReservedDeviceName(sanitised))
+    {
+        sanitised = `_${sanitised}`;
+    }
+
+    return truncatePreservingExtension(sanitised);
+}
+
+/** Sanitise `name` and append a stable `_2`, `_3`, ... suffix if it collides case-insensitively with `taken`. */
+export function uniqueInDirectory(name: string, taken: ReadonlySet<string>): string
+{
+    const takenCaseInsensitive = new Set(
+        Array.from(taken, (entry) => entry.toLocaleLowerCase()),
+    );
+    const sanitised = sanitiseSegment(name);
+
+    if (!takenCaseInsensitive.has(sanitised.toLocaleLowerCase()))
+    {
+        return sanitised;
+    }
+
+    for (let number = 2; ; number++)
+    {
+        const candidate = truncatePreservingExtension(sanitised, `_${number}`);
+
+        if (!takenCaseInsensitive.has(candidate.toLocaleLowerCase()))
+        {
+            return candidate;
+        }
+    }
+}
+
+//#endregion

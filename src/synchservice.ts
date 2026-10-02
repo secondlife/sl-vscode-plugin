@@ -551,13 +551,28 @@ export class SynchService implements vscode.Disposable {
             );
             return { outcome: "no-match", endpointUri: uri, changed: false };
         }
+        return this.linkSlItemToMaster(uri, content, masterUri, options, viewerDocument);
+    }
+
+    public async linkSlItemToMaster(
+        uri: vscode.Uri,
+        content: string,
+        masterUri: vscode.Uri,
+        options: { reveal: boolean; refreshDecorator?: boolean },
+        viewerDocument?: vscode.TextDocument,
+    ): Promise<SlLinkResult> {
+        const parsed = SynchService.parseSlFileInfo(uri);
+        if (!parsed) {
+            logInfo(`[linkSlItemToMaster] Could not parse sl:// URI: ${uri.toString()}`);
+            return { outcome: "error", endpointUri: uri, changed: false };
+        }
         const masterDoc = await vscode.workspace.openTextDocument(masterUri);
         const masterEditor = options.reveal
             ? await vscode.window.showTextDocument(masterDoc, { preview: false })
             : undefined;
         if (!parsed.rootId || !parsed.itemId) {
             logInfo(
-                `[setupSyncForSlUri] Missing canonical identity for "${uri.toString()}"`,
+                `[linkSlItemToMaster] Missing canonical identity for "${uri.toString()}"`,
             );
             return { outcome: "error", endpointUri: uri, changed: false };
         }
@@ -580,14 +595,20 @@ export class SynchService implements vscode.Disposable {
         if (masterEditor && viewerDocument) {
             SynchService.checkAndUpdateMasterDocumentInBackground(masterEditor, viewerDocument);
         }
-        this.syncedFileDecorator.refresh(masterDoc.uri);
+        if (options.refreshDecorator ?? true) {
+            this.syncedFileDecorator.refresh(masterDoc.uri);
+        }
         logInfo(
-            `[setupSyncForSlUri] ${linkResult.outcome === "moved" ? "Moved" : "Linked"} "${parsed.scriptName}" ` +
+            `[linkSlItemToMaster] ${linkResult.outcome === "moved" ? "Moved" : "Linked"} "${parsed.scriptName}" ` +
             `(${uri.toString()}) \u2192 ${masterUri.fsPath}`,
         );
         // Do NOT call setupConnection() — already connected
         // Do NOT call sendSyncSubscription() — sl:// content travels via object.content.save
         return { ...linkResult, endpointUri: uri, masterUri, mismatch };
+    }
+
+    public refreshSyncedFileDecorator(uri?: vscode.Uri | vscode.Uri[]): void {
+        this.syncedFileDecorator.refresh(uri);
     }
 
     public async autoLinkObject(objectId: string): Promise<AutoLinkSummary> {
