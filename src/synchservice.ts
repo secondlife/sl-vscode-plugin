@@ -137,6 +137,7 @@ export class SynchService implements vscode.Disposable {
     // Tracks all active sync relationships, keyed by master file uri.toString()
     private activeSyncs: Map<string, ScriptSync> = new Map();
     private readonly fileLinkIndex = new FileLinkIndex<ScriptSync>();
+    private fileLinkIndexDirty = true;
     private readonly endpointOperations = new Map<string, Promise<void>>();
     private stopping = false;
     private context: vscode.ExtensionContext;
@@ -427,7 +428,7 @@ export class SynchService implements vscode.Disposable {
             }
         });
 
-        const sync = await this.getOrCreateSync(
+        const { sync } = await this.getOrCreateSync(
             masterDoc,
             parsed.extension as ScriptLanguage,
         );
@@ -450,8 +451,6 @@ export class SynchService implements vscode.Disposable {
             return false;
         }
 
-        this.syncedFileDecorator.refresh(sync.getMasterDocument().uri);
-
         if (this.websocket && this.websocket.isConnected()) {
             this.sendSyncSubscription(sync);
         } else {
@@ -470,11 +469,11 @@ export class SynchService implements vscode.Disposable {
     private async getOrCreateSync(
         masterDoc: vscode.TextDocument,
         language: ScriptLanguage,
-    ): Promise<ScriptSync> {
+    ): Promise<{ sync: ScriptSync; created: boolean }> {
         await this.validateMasterUri(masterDoc.uri);
         const key = this.masterKey(masterDoc.uri);
         const existing = this.activeSyncs.get(key);
-        if (existing) return existing;
+        if (existing) return { sync: existing, created: false };
 
         const config = ConfigService.getInstance();
         const sync = new ScriptSync(masterDoc, language, config, '', undefined, this);
@@ -485,7 +484,32 @@ export class SynchService implements vscode.Disposable {
             throw error;
         }
         this.activeSyncs.set(key, sync);
-        return sync;
+        this.markFileLinkIndexDirty();
+        return { sync, created: true };
+    }
+
+    /** Disposes `sync` directly when this operation created it and the attach failed; otherwise falls back to the defensive sweep. */
+    private releaseUnattachedSync(sync: ScriptSync, created: boolean): void
+    {
+        if (created) {
+            this.disposeSync(sync);
+        } else {
+            this.clearEmptySyncs();
+        }
+    }
+
+    /**
+     * Closes the race where an object is unpublished (evicted) mid-bulk-link: a late attach
+     * completing after the eviction already ran would otherwise create a link nothing will
+     * ever clean up, since no further unpublish event fires for an object that's already gone.
+     */
+    private isVirtualIdentityStillPublished(identity: ScriptIdentity): boolean
+    {
+        return ObjectContentService.getInstance().getItem(
+            identity.rootId,
+            identity.primId ?? identity.rootId,
+            identity.itemId,
+        ) !== undefined;
     }
 
     public async validateMasterUri(uri: vscode.Uri): Promise<void>
@@ -590,13 +614,11 @@ export class SynchService implements vscode.Disposable {
             content,
             identity,
             parsed.item,
+            options.refreshDecorator ?? true,
         );
         const mismatch = masterDoc.getText() !== content;
         if (masterEditor && viewerDocument) {
             SynchService.checkAndUpdateMasterDocumentInBackground(masterEditor, viewerDocument);
-        }
-        if (options.refreshDecorator ?? true) {
-            this.syncedFileDecorator.refresh(masterDoc.uri);
         }
         logInfo(
             `[linkSlItemToMaster] ${linkResult.outcome === "moved" ? "Moved" : "Linked"} "${parsed.scriptName}" ` +
@@ -725,7 +747,7 @@ export class SynchService implements vscode.Disposable {
             .map((mapping) => mapping.identity);
 
         for (const identity of identities) {
-            this.detachVirtualFile(identity);
+            this.detachVirtualIdentity(identity);
         }
         this.clearEmptySyncs();
     }
@@ -737,20 +759,17 @@ export class SynchService implements vscode.Disposable {
             .map((mapping) => mapping.identity);
 
         for (const identity of identities) {
-            this.detachVirtualFile(identity);
+            this.detachVirtualIdentity(identity);
         }
         this.clearEmptySyncs();
     }
 
     public detachByScriptId(scriptId: string, close = false): boolean {
-        let detached = false;
-        for (const sync of [...this.activeSyncs.values()]) {
-            if (!sync.isTrackingId(scriptId)) {
-                continue;
-            }
-            sync.unsubscribeById(scriptId, close);
-            detached = true;
-        }
+        const detached = this.detachEndpoint(
+            scriptId,
+            (sync) => sync.isTrackingId(scriptId),
+            (sync) => { sync.unsubscribeById(scriptId, close); },
+        );
         this.clearEmptySyncs();
         return detached;
     }
@@ -1384,14 +1403,26 @@ export class SynchService implements vscode.Disposable {
         return undefined;
     }
 
+    /** `scriptId` is session-scoped lookup metadata (assigned by the viewer per editing session), never a relationship key. */
     public findSyncByScriptId(scriptId: string): ScriptSync | undefined {
-        return [...this.activeSyncs.values()].find((sync) =>
+        const owners = [...this.activeSyncs.values()].filter((sync) =>
             sync.isTrackingId(scriptId),
         );
+        if (owners.length > 1) {
+            logWarning(
+                `[findSyncByScriptId] scriptId ${scriptId} is tracked by ${owners.length} syncs; ` +
+                `expected at most one owner.`,
+            );
+        }
+        return owners[0];
     }
 
-    private rebuildFileLinkIndex(): void
+    private ensureFileLinkIndex(): void
     {
+        if (!this.fileLinkIndexDirty) {
+            return;
+        }
+
         this.fileLinkIndex.clear();
 
         for (const sync of this.activeSyncs.values()) {
@@ -1414,13 +1445,15 @@ export class SynchService implements vscode.Disposable {
                 }
             }
         }
+
+        this.fileLinkIndexDirty = false;
     }
 
     public findIndexedSyncByMasterFilePath(
         masterFilePath: string,
     ): ScriptSync | undefined
     {
-        this.rebuildFileLinkIndex();
+        this.ensureFileLinkIndex();
         return this.fileLinkIndex.getMaster(
             canonicalFileUri(masterFilePath),
         );
@@ -1430,7 +1463,7 @@ export class SynchService implements vscode.Disposable {
         temporaryFilePath: string,
     ): ScriptSync | undefined
     {
-        this.rebuildFileLinkIndex();
+        this.ensureFileLinkIndex();
         return this.fileLinkIndex.getTemporaryFile(
             canonicalFileUri(temporaryFilePath),
         );
@@ -1440,7 +1473,7 @@ export class SynchService implements vscode.Disposable {
         identity: ScriptIdentity,
     ): ScriptSync | undefined
     {
-        this.rebuildFileLinkIndex();
+        this.ensureFileLinkIndex();
         return this.fileLinkIndex.getVirtualFile(
             virtualIdentityKey(identity),
         );
@@ -1490,7 +1523,7 @@ export class SynchService implements vscode.Disposable {
                 );
                 const previousMasterUri = previousSync?.getMasterUri();
                 const masterDocument = await vscode.workspace.openTextDocument(masterUri);
-                const destinationSync = await this.getOrCreateSync(
+                const { sync: destinationSync, created } = await this.getOrCreateSync(
                     masterDocument,
                     language,
                 );
@@ -1510,7 +1543,7 @@ export class SynchService implements vscode.Disposable {
                     viewerDocument,
                 );
                 if (!attached) {
-                    this.clearEmptySyncs();
+                    this.releaseUnattachedSync(destinationSync, created);
                     return {
                         outcome: "failed",
                         endpointUri: viewerDocument.uri,
@@ -1520,6 +1553,7 @@ export class SynchService implements vscode.Disposable {
                         reason: "Destination rejected the temporary endpoint.",
                     };
                 }
+                this.markFileLinkIndexDirty();
 
                 if (previousSync) {
                     const wasTracked = previousSync.isTrackingFile(
@@ -1528,11 +1562,12 @@ export class SynchService implements vscode.Disposable {
                     previousSync.unsubscribeByFile(
                         viewerDocument.uri.fsPath,
                     );
+                    this.markFileLinkIndexDirty();
                     if (!wasTracked) {
                         destinationSync.unsubscribeByFile(
                             viewerDocument.uri.fsPath,
                         );
-                        this.clearEmptySyncs();
+                        this.releaseUnattachedSync(destinationSync, created);
                         return {
                             outcome: "failed",
                             endpointUri: viewerDocument.uri,
@@ -1545,6 +1580,7 @@ export class SynchService implements vscode.Disposable {
                 }
 
                 this.clearEmptySyncs();
+                this.syncedFileDecorator.refresh(destinationSync.getMasterDocument().uri);
                 return {
                     outcome: previousSync ? "moved" : "linked",
                     endpointUri: viewerDocument.uri,
@@ -1563,6 +1599,7 @@ export class SynchService implements vscode.Disposable {
         content: string | undefined,
         identity: ScriptIdentity,
         item?: ObjectInventoryItem,
+        refreshDecorator = true,
     ): Promise<VirtualMoveResult>
     {
         return this.runEndpointOperation(
@@ -1572,7 +1609,7 @@ export class SynchService implements vscode.Disposable {
                 const previousMasterUri = previousSync?.getMasterUri();
 
                 const masterDocument = await vscode.workspace.openTextDocument(masterUri);
-                const destinationSync = await this.getOrCreateSync(
+                const { sync: destinationSync, created } = await this.getOrCreateSync(
                     masterDocument,
                     language,
                 );
@@ -1587,6 +1624,18 @@ export class SynchService implements vscode.Disposable {
                     };
                 }
 
+                if (!this.isVirtualIdentityStillPublished(identity)) {
+                    this.releaseUnattachedSync(destinationSync, created);
+                    return {
+                        outcome: "failed",
+                        endpointUri: uri,
+                        previousMasterUri,
+                        masterUri,
+                        changed: false,
+                        reason: "The object or item was unpublished before the link could complete.",
+                    };
+                }
+
                 const attached = destinationSync.subscribeVirtual(
                     uri,
                     content,
@@ -1594,7 +1643,7 @@ export class SynchService implements vscode.Disposable {
                     item,
                 );
                 if (!attached) {
-                    this.clearEmptySyncs();
+                    this.releaseUnattachedSync(destinationSync, created);
                     return {
                         outcome: "failed",
                         endpointUri: uri,
@@ -1604,13 +1653,15 @@ export class SynchService implements vscode.Disposable {
                         reason: "Destination rejected the virtual endpoint.",
                     };
                 }
+                this.markFileLinkIndexDirty();
 
                 if (previousSync) {
                     const wasTracked = previousSync.isTrackingIdentity(identity);
                     previousSync.unsubscribeVirtualMappingByIdentity(identity);
+                    this.markFileLinkIndexDirty();
                     if (!wasTracked) {
                         destinationSync.unsubscribeVirtualMappingByIdentity(identity);
-                        this.clearEmptySyncs();
+                        this.releaseUnattachedSync(destinationSync, created);
                         return {
                             outcome: "failed",
                             endpointUri: uri,
@@ -1623,6 +1674,9 @@ export class SynchService implements vscode.Disposable {
                 }
 
                 this.clearEmptySyncs();
+                if (refreshDecorator) {
+                    this.syncedFileDecorator.refresh(destinationSync.getMasterDocument().uri);
+                }
                 return {
                     outcome: previousSync ? "moved" : "linked",
                     endpointUri: uri,
@@ -1634,29 +1688,69 @@ export class SynchService implements vscode.Disposable {
         );
     }
 
+    /**
+     * Core detach primitive: finds every active sync that owns the endpoint identified by
+     * `isOwner` (there should be at most one — a defensive warning is logged otherwise),
+     * removes the mapping from each via `unsubscribe`, and marks the file-link index dirty.
+     * Returns whether anything changed. Iterates a snapshot since detaching can empty a
+     * sync mid-iteration.
+     */
+    private detachEndpoint(
+        endpointLabel: string,
+        isOwner: (sync: ScriptSync) => boolean,
+        unsubscribe: (sync: ScriptSync) => void,
+    ): boolean
+    {
+        const owners = [...this.activeSyncs.values()].filter(isOwner);
+        if (owners.length > 1) {
+            logWarning(
+                `[detachEndpoint] ${endpointLabel} is tracked by ${owners.length} syncs; expected at most one owner.`,
+            );
+        }
+
+        for (const sync of owners) {
+            unsubscribe(sync);
+        }
+
+        if (owners.length > 0) {
+            this.markFileLinkIndexDirty();
+        }
+
+        return owners.length > 0;
+    }
+
+    private markFileLinkIndexDirty(): void
+    {
+        this.fileLinkIndexDirty = true;
+    }
+
     public detachTemporaryFile(
         temporaryFilePath: string,
         close = false,
     ): boolean
     {
-        let detached = false;
-        for (const sync of this.activeSyncs.values()) {
-            const wasTracked = sync.isTrackingFile(temporaryFilePath);
-            sync.unsubscribeByFile(temporaryFilePath, close);
-            detached = detached || wasTracked;
-        }
+        const detached = this.detachEndpoint(
+            temporaryFilePath,
+            (sync) => sync.isTrackingFile(temporaryFilePath),
+            (sync) => { sync.unsubscribeByFile(temporaryFilePath, close); },
+        );
         this.clearEmptySyncs();
         return detached;
     }
 
+    /** Detaches `identity` without sweeping empty syncs, so callers detaching many identities can sweep once at the end. */
+    private detachVirtualIdentity(identity: ScriptIdentity): boolean
+    {
+        return this.detachEndpoint(
+            virtualIdentityKey(identity),
+            (sync) => sync.isTrackingIdentity(identity),
+            (sync) => { sync.unsubscribeVirtualMappingByIdentity(identity); },
+        );
+    }
+
     public detachVirtualFile(identity: ScriptIdentity): boolean
     {
-        let detached = false;
-        for (const sync of this.activeSyncs.values()) {
-            const wasTracked = sync.isTrackingIdentity(identity);
-            sync.unsubscribeVirtualMappingByIdentity(identity);
-            detached = detached || wasTracked;
-        }
+        const detached = this.detachVirtualIdentity(identity);
         this.clearEmptySyncs();
         return detached;
     }
@@ -1681,6 +1775,7 @@ export class SynchService implements vscode.Disposable {
         }
 
         this.activeSyncs.delete(key);
+        this.markFileLinkIndexDirty();
         this.syncedFileDecorator.refresh(sync.getMasterDocument().uri);
         sync.dispose();
         return true;
@@ -2060,15 +2155,36 @@ export class SynchService implements vscode.Disposable {
         return sync.renameTemporaryFile(oldUri, newUri);
     }
 
+    private async validateMasterBeforeSave(sync: ScriptSync): Promise<boolean>
+    {
+        try
+        {
+            await this.validateMasterUri(sync.getMasterUri());
+            return true;
+        }
+        catch (error)
+        {
+            logWarning(
+                `[onSaveTextDocument] Skipped save propagation for ${sync.getMasterUri().toString()}: ` +
+                `${error instanceof Error ? error.message : String(error)}`,
+            );
+            return false;
+        }
+    }
+
     private async onSaveTextDocument(document: vscode.TextDocument): Promise<void> {
         const filePath = document.uri.fsPath;
         const sync = this.findSyncByMasterFilePath(filePath);
         if (sync) {
-            await sync.handleMasterSaved();
+            if (await this.validateMasterBeforeSave(sync)) {
+                await sync.handleMasterSaved();
+            }
         } else {
             const includeUri = vscodeUriToStringUri(document.uri);
             for (const sync of this.findSyncByIncludeFilePath(includeUri)) {
-                await sync.handleMasterSaved();
+                if (await this.validateMasterBeforeSave(sync)) {
+                    await sync.handleMasterSaved();
+                }
             }
         }
     }
