@@ -1,15 +1,19 @@
 /**
- * Pure, VS Code-independent helpers for the "pull object to workspace" feature.
+ * Pure, VS Code-independent helpers for the "pull object to workspace" and
+ * "push files to object" features.
  * Anything here must be unit-testable without the extension host.
  */
 import {
+    InventoryItemType,
     ObjectInventoryItem,
     PERM_COPY,
     PERM_MODIFY,
     PublishedObject,
+    ScriptVM,
 } from "#sl-ide-ws-client";
 import {
     sanitiseSegment,
+    splitExtension,
     uniqueInDirectory,
 } from "./shared/sharedutils";
 
@@ -340,18 +344,21 @@ export function planPullExport(snapshot: PullObjectSnapshot): PullExportPlan
     return { exportable, skipped };
 }
 
-function pulledFileName(item: PullExportItem): string
+/**
+ * Sanitised equivalent of displayName() in src/vscode/objectcontentprovider.ts —
+ * mirrored here (rather than imported) so this module stays free of a "vscode"
+ * import and remains testable under plain Node. Shared by pull's target-naming
+ * and push's decision 10 name match.
+ */
+export function sanitisedDisplayName(item: ObjectInventoryItem): string
 {
-    if (item.item.type === "notecard")
+    if (item.type === "notecard")
     {
-        return sanitiseSegment(item.item.name);
+        return sanitiseSegment(item.name);
     }
 
-    // Mirrors languageForItem() in src/vscode/objectcontentprovider.ts; duplicated
-    // here (rather than imported) so this module stays free of a "vscode" import
-    // and remains testable under plain Node.
-    const extension = item.item.subtype === 1 ? "luau" : "lsl";
-    return sanitiseSegment(`${item.item.name}.${extension}`);
+    const extension = item.subtype === 1 ? "luau" : "lsl";
+    return sanitiseSegment(`${item.name}.${extension}`);
 }
 
 /**
@@ -382,7 +389,7 @@ export function planPullTargets(plan: PullExportPlan): readonly PullTargetItem[]
 
         for (const item of sortedItems)
         {
-            const fileName = uniqueInDirectory(pulledFileName(item), taken);
+            const fileName = uniqueInDirectory(sanitisedDisplayName(item.item), taken);
             taken.add(fileName);
             const relativeDirectory = item.isRoot
                 ? []
@@ -545,4 +552,515 @@ export function stripGeneratedScriptMetadata(
     }
 
     return output.join("");
+}
+
+// ============================================================================
+// Push: pure planning helpers for "push files to object"
+// ============================================================================
+
+/** How a destination was resolved (decisions 10, 11/12, Finding 4's relink). */
+export type PushDisposition = "linked-update" | "reuse" | "create" | "relink";
+
+export type PushDestination =
+    | { disposition: "linked-update" | "reuse"; item: ObjectInventoryItem }
+    | { disposition: "relink"; item: ObjectInventoryItem; relinkedFromMasterId: string }
+    | { disposition: "create" };
+
+/** One selected file, after type/VM/name derivation (planPushSet). */
+export interface PushEntry
+{
+    id: string;
+    /** Opaque id of this entry's master file, compared against an inventory item's current owner to detect relink. */
+    masterId: string;
+    type: InventoryItemType;
+    vm?: ScriptVM;
+    targetName: string;
+    /** Sanitised full filename (extension included even for scripts), compared against sanitisedDisplayName(item) — decision 10. Distinct from targetName, which has a script's synthetic extension already stripped for creation/display. */
+    matchName: string;
+}
+
+export interface PushSummary
+{
+    updated: number;
+    created: number;
+    createdContentSaveFailed: number;
+    compileFailed: number;
+    preprocessorError: number;
+    skippedNotText: number;
+    skippedNestedDirectory: number;
+    skippedTypeMismatch: number;
+    failed: number;
+    cancelled: boolean;
+    interrupted?: string;
+}
+
+/**
+ * Mirrors typeAndVmFromExtension() in src/vscode/objectcontentprovider.ts; duplicated
+ * here (rather than imported) so this module stays free of a "vscode" import and
+ * remains testable under plain Node.
+ */
+function typeAndVmFromExtension(extension: string): { type: InventoryItemType; vm?: ScriptVM }
+{
+    switch (extension.toLowerCase())
+    {
+        case ".luau": return { type: "script", vm: "luau" };
+        case ".lsl":  return { type: "script", vm: "mono" };
+        default:      return { type: "notecard" };
+    }
+}
+
+export interface PushFile
+{
+    id: string;
+    masterId: string;
+    fileName: string;
+}
+
+/** Result of intaking a File Explorer selection: the derived push set plus exclusion counts (step 12/13). */
+export interface PushSelectionIntake
+{
+    entries: readonly PushEntry[];
+    nestedDirectories: number;
+    skippedNotText: number;
+}
+
+export interface PushPrimSummary
+{
+    primId: string;
+    /** Pre-formatted: "root prim" or "Name (link N)" — matches PushConfirmationContext.primLabel. */
+    primLabel: string;
+}
+
+export interface PushPublishedObjectSummary
+{
+    objectId: string;
+    objectName: string;
+    region?: string;
+    prims: readonly PushPrimSummary[];
+}
+
+export interface PushTargetSelection
+{
+    objectId: string;
+    objectName: string;
+    region?: string;
+    primId: string;
+    primLabel: string;
+}
+
+export type PushPlanOutcome =
+    | { outcome: "invalid"; failure: PushValidationFailure }
+    | { outcome: "collision"; collisions: readonly PushCollision[] }
+    | { outcome: "resolved"; resolved: readonly PushResolvedEntry[] };
+
+export type PushValidationFailureReason =
+    | "not-connected"
+    | "object-not-published"
+    | "no-modify-on-prim"
+    | "no-modify-on-items";
+
+export interface PushValidationFailure
+{
+    reason: PushValidationFailureReason;
+    /** Populated only for "no-modify-on-items". */
+    itemIds?: readonly string[];
+}
+
+/**
+ * Destination items (create has none) lacking PERM_MODIFY on their owner mask
+ * (step 21). Absent permission data fails closed, matching pull's own
+ * conservative precedent in planPullExport().
+ */
+export function findPushPermissionFailures(resolved: readonly PushResolvedEntry[]): readonly string[]
+{
+    const itemIds: string[] = [];
+
+    for (const r of resolved)
+    {
+        for (const destination of r.destinations)
+        {
+            if (destination.disposition === "create")
+            {
+                continue;
+            }
+
+            const permissions = destination.item.permissions;
+            const canModify = permissions !== undefined && (permissions.owner & PERM_MODIFY) !== 0;
+
+            if (!canModify)
+            {
+                itemIds.push(destination.item.item_id);
+            }
+        }
+    }
+
+    return itemIds;
+}
+
+export interface PushTargetChoice<T>
+{
+    label: string;
+    detail?: string;
+    value: T;
+}
+
+export interface PushTargetPrompter
+{
+    selectObject(
+        choices: readonly PushTargetChoice<PushPublishedObjectSummary>[],
+    ): Promise<PushPublishedObjectSummary | undefined>;
+    selectPrim(
+        choices: readonly PushTargetChoice<PushPrimSummary>[],
+    ): Promise<PushPrimSummary | undefined>;
+}
+
+/** Build object/prim summaries for the target picker: root prim first, then every linked prim, in order. */
+export function summarizePushTargets(
+    objects: readonly PublishedObject[],
+): readonly PushPublishedObjectSummary[]
+{
+    return objects.map((object) => ({
+        objectId: object.object_id,
+        objectName: object.object_name,
+        region: object.region,
+        prims: [
+            { primId: object.object_id, primLabel: "root prim" },
+            ...(object.linked_objects ?? []).map((linked) => ({
+                primId: linked.link_id,
+                primLabel: `${linked.link_name} (link ${linked.link_number})`,
+            })),
+        ],
+    }));
+}
+
+/**
+ * Resolve the push destination via two sequential quick picks: a published
+ * object, then one of its prims (decision 4). Returns undefined, before
+ * anything downstream is touched, if there are no published objects or either
+ * pick is dismissed.
+ */
+export async function resolvePushTarget(
+    objects: readonly PushPublishedObjectSummary[],
+    prompter: PushTargetPrompter,
+): Promise<PushTargetSelection | undefined>
+{
+    if (objects.length === 0)
+    {
+        return undefined;
+    }
+
+    const selectedObject = await prompter.selectObject(
+        objects.map((object) => ({
+            label: object.objectName,
+            detail: object.region,
+            value: object,
+        })),
+    );
+
+    if (!selectedObject)
+    {
+        return undefined;
+    }
+
+    const selectedPrim = await prompter.selectPrim(
+        selectedObject.prims.map((prim) => ({
+            label: prim.primLabel,
+            value: prim,
+        })),
+    );
+
+    if (!selectedPrim)
+    {
+        return undefined;
+    }
+
+    return {
+        objectId: selectedObject.objectId,
+        objectName: selectedObject.objectName,
+        region: selectedObject.region,
+        primId: selectedPrim.primId,
+        primLabel: selectedPrim.primLabel,
+    };
+}
+
+/** Derive {type, vm, targetName} per file (decisions 6, 7, 8). Scripts drop the synthetic extension; notecards keep the filename verbatim. */
+export function planPushSet(files: readonly PushFile[]): readonly PushEntry[]
+{
+    return files.map((file) =>
+    {
+        const { stem, extension } = splitExtension(file.fileName);
+        const { type, vm } = typeAndVmFromExtension(extension);
+
+        return {
+            id: file.id,
+            masterId: file.masterId,
+            type,
+            vm,
+            targetName: type === "notecard" ? file.fileName : stem,
+            matchName: sanitiseSegment(file.fileName),
+        };
+    });
+}
+
+export interface PushInventoryItem
+{
+    item: ObjectInventoryItem;
+    /** Opaque id of the master currently linked to this item on the target prim, if any. */
+    linkedMasterId?: string;
+}
+
+export interface PushResolvedEntry
+{
+    entry: PushEntry;
+    /** One or more destinations this entry writes; empty when the entry is ambiguous and excluded. */
+    destinations: readonly PushDestination[];
+    /** Set when a same-named item of a different type exists; the entry is excluded rather than written or created. */
+    ambiguousType?: InventoryItemType;
+}
+
+/**
+ * Resolve each entry's destination set against a snapshot of the target prim's
+ * inventory (decisions 10, 11/12). Every item already linked to this entry's
+ * master becomes the whole destination set, skipping name matching and creation
+ * entirely. Otherwise a type-qualified name match is reused; a same-named item of
+ * the other type marks the entry ambiguous instead of being written or created
+ * alongside. Otherwise the destination is a new item to create.
+ */
+export function resolvePushDestinations(
+    entries: readonly PushEntry[],
+    inventory: readonly PushInventoryItem[],
+): readonly PushResolvedEntry[]
+{
+    return entries.map((entry): PushResolvedEntry =>
+    {
+        const linked = inventory.filter((candidate) => candidate.linkedMasterId === entry.masterId);
+
+        if (linked.length > 0)
+        {
+            return {
+                entry,
+                destinations: linked.map((candidate): PushDestination => ({
+                    disposition: "linked-update",
+                    item: candidate.item,
+                })),
+            };
+        }
+
+        const nameMatch = inventory.find(
+            (candidate) => sanitisedDisplayName(candidate.item) === entry.matchName,
+        );
+
+        if (!nameMatch)
+        {
+            return { entry, destinations: [{ disposition: "create" }] };
+        }
+
+        if (nameMatch.item.type !== entry.type)
+        {
+            return { entry, destinations: [], ambiguousType: nameMatch.item.type };
+        }
+
+        if (nameMatch.linkedMasterId !== undefined)
+        {
+            return {
+                entry,
+                destinations: [{
+                    disposition: "relink",
+                    item: nameMatch.item,
+                    relinkedFromMasterId: nameMatch.linkedMasterId,
+                }],
+            };
+        }
+
+        return { entry, destinations: [{ disposition: "reuse", item: nameMatch.item }] };
+    });
+}
+
+export type PushCollisionKind = "overlapping-destination" | "duplicate-create-name";
+
+export interface PushCollision
+{
+    kind: PushCollisionKind;
+    entryIds: readonly string[];
+    itemId?: string;
+    targetName?: string;
+}
+
+/**
+ * Report two entries that would write the same item, or two entries that would
+ * both create the same target name (decisions 11, 13). Two entries sharing only a
+ * target name, each resolved through its own links to a different item, is not a
+ * collision.
+ */
+export function findPushCollisions(resolved: readonly PushResolvedEntry[]): readonly PushCollision[]
+{
+    const collisions: PushCollision[] = [];
+    const entryIdsByItemId = new Map<string, string[]>();
+
+    for (const r of resolved)
+    {
+        for (const destination of r.destinations)
+        {
+            if (destination.disposition === "create")
+            {
+                continue;
+            }
+
+            const ids = entryIdsByItemId.get(destination.item.item_id) ?? [];
+            ids.push(r.entry.id);
+            entryIdsByItemId.set(destination.item.item_id, ids);
+        }
+    }
+
+    for (const [itemId, entryIds] of entryIdsByItemId)
+    {
+        const uniqueEntryIds = Array.from(new Set(entryIds));
+
+        if (uniqueEntryIds.length > 1)
+        {
+            collisions.push({ kind: "overlapping-destination", entryIds: uniqueEntryIds, itemId });
+        }
+    }
+
+    const creatingEntryIdsByName = new Map<string, string[]>();
+
+    for (const r of resolved)
+    {
+        if (r.destinations.some((destination) => destination.disposition === "create"))
+        {
+            const ids = creatingEntryIdsByName.get(r.entry.targetName) ?? [];
+            ids.push(r.entry.id);
+            creatingEntryIdsByName.set(r.entry.targetName, ids);
+        }
+    }
+
+    for (const [targetName, entryIds] of creatingEntryIdsByName)
+    {
+        if (entryIds.length > 1)
+        {
+            collisions.push({ kind: "duplicate-create-name", entryIds, targetName });
+        }
+    }
+
+    return collisions;
+}
+
+/**
+ * Entries excluded because a same-named item of a different type already
+ * exists on the target prim (ambiguousType set by resolvePushDestinations) —
+ * never written or created, and otherwise silently dropped from the summary.
+ */
+export function findAmbiguousPushEntries(
+    resolved: readonly PushResolvedEntry[],
+): readonly PushResolvedEntry[]
+{
+    return resolved.filter((r) => r.ambiguousType !== undefined);
+}
+
+/**
+ * Entries that would overwrite something already in-world — any destination
+ * other than `create` (update, reuse, relink). Used to decide whether the
+ * single aggregate confirmation needs to be shown at all: a batch of pure
+ * creates has nothing to conflict with and can proceed without a prompt.
+ */
+export function findConflictingPushEntries(
+    resolved: readonly PushResolvedEntry[],
+): readonly PushResolvedEntry[]
+{
+    return resolved.filter((r) => r.destinations.some((d) => d.disposition !== "create"));
+}
+
+export interface PushConfirmationContext
+{
+    objectName: string;
+    region?: string;
+    /** Pre-formatted by the caller: "root prim" or "Name (link N)". */
+    primLabel: string;
+}
+
+export interface PushExclusionCounts
+{
+    nestedDirectories: number;
+    notText: number;
+}
+
+const SIMPLE_DISPOSITION_LABELS: Record<"linked-update" | "reuse", string> = {
+    "linked-update": "linked update",
+    reuse: "reuse",
+};
+
+/**
+ * Build the single aggregate confirmation shown before any push mutation
+ * (decisions 2, 14, 16). Leads with the destination, then one line per
+ * destination naming its disposition and in-world name, then exclusion counts.
+ * Ambiguous entries are derived from `resolved` rather than supplied separately,
+ * since PushResolvedEntry already carries that state. `entry.id` is used as the
+ * display label, so callers should assign something display-worthy there.
+ */
+export function buildPushConfirmationMessage(
+    context: PushConfirmationContext,
+    resolved: readonly PushResolvedEntry[],
+    exclusions: PushExclusionCounts,
+): string
+{
+    const lines: string[] = [
+        `Push to ${context.objectName}${context.region ? ` (${context.region})` : ""}`,
+        `Target: ${context.primLabel}`,
+        "",
+    ];
+
+    for (const r of resolved)
+    {
+        for (const destination of r.destinations)
+        {
+            if (destination.disposition === "create")
+            {
+                lines.push(`${r.entry.id}: create "${r.entry.targetName}"`);
+                continue;
+            }
+
+            const name = sanitisedDisplayName(destination.item);
+
+            if (destination.disposition === "relink")
+            {
+                lines.push(
+                    `${r.entry.id}: relink "${name}" (currently updated by ${destination.relinkedFromMasterId})`,
+                );
+                continue;
+            }
+
+            lines.push(`${r.entry.id}: ${SIMPLE_DISPOSITION_LABELS[destination.disposition]} "${name}"`);
+        }
+    }
+
+    const exclusionLines: string[] = [];
+
+    if (exclusions.nestedDirectories > 0)
+    {
+        exclusionLines.push(
+            `${exclusions.nestedDirectories} nested director${exclusions.nestedDirectories === 1 ? "y" : "ies"} ignored`,
+        );
+    }
+
+    if (exclusions.notText > 0)
+    {
+        exclusionLines.push(`${exclusions.notText} file(s) skipped (not text)`);
+    }
+
+    for (const r of resolved)
+    {
+        if (r.ambiguousType !== undefined)
+        {
+            exclusionLines.push(
+                `${r.entry.id}: skipped, found existing ${r.ambiguousType} named "${r.entry.targetName}"`,
+            );
+        }
+    }
+
+    if (exclusionLines.length > 0)
+    {
+        lines.push("", ...exclusionLines);
+    }
+
+    return lines.join("\n");
 }

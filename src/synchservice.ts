@@ -466,7 +466,7 @@ export class SynchService implements vscode.Disposable {
         return true;
     }
 
-    private async getOrCreateSync(
+    public async getOrCreateSync(
         masterDoc: vscode.TextDocument,
         language: ScriptLanguage,
     ): Promise<{ sync: ScriptSync; created: boolean }> {
@@ -489,7 +489,7 @@ export class SynchService implements vscode.Disposable {
     }
 
     /** Disposes `sync` directly when this operation created it and the attach failed; otherwise falls back to the defensive sweep. */
-    private releaseUnattachedSync(sync: ScriptSync, created: boolean): void
+    public releaseUnattachedSync(sync: ScriptSync, created: boolean): void
     {
         if (created) {
             this.disposeSync(sync);
@@ -566,6 +566,19 @@ export class SynchService implements vscode.Disposable {
                 `[setupSyncForSlUri] Skipping filesystem link for no-modify item "${parsed.scriptName}.${parsed.extension}"`,
             );
             return { outcome: "skipped-no-modify", endpointUri: uri, changed: false };
+        }
+        // Already linked (e.g. by a prior push or an earlier open) — reuse that master
+        // rather than re-running name/meta-comment matching, which could find a
+        // different, same-named file elsewhere in the workspace and steal the link.
+        if (parsed.rootId && parsed.itemId) {
+            const existingSync = this.findSyncByIdentity({
+                rootId: parsed.rootId,
+                primId: parsed.primId ?? null,
+                itemId: parsed.itemId,
+            });
+            if (existingSync) {
+                return this.linkSlItemToMaster(uri, content, existingSync.getMasterUri(), options, viewerDocument);
+            }
         }
         const masterUri = await SynchService.findMasterFile(parsed, content);
         if (!masterUri) {

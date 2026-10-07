@@ -329,6 +329,23 @@ export function activate(context: vscode.ExtensionContext): void {
         })
     );
 
+    // Push selected workspace files to an in-world prim (see doc/plan-push-files-to-object.md)
+    context.subscriptions.push(
+        vscode.commands.registerCommand(
+            "slVscodeEdit.pushFilesToObject",
+            async (clicked?: vscode.Uri, selection?: vscode.Uri[]) => {
+                const uris = selection?.length ? selection : clicked ? [clicked] : [];
+                if (uris.length === 0) {
+                    vscode.window.showErrorMessage(
+                        "Select one or more files in the Explorer, then try again.",
+                    );
+                    return;
+                }
+                await objectContentSync.pushFilesToObject(uris);
+            },
+        ),
+    );
+
     // Track connection state for UI visibility
     context.subscriptions.push(
         synchService.onDidChangeConnectionState((connected) => {

@@ -1,16 +1,30 @@
 import * as assert from "assert";
-import type { PublishedObject } from "#sl-ide-ws-client";
+import type { ObjectInventoryItem, PublishedObject } from "#sl-ide-ws-client";
 import {
     buildCollisionPromptMessage,
+    buildPushConfirmationMessage,
+    findAmbiguousPushEntries,
+    findConflictingPushEntries,
+    findPushCollisions,
     planPullExport,
     planPullTargets,
+    planPushSet,
     PullPathProbeResult,
+    PushConfirmationContext,
+    PushEntry,
+    PushFile,
+    PushInventoryItem,
+    PushPublishedObjectSummary,
+    PushResolvedEntry,
     resolveDirectorySegmentName,
     resolveFileSegmentName,
     resolvePullCollisionMode,
     resolvePullDestination,
+    resolvePushDestinations,
+    resolvePushTarget,
     snapshotPullObject,
     stripGeneratedScriptMetadata,
+    summarizePushTargets,
     UnsafePullPathError,
 } from "../../objectsyncutils";
 
@@ -613,5 +627,522 @@ suite("Object content generated metadata", () => {
                 "default { state_entry() { } }",
             ].join("\n"),
         );
+    });
+});
+
+function inventoryItem(
+    item_id: string,
+    name: string,
+    type: "script" | "notecard" = "script",
+    subtype?: number,
+): ObjectInventoryItem
+{
+    return { item_id, name, type, subtype };
+}
+
+suite("Push planning: file derivation", () => {
+    test("derives a Luau script: type, vm and a target name without the extension", () => {
+        const [entry] = planPushSet([
+            { id: "file-1", masterId: "master-1", fileName: "widget.luau" },
+        ]);
+
+        assert.deepStrictEqual(entry, {
+            id: "file-1",
+            masterId: "master-1",
+            type: "script",
+            vm: "luau",
+            targetName: "widget",
+            matchName: "widget.luau",
+        });
+    });
+
+    test("derives an LSL script as mono, matching the Phase 0 default", () => {
+        const [entry] = planPushSet([
+            { id: "file-2", masterId: "master-1", fileName: "widget.lsl" },
+        ]);
+
+        assert.strictEqual(entry.type, "script");
+        assert.strictEqual(entry.vm, "mono");
+        assert.strictEqual(entry.targetName, "widget");
+        assert.strictEqual(entry.matchName, "widget.lsl");
+    });
+
+    test("derives a notecard: no vm, and the target name keeps the extension verbatim", () => {
+        const [entry] = planPushSet([
+            { id: "file-3", masterId: "master-1", fileName: "config.txt" },
+        ]);
+
+        assert.strictEqual(entry.type, "notecard");
+        assert.strictEqual(entry.vm, undefined);
+        assert.strictEqual(entry.targetName, "config.txt");
+        assert.strictEqual(entry.matchName, "config.txt");
+    });
+
+    test("processes multiple files independently, preserving id and masterId", () => {
+        const files: readonly PushFile[] = [
+            { id: "a", masterId: "master-a", fileName: "one.luau" },
+            { id: "b", masterId: "master-b", fileName: "two.lsl" },
+        ];
+
+        const entries = planPushSet(files);
+
+        assert.strictEqual(entries.length, 2);
+        assert.strictEqual(entries[0].id, "a");
+        assert.strictEqual(entries[0].masterId, "master-a");
+        assert.strictEqual(entries[1].id, "b");
+        assert.strictEqual(entries[1].masterId, "master-b");
+    });
+});
+
+suite("Push planning: destination resolution", () => {
+    test("link-first: a single linked item becomes the whole destination set", () => {
+        const entry: PushEntry = {
+            id: "e1", masterId: "master-1", type: "script", vm: "luau", targetName: "widget", matchName: "widget.luau",
+        };
+        const inventory: PushInventoryItem[] = [
+            { item: inventoryItem("item-1", "widget", "script", 1), linkedMasterId: "master-1" },
+        ];
+
+        const [resolved] = resolvePushDestinations([entry], inventory);
+
+        assert.deepStrictEqual(resolved.destinations, [
+            { disposition: "linked-update", item: inventory[0].item },
+        ]);
+        assert.strictEqual(resolved.ambiguousType, undefined);
+    });
+
+    test("link-first: fans out to every item this master owns on the prim, ignoring a same-named unlinked item", () => {
+        const entry: PushEntry = {
+            id: "e1", masterId: "master-1", type: "script", vm: "luau", targetName: "widget", matchName: "widget.luau",
+        };
+        const linkedA = { item: inventoryItem("item-a", "widget_a", "script", 1), linkedMasterId: "master-1" };
+        const linkedB = { item: inventoryItem("item-b", "widget_b", "script", 1), linkedMasterId: "master-1" };
+        const unrelatedNameMatch = { item: inventoryItem("item-c", "widget", "script", 1) };
+        const inventory: PushInventoryItem[] = [linkedA, linkedB, unrelatedNameMatch];
+
+        const [resolved] = resolvePushDestinations([entry], inventory);
+
+        assert.deepStrictEqual(resolved.destinations, [
+            { disposition: "linked-update", item: linkedA.item },
+            { disposition: "linked-update", item: linkedB.item },
+        ]);
+    });
+
+    test("name match: reuses an unowned item of the correct type", () => {
+        const entry: PushEntry = {
+            id: "e1", masterId: "master-1", type: "notecard", targetName: "config.txt", matchName: "config.txt",
+        };
+        const inventory: PushInventoryItem[] = [
+            { item: inventoryItem("item-1", "config.txt", "notecard") },
+        ];
+
+        const [resolved] = resolvePushDestinations([entry], inventory);
+
+        assert.deepStrictEqual(resolved.destinations, [
+            { disposition: "reuse", item: inventory[0].item },
+        ]);
+    });
+
+    test("name match: an item owned by a different master is a relink, naming the previous owner", () => {
+        const entry: PushEntry = {
+            id: "e1", masterId: "master-new", type: "script", vm: "luau", targetName: "widget", matchName: "widget.luau",
+        };
+        const inventory: PushInventoryItem[] = [
+            { item: inventoryItem("item-1", "widget", "script", 1), linkedMasterId: "master-old" },
+        ];
+
+        const [resolved] = resolvePushDestinations([entry], inventory);
+
+        assert.deepStrictEqual(resolved.destinations, [
+            { disposition: "relink", item: inventory[0].item, relinkedFromMasterId: "master-old" },
+        ]);
+    });
+
+    test("name match: a same-named item of the other type marks the entry ambiguous, excluding it", () => {
+        const entry: PushEntry = {
+            id: "e1", masterId: "master-1", type: "script", vm: "mono", targetName: "config", matchName: "config.lsl",
+        };
+        const inventory: PushInventoryItem[] = [
+            { item: inventoryItem("item-1", "config.lsl", "notecard") },
+        ];
+
+        const [resolved] = resolvePushDestinations([entry], inventory);
+
+        assert.deepStrictEqual(resolved.destinations, []);
+        assert.strictEqual(resolved.ambiguousType, "notecard");
+    });
+
+    test("no link and no name match: resolves to create", () => {
+        const entry: PushEntry = {
+            id: "e1", masterId: "master-1", type: "script", vm: "luau", targetName: "brand-new", matchName: "brand-new.luau",
+        };
+
+        const [resolved] = resolvePushDestinations([entry], []);
+
+        assert.deepStrictEqual(resolved.destinations, [{ disposition: "create" }]);
+        assert.strictEqual(resolved.ambiguousType, undefined);
+    });
+});
+
+suite("Push planning: collisions", () => {
+    test("reports two entries that would write the same item", () => {
+        const sharedItem = inventoryItem("item-1", "widget", "script", 1);
+        const resolved: PushResolvedEntry[] = [
+            {
+                entry: { id: "e1", masterId: "master-a", type: "script", vm: "luau", targetName: "widget", matchName: "widget.luau" },
+                destinations: [{ disposition: "reuse", item: sharedItem }],
+            },
+            {
+                entry: { id: "e2", masterId: "master-b", type: "script", vm: "luau", targetName: "widget-alias", matchName: "widget-alias.luau" },
+                destinations: [{ disposition: "relink", item: sharedItem, relinkedFromMasterId: "master-a" }],
+            },
+        ];
+
+        const collisions = findPushCollisions(resolved);
+
+        assert.deepStrictEqual(collisions, [
+            { kind: "overlapping-destination", entryIds: ["e1", "e2"], itemId: "item-1" },
+        ]);
+    });
+
+    test("reports two entries that would both create the same target name", () => {
+        const resolved: PushResolvedEntry[] = [
+            {
+                entry: { id: "e1", masterId: "master-a", type: "script", vm: "luau", targetName: "widget", matchName: "widget.luau" },
+                destinations: [{ disposition: "create" }],
+            },
+            {
+                entry: { id: "e2", masterId: "master-b", type: "script", vm: "luau", targetName: "widget", matchName: "widget.luau" },
+                destinations: [{ disposition: "create" }],
+            },
+        ];
+
+        const collisions = findPushCollisions(resolved);
+
+        assert.deepStrictEqual(collisions, [
+            { kind: "duplicate-create-name", entryIds: ["e1", "e2"], targetName: "widget" },
+        ]);
+    });
+
+    test("does not report a collision for two entries sharing a target name but resolving to different items", () => {
+        const itemA = inventoryItem("item-a", "widget", "script", 1);
+        const itemB = inventoryItem("item-b", "widget", "script", 1);
+        const resolved: PushResolvedEntry[] = [
+            {
+                entry: { id: "e1", masterId: "master-a", type: "script", vm: "luau", targetName: "widget", matchName: "widget.luau" },
+                destinations: [{ disposition: "linked-update", item: itemA }],
+            },
+            {
+                entry: { id: "e2", masterId: "master-b", type: "script", vm: "luau", targetName: "widget", matchName: "widget.luau" },
+                destinations: [{ disposition: "linked-update", item: itemB }],
+            },
+        ];
+
+        assert.deepStrictEqual(findPushCollisions(resolved), []);
+    });
+
+    test("reports no collisions for a clean batch", () => {
+        const resolved: PushResolvedEntry[] = [
+            {
+                entry: { id: "e1", masterId: "master-a", type: "script", vm: "luau", targetName: "one", matchName: "one.luau" },
+                destinations: [{ disposition: "create" }],
+            },
+            {
+                entry: { id: "e2", masterId: "master-b", type: "notecard", targetName: "two.txt", matchName: "two.txt" },
+                destinations: [{ disposition: "create" }],
+            },
+        ];
+
+        assert.deepStrictEqual(findPushCollisions(resolved), []);
+    });
+});
+
+suite("Push planning: ambiguous entries", () => {
+    test("returns only entries excluded by a same-named item of a different type", () => {
+        const resolved: PushResolvedEntry[] = [
+            {
+                entry: { id: "e1", masterId: "master-a", type: "script", vm: "luau", targetName: "widget", matchName: "widget.luau" },
+                destinations: [],
+                ambiguousType: "notecard",
+            },
+            {
+                entry: { id: "e2", masterId: "master-b", type: "notecard", targetName: "two.txt", matchName: "two.txt" },
+                destinations: [{ disposition: "create" }],
+            },
+        ];
+
+        assert.deepStrictEqual(findAmbiguousPushEntries(resolved), [resolved[0]]);
+    });
+
+    test("returns an empty list when nothing is ambiguous", () => {
+        const resolved: PushResolvedEntry[] = [
+            {
+                entry: { id: "e1", masterId: "master-a", type: "script", vm: "luau", targetName: "widget", matchName: "widget.luau" },
+                destinations: [{ disposition: "create" }],
+            },
+        ];
+
+        assert.deepStrictEqual(findAmbiguousPushEntries(resolved), []);
+    });
+});
+
+suite("Push planning: conflicting entries", () => {
+    test("returns entries with a reuse, relink, or linked-update destination", () => {
+        const item = inventoryItem("item-1", "widget", "script", 1);
+        const resolved: PushResolvedEntry[] = [
+            {
+                entry: { id: "e1", masterId: "master-a", type: "script", vm: "luau", targetName: "widget", matchName: "widget.luau" },
+                destinations: [{ disposition: "reuse", item }],
+            },
+            {
+                entry: { id: "e2", masterId: "master-b", type: "notecard", targetName: "two.txt", matchName: "two.txt" },
+                destinations: [{ disposition: "create" }],
+            },
+        ];
+
+        assert.deepStrictEqual(findConflictingPushEntries(resolved), [resolved[0]]);
+    });
+
+    test("returns an empty list when every entry is a pure create", () => {
+        const resolved: PushResolvedEntry[] = [
+            {
+                entry: { id: "e1", masterId: "master-a", type: "script", vm: "luau", targetName: "widget", matchName: "widget.luau" },
+                destinations: [{ disposition: "create" }],
+            },
+        ];
+
+        assert.deepStrictEqual(findConflictingPushEntries(resolved), []);
+    });
+
+    test("treats a relink destination as a conflict", () => {
+        const item = inventoryItem("item-1", "widget", "script", 1);
+        const resolved: PushResolvedEntry[] = [
+            {
+                entry: { id: "e1", masterId: "master-a", type: "script", vm: "luau", targetName: "widget", matchName: "widget.luau" },
+                destinations: [{ disposition: "relink", item, relinkedFromMasterId: "master-c" }],
+            },
+        ];
+
+        assert.deepStrictEqual(findConflictingPushEntries(resolved), [resolved[0]]);
+    });
+});
+
+suite("Push planning: confirmation message", () => {
+    const context: PushConfirmationContext = {
+        objectName: "Widget Maker",
+        region: "Test Region",
+        primLabel: "root prim",
+    };
+
+    test("leads with object, region and target prim", () => {
+        const message = buildPushConfirmationMessage(context, [], { nestedDirectories: 0, notText: 0 });
+        const lines = message.split("\n");
+
+        assert.strictEqual(lines[0], "Push to Widget Maker (Test Region)");
+        assert.strictEqual(lines[1], "Target: root prim");
+    });
+
+    test("omits the region parenthetical when absent", () => {
+        const message = buildPushConfirmationMessage(
+            { objectName: "Widget Maker", primLabel: "root prim" },
+            [],
+            { nestedDirectories: 0, notText: 0 },
+        );
+
+        assert.strictEqual(message.split("\n")[0], "Push to Widget Maker");
+    });
+
+    test("lists linked-update, reuse and create dispositions with resolved names", () => {
+        const resolved: PushResolvedEntry[] = [
+            {
+                entry: { id: "a.luau", masterId: "m1", type: "script", vm: "luau", targetName: "a", matchName: "a.luau" },
+                destinations: [{ disposition: "linked-update", item: inventoryItem("i1", "a", "script", 1) }],
+            },
+            {
+                entry: { id: "b.txt", masterId: "m2", type: "notecard", targetName: "b.txt", matchName: "b.txt" },
+                destinations: [{ disposition: "reuse", item: inventoryItem("i2", "b.txt", "notecard") }],
+            },
+            {
+                entry: { id: "c.luau", masterId: "m3", type: "script", vm: "luau", targetName: "c", matchName: "c.luau" },
+                destinations: [{ disposition: "create" }],
+            },
+        ];
+
+        const message = buildPushConfirmationMessage(context, resolved, { nestedDirectories: 0, notText: 0 });
+
+        assert.ok(message.includes('a.luau: linked update "a.luau"'));
+        assert.ok(message.includes('b.txt: reuse "b.txt"'));
+        assert.ok(message.includes('c.luau: create "c"'));
+    });
+
+    test("names the previous master on a relink line", () => {
+        const resolved: PushResolvedEntry[] = [
+            {
+                entry: { id: "a.luau", masterId: "m-new", type: "script", vm: "luau", targetName: "a", matchName: "a.luau" },
+                destinations: [{
+                    disposition: "relink",
+                    item: inventoryItem("i1", "a", "script", 1),
+                    relinkedFromMasterId: "m-old",
+                }],
+            },
+        ];
+
+        const message = buildPushConfirmationMessage(context, resolved, { nestedDirectories: 0, notText: 0 });
+
+        assert.ok(message.includes('a.luau: relink "a.luau" (currently updated by m-old)'));
+    });
+
+    test("pluralizes and includes exclusion counts only when nonzero", () => {
+        const withOne = buildPushConfirmationMessage(context, [], { nestedDirectories: 1, notText: 0 });
+        const withMany = buildPushConfirmationMessage(context, [], { nestedDirectories: 3, notText: 2 });
+        const withNone = buildPushConfirmationMessage(context, [], { nestedDirectories: 0, notText: 0 });
+
+        assert.ok(withOne.includes("1 nested directory ignored"));
+        assert.ok(withMany.includes("3 nested directories ignored"));
+        assert.ok(withMany.includes("2 file(s) skipped (not text)"));
+        assert.ok(!withNone.includes("ignored"));
+        assert.ok(!withNone.includes("skipped (not text)"));
+    });
+
+    test("lists ambiguous entries in exclusions, naming the found type, and excludes them from the destination lines", () => {
+        const resolved: PushResolvedEntry[] = [
+            {
+                entry: { id: "config.lsl", masterId: "m1", type: "script", vm: "mono", targetName: "config.lsl", matchName: "config.lsl" },
+                destinations: [],
+                ambiguousType: "notecard",
+            },
+        ];
+
+        const message = buildPushConfirmationMessage(context, resolved, { nestedDirectories: 0, notText: 0 });
+
+        assert.ok(message.includes('config.lsl: skipped, found existing notecard named "config.lsl"'));
+        assert.ok(!message.includes("linked update"));
+        assert.ok(!message.includes("create"));
+    });
+});
+
+suite("Push target selection: summarizing published objects", () => {
+    test("summarizes root prim first, then every linked prim labeled with its link number", () => {
+        const object: PublishedObject = {
+            object_id: "root-id",
+            object_name: "Widget Maker",
+            region: "Test Region",
+            inventory: [],
+            linked_objects: [
+                { link_id: "link-2", link_number: 2, link_name: "Gear", inventory: [] },
+                { link_id: "link-3", link_number: 3, link_name: "Dial", inventory: [] },
+            ],
+        };
+
+        const [summary] = summarizePushTargets([object]);
+
+        assert.strictEqual(summary.objectId, "root-id");
+        assert.strictEqual(summary.objectName, "Widget Maker");
+        assert.strictEqual(summary.region, "Test Region");
+        assert.deepStrictEqual(summary.prims, [
+            { primId: "root-id", primLabel: "root prim" },
+            { primId: "link-2", primLabel: "Gear (link 2)" },
+            { primId: "link-3", primLabel: "Dial (link 3)" },
+        ]);
+    });
+
+    test("summarizes an object with no linked prims as root only", () => {
+        const object: PublishedObject = {
+            object_id: "root-id",
+            object_name: "Lone Object",
+            inventory: [],
+        };
+
+        const [summary] = summarizePushTargets([object]);
+
+        assert.deepStrictEqual(summary.prims, [{ primId: "root-id", primLabel: "root prim" }]);
+    });
+});
+
+suite("Push target selection: resolving the picker sequence", () => {
+    function objectSummary(
+        overrides: Partial<PushPublishedObjectSummary> = {},
+    ): PushPublishedObjectSummary
+    {
+        return {
+            objectId: "root-id",
+            objectName: "Widget Maker",
+            region: "Test Region",
+            prims: [
+                { primId: "root-id", primLabel: "root prim" },
+                { primId: "link-2", primLabel: "Gear (link 2)" },
+            ],
+            ...overrides,
+        };
+    }
+
+    test("returns the combined object and prim selection", async () => {
+        const object = objectSummary();
+
+        const selection = await resolvePushTarget([object], {
+            async selectObject(choices) {
+                assert.strictEqual(choices.length, 1);
+                return choices[0].value;
+            },
+            async selectPrim(choices) {
+                assert.strictEqual(choices.length, 2);
+                return choices[1].value;
+            },
+        });
+
+        assert.deepStrictEqual(selection, {
+            objectId: "root-id",
+            objectName: "Widget Maker",
+            region: "Test Region",
+            primId: "link-2",
+            primLabel: "Gear (link 2)",
+        });
+    });
+
+    test("returns undefined without prompting for a prim when the object pick is dismissed", async () => {
+        let primPrompted = false;
+
+        const selection = await resolvePushTarget([objectSummary()], {
+            async selectObject() {
+                return undefined;
+            },
+            async selectPrim(choices) {
+                primPrompted = true;
+                return choices[0]?.value;
+            },
+        });
+
+        assert.strictEqual(selection, undefined);
+        assert.strictEqual(primPrompted, false);
+    });
+
+    test("returns undefined when the prim pick is dismissed", async () => {
+        const selection = await resolvePushTarget([objectSummary()], {
+            async selectObject(choices) {
+                return choices[0].value;
+            },
+            async selectPrim() {
+                return undefined;
+            },
+        });
+
+        assert.strictEqual(selection, undefined);
+    });
+
+    test("returns undefined without prompting when there are no published objects", async () => {
+        let objectPrompted = false;
+
+        const selection = await resolvePushTarget([], {
+            async selectObject(choices) {
+                objectPrompted = true;
+                return choices[0]?.value;
+            },
+            async selectPrim(choices) {
+                return choices[0]?.value;
+            },
+        });
+
+        assert.strictEqual(selection, undefined);
+        assert.strictEqual(objectPrompted, false);
     });
 });

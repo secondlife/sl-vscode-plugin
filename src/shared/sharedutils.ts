@@ -251,7 +251,7 @@ const RESERVED_DEVICE_NAMES = new Set([
     "LPT9",
 ]);
 
-function splitExtension(name: string): { stem: string; extension: string }
+export function splitExtension(name: string): { stem: string; extension: string }
 {
     const extensionIndex = name.lastIndexOf(".");
 

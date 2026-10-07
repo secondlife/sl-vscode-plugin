@@ -287,6 +287,44 @@ matching involved. Items the object's permissions do not allow you to copy or
 modify are skipped; a readable notecard you cannot modify is still copied, but
 is not linked. The plugin reports one summary when the pull finishes.
 
+### Pushing workspace files to an object
+
+To write one or more workspace files into a published object, select them in
+the VS Code Explorer (right-click a single file, or a multi-selection), and
+choose **Push selected to...**. Selecting a folder includes the files
+directly inside it, one level deep; subfolders within it are counted but not
+descended into, and files that are not valid text are skipped.
+
+The plugin first asks which published object to push to, then which prim —
+the root or a specific linked prim. It then works out, for each file,
+whether it already belongs to an in-world item through an existing link, a
+matching name on the target prim, or neither:
+
+- A file already linked to a master uses that same item, even if its name no
+  longer matches — including when the item is currently linked to a
+  *different* master, in which case the link simply moves to this file and
+  nothing else on either master is affected.
+- Otherwise, a same-named item of the same type on the target prim is reused.
+  A same-named item of a *different* type (for example, a notecard where the
+  file is a script) is left alone — it is neither written nor created.
+- If nothing matches, a new item is created with the file's name.
+
+Before anything is written, the plugin shows one confirmation listing every
+destination and what will happen to it, so you can review the whole batch at
+a glance; cancelling leaves the object untouched. If any of the selected
+files are open with unsaved changes, you are offered a chance to save them
+first — except for a file that is already linked to a different, unrelated
+item, since saving that file would also push its other copy.
+
+Scripts are preprocessed exactly as they would be on an ordinary save;
+notecards are sent as-is. Existing items are updated before any new items are
+created. Every item the push writes to or creates is linked back to the file
+that produced it, exactly as **Pull to Workspace** does in reverse, so
+further edits to that file keep flowing to the object. The plugin reports one
+summary when the push finishes; an item that was created but could not be
+filled with the file's content (left empty in-world) is called out
+specifically, since it needs a follow-up save to fix.
+
 ## Pinning Objects
 
 You can pin explored objects in the **Second Life** view so they are restored

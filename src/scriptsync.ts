@@ -686,10 +686,24 @@ export class ScriptSync implements vscode.Disposable {
     //#endregion
 
     public async preProcessContent(originalContent: string): Promise<string> {
+        return (await this.preProcessContentWithResult(originalContent)).content;
+    }
+
+    /**
+     * Same preprocessing as preProcessContent(), but exposes whether it
+     * actually succeeded. Push needs this to fail just that file rather than
+     * silently deliver unprocessed source as if it had compiled — the plain
+     * preProcessContent() wrapper exists for every other caller, which treats
+     * a fallback-to-original-content as an acceptable, already-reported
+     * outcome.
+     */
+    public async preProcessContentWithResult(
+        originalContent: string,
+    ): Promise<{ success: boolean; content: string }> {
         // Check if preprocessing is enabled
         const enabled = this.config.getConfig<boolean>(ConfigKey.PreprocessorEnable, true);
         if (!enabled || !isProccessedLanguage(this.language)) {
-            return originalContent;
+            return { success: true, content: originalContent };
         }
         const config = buildPreprocessorConfig(this.language, this.config);
         const preprocessor = new LexingPreprocessor(this.syncService.getHost(), config, this.macros);
@@ -700,6 +714,7 @@ export class ScriptSync implements vscode.Disposable {
         const baseName: string = path.basename(masterFilePath);
         let preprocessorResult: PreprocessorResult | null = null;
         let finalContent = originalContent;
+        let success = true;
         try {
             console.log(`Preprocessing enabled for: ${baseName}`);
 
@@ -733,17 +748,18 @@ export class ScriptSync implements vscode.Disposable {
             } else {
                 // Preprocessing failed, use original content and show error
                 finalContent = originalContent;
-
+                success = false;
                 this.reportPreprocessorFailure(baseName, preprocessorResult);
             }
         } catch (error) {
             // Fallback to original content on any unexpected errors
             finalContent = originalContent;
+            success = false;
             const errorMessage = `Preprocessing error for ${baseName}: ${error instanceof Error ? error.message : String(error)}`;
             logError(errorMessage, error instanceof Error ? error : undefined);
             vscode.window.showErrorMessage(errorMessage);
         }
-        return finalContent;
+        return { success, content: finalContent };
     }
 
     /**
@@ -804,12 +820,7 @@ export class ScriptSync implements vscode.Disposable {
                 "utf8",
             );
             const processedContent = await this.preProcessContent(originalContent);
-
-            const sha = sha256.create();
-            sha.update(processedContent);
-            const hash = sha.hex();
-
-            const prefixedContent = this.prefixWithMetaInformation(processedContent, hash);
+            const { content: prefixedContent, hash } = this.finalizeSaveContent(processedContent);
 
             // Walk through all tracked files and save if hash has changed
             await Promise.all(
@@ -842,6 +853,15 @@ export class ScriptSync implements vscode.Disposable {
         } catch (err: any) {
             vscode.window.showErrorMessage(`Error syncing file: ${err.message}`);
         }
+    }
+
+    /** Hashes and headers already-preprocessed content without delivering it; shared by master save and push. */
+    public finalizeSaveContent(processedContent: string): { content: string; hash: string }
+    {
+        const sha = sha256.create();
+        sha.update(processedContent);
+        const hash = sha.hex();
+        return { content: this.prefixWithMetaInformation(processedContent, hash), hash };
     }
 
     private prefixWithMetaInformation(content:string, hash: string) : string {
