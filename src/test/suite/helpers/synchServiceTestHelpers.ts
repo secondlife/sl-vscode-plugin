@@ -51,6 +51,7 @@ export function createFakeScriptSync(options: FakeScriptSyncOptions): FakeScript
 {
     let snapshots = options.snapshots ?? [];
     let scriptIds = options.scriptIds ?? [];
+    let masterUri = options.masterUri;
     const calls: FakeScriptSyncCalls = {
         dispose: 0,
         unsubscribeByFile: [],
@@ -61,10 +62,14 @@ export function createFakeScriptSync(options: FakeScriptSyncOptions): FakeScript
     };
 
     const fake = {
-        getMasterUri: (): vscode.Uri => options.masterUri,
+        getMasterUri: (): vscode.Uri => masterUri,
         getMasterDocument: (): vscode.TextDocument =>
-            ({ uri: options.masterUri } as unknown as vscode.TextDocument),
-        getMasterFilePath: (): string => options.masterUri.fsPath,
+            ({ uri: masterUri } as unknown as vscode.TextDocument),
+        getMasterFilePath: (): string => masterUri.fsPath,
+        renameMasterDocument: (document: vscode.TextDocument): void =>
+        {
+            masterUri = document.uri;
+        },
         getTrackedFileSnapshots: (): TrackedFileSnapshot[] => snapshots,
         getTrackedVirtualItemsInObject: (
             object_id: string,
@@ -117,6 +122,15 @@ export function createFakeScriptSync(options: FakeScriptSyncOptions): FakeScript
             const before = scriptIds.length;
             scriptIds = scriptIds.filter((existing) => existing !== id);
             return before - scriptIds.length;
+        },
+        renameTemporaryFile: async (oldUri: vscode.Uri, newUri: vscode.Uri): Promise<boolean> =>
+        {
+            const index = snapshots.findIndex((s) => s.kind === "local" && s.fileUri?.fsPath === oldUri.fsPath);
+            if (index === -1) {
+                return false;
+            }
+            snapshots = snapshots.map((s, i) => (i === index ? { ...s, fileUri: newUri } : s));
+            return true;
         },
         dispose: (): void =>
         {

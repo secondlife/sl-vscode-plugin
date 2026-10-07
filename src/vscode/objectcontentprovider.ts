@@ -850,6 +850,12 @@ export class ObjectContentProvider implements vscode.FileSystemProvider, vscode.
         const client = this.getClient();
         if (!client) throw vscode.FileSystemError.Unavailable("Not connected to viewer");
 
+        // Snapshot item ids present before the call, so a failed create can be told
+        // apart from an old item that coincidentally already matches.
+        const priorItemIds = new Set(
+            (this.service.getInventory(root_id, prim_id) ?? []).map((item) => item.item_id),
+        );
+
         try {
             const createCallParams: ObjectItemCreateParams = { prim_id, name: itemName, type };
             if (vm) {
@@ -866,10 +872,10 @@ export class ObjectContentProvider implements vscode.FileSystemProvider, vscode.
                 // The simulator can report a false "not found in updated inventory"
                 // error even though the item IS created moments later — a race
                 // between create() responding and its own inventory becoming
-                // internally consistent. Poll the locally-cached inventory (kept
-                // current by object.update notifications) for a newly-appeared,
-                // name-matching item before giving up.
-                const recovered = await this.waitForCreatedItem(root_id, prim_id, itemName, type);
+                // internally consistent. Wait for a new item of the right type to
+                // appear — name can't identify it, since the simulator may rename
+                // the item to avoid a duplicate — before giving up.
+                const recovered = await this.waitForCreatedItem(root_id, prim_id, type, priorItemIds);
                 if (!recovered) {
                     throw createError;
                 }
@@ -933,24 +939,25 @@ export class ObjectContentProvider implements vscode.FileSystemProvider, vscode.
     }
 
     /**
-     * Wait for an item matching the name and type just requested to appear
-     * in the locally-cached inventory, recovering from the simulator's
-     * create/inventory race (see handleCreate). Resolves immediately if it's
-     * already there; otherwise waits for the object.update notification that
-     * will add it, rather than polling — mirrors
+     * Wait for a new item of `type` — one whose id was not in `priorItemIds` —
+     * to appear in the locally-cached inventory, recovering from the simulator's
+     * create/inventory race (see handleCreate). Name can't be used to identify
+     * the item since the simulator may rename it to avoid a duplicate. Resolves
+     * immediately if it's already there; otherwise waits for the object.update
+     * notification that will add it, rather than polling — mirrors
      * ObjectContentService.waitForObjectPublish()'s own event-then-timeout
      * pattern.
      */
     private waitForCreatedItem(
         root_id: string,
         prim_id: string,
-        itemName: string,
         type: InventoryItemType,
+        priorItemIds: ReadonlySet<string>,
         timeoutMs = 5000,
     ): Promise<ObjectItemCreateResponse | undefined> {
         const findMatch = (): ObjectInventoryItem | undefined =>
             (this.service.getInventory(root_id, prim_id) ?? []).find(
-                (item) => item.type === type && item.name === itemName,
+                (item) => item.type === type && !priorItemIds.has(item.item_id),
             );
 
         const existing = findMatch();

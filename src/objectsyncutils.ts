@@ -543,7 +543,7 @@ export function stripGeneratedScriptMetadata(
         const line = lines[index];
         const contentAfterComment = commentContent(line.text, commentPrefix);
 
-        if (contentAfterComment?.startsWith("@"))
+        if (/^@(line|file|hash|date|creatorID|creator|module)\b/.test(contentAfterComment ?? ""))
         {
             continue;
         }
@@ -788,7 +788,10 @@ export function planPushSet(files: readonly PushFile[]): readonly PushEntry[]
 {
     return files.map((file) =>
     {
-        const { stem, extension } = splitExtension(file.fileName);
+        // Derived from the same sanitised name as matchName, not the raw filename, so two
+        // files that sanitise to the same name (e.g. "a:b.lsl" and "a?b.lsl") collide.
+        const matchName = sanitiseSegment(file.fileName);
+        const { stem, extension } = splitExtension(matchName);
         const { type, vm } = typeAndVmFromExtension(extension);
 
         return {
@@ -796,8 +799,8 @@ export function planPushSet(files: readonly PushFile[]): readonly PushEntry[]
             masterId: file.masterId,
             type,
             vm,
-            targetName: type === "notecard" ? file.fileName : stem,
-            matchName: sanitiseSegment(file.fileName),
+            targetName: type === "notecard" ? matchName : stem,
+            matchName,
         };
     });
 }

@@ -140,6 +140,8 @@ viewer.
   created; and if nothing matches, a new item is created.
 - **One confirmation** lists every destination and its disposition — update,
   move, or create — before anything is written; cancelling writes nothing.
+  Shown only when the batch would update, move, or reuse an existing
+  destination; a batch that only creates new items proceeds without it.
 - If any selected file is open and unsaved, one prompt offers to save them
   first — excluding any file already linked elsewhere, since saving that one
   would also push its other linked copies.

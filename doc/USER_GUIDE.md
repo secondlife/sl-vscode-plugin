@@ -311,7 +311,9 @@ matching name on the target prim, or neither:
 
 Before anything is written, the plugin shows one confirmation listing every
 destination and what will happen to it, so you can review the whole batch at
-a glance; cancelling leaves the object untouched. If any of the selected
+a glance — but only if the batch would overwrite something that already
+exists in-world; a batch that only creates new items proceeds without a
+prompt. Cancelling leaves the object untouched. If any of the selected
 files are open with unsaved changes, you are offered a chance to save them
 first — except for a file that is already linked to a different, unrelated
 item, since saving that file would also push its other copy.

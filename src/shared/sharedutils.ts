@@ -287,7 +287,10 @@ function truncatePreservingExtension(name: string, suffix = ""): string
 
 function isReservedDeviceName(name: string): boolean
 {
-    return RESERVED_DEVICE_NAMES.has(name.toUpperCase());
+    // Windows reserves the device name even with an extension, e.g. "NUL.lsl".
+    const dotIndex = name.indexOf(".");
+    const stem = dotIndex === -1 ? name : name.slice(0, dotIndex);
+    return RESERVED_DEVICE_NAMES.has(stem.toUpperCase());
 }
 
 /** Sanitise one SL inventory name into a single, safe filesystem path segment. */

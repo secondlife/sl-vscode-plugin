@@ -2153,6 +2153,7 @@ export class SynchService implements vscode.Disposable {
 
         this.activeSyncs.delete(oldKey);
         this.activeSyncs.set(newKey, sync);
+        this.markFileLinkIndexDirty();
         return true;
     }
 
@@ -2165,7 +2166,11 @@ export class SynchService implements vscode.Disposable {
             return false;
         }
 
-        return sync.renameTemporaryFile(oldUri, newUri);
+        const renamed = await sync.renameTemporaryFile(oldUri, newUri);
+        if (renamed) {
+            this.markFileLinkIndexDirty();
+        }
+        return renamed;
     }
 
     private async validateMasterBeforeSave(sync: ScriptSync): Promise<boolean>

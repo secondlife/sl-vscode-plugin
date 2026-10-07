@@ -21,8 +21,9 @@ suite("Shared utilities path safety", () => {
         assert.strictEqual(sanitiseSegment("com3"), "_com3");
     });
 
-    test("preserves reserved names with extensions", () => {
-        assert.strictEqual(sanitiseSegment("NUL.lsl"), "NUL.lsl");
+    test("prefixes reserved device names even with an extension", () => {
+        assert.strictEqual(sanitiseSegment("NUL.lsl"), "_NUL.lsl");
+        assert.strictEqual(sanitiseSegment("CON.txt"), "_CON.txt");
     });
 
     test("truncates long segments while preserving extensions", () => {

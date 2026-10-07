@@ -597,6 +597,24 @@ suite("Object content generated metadata", () => {
         );
     });
 
+    test("keeps user-authored @-tagged comments that are not a known generated tag", () => {
+        const content = [
+            "// @line 1 \"file:///main.lsl\"",
+            "// @todo revisit this",
+            "// @author Example Resident",
+            "default { state_entry() { } }",
+        ].join("\n");
+
+        assert.strictEqual(
+            stripGeneratedScriptMetadata(content, "//"),
+            [
+                "// @todo revisit this",
+                "// @author Example Resident",
+                "default { state_entry() { } }",
+            ].join("\n"),
+        );
+    });
+
     test("treats a metadata block outside the first line as normal content", () => {
         const content = [
             "default {",
@@ -691,6 +709,20 @@ suite("Push planning: file derivation", () => {
         assert.strictEqual(entries[0].masterId, "master-a");
         assert.strictEqual(entries[1].id, "b");
         assert.strictEqual(entries[1].masterId, "master-b");
+    });
+
+    test("derives targetName from the same sanitised name as matchName, so two files that sanitise identically collide", () => {
+        const files: readonly PushFile[] = [
+            { id: "a", masterId: "master-a", fileName: "a:b.lsl" },
+            { id: "b", masterId: "master-b", fileName: "a?b.lsl" },
+        ];
+
+        const entries = planPushSet(files);
+
+        assert.strictEqual(entries[0].matchName, "a_b.lsl");
+        assert.strictEqual(entries[1].matchName, "a_b.lsl");
+        assert.strictEqual(entries[0].targetName, entries[1].targetName);
+        assert.strictEqual(entries[0].targetName, "a_b");
     });
 });
 

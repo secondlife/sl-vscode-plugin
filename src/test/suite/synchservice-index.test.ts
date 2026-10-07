@@ -30,6 +30,46 @@ suite("SynchService index lookup characterization", () => {
         assert.strictEqual(service.findIndexedSyncByMasterFilePath("C:/ws/sub/missing.luau"), undefined);
     });
 
+    test("rekeyMasterSync invalidates the index so the new master path resolves and the old path misses", () => {
+        const { service, activeSyncs } = createTestSynchService();
+        const oldMaster = vscode.Uri.file("C:/ws/old.luau");
+        const newMaster = vscode.Uri.file("C:/ws/new.luau");
+        const fake = createFakeScriptSync({ masterUri: oldMaster });
+        activeSyncs.set(masterKeyFor(oldMaster), fake.sync);
+
+        // Prime the index on the old path before rekeying.
+        assert.strictEqual(service.findIndexedSyncByMasterFilePath(oldMaster.fsPath), fake.sync);
+
+        const rekeyed = (service as any).rekeyMasterSync(fake.sync, newMaster);
+        assert.strictEqual(rekeyed, true);
+        // renameMasterLink always follows a successful rekey with this call.
+        fake.sync.renameMasterDocument({ uri: newMaster } as unknown as vscode.TextDocument);
+
+        assert.strictEqual(service.findIndexedSyncByMasterFilePath(newMaster.fsPath), fake.sync);
+        assert.strictEqual(service.findIndexedSyncByMasterFilePath(oldMaster.fsPath), undefined);
+    });
+
+    test("renameTemporaryLink invalidates the index so the new temporary path resolves and the old path misses", async () => {
+        const { service, activeSyncs } = createTestSynchService();
+        const master = vscode.Uri.file("C:/ws/a.luau");
+        const oldTemp = vscode.Uri.file("C:/tmp/old.luau");
+        const newTemp = vscode.Uri.file("C:/tmp/new.luau");
+        const fake = createFakeScriptSync({
+            masterUri: master,
+            snapshots: [{ kind: "local", fileUri: oldTemp }],
+        });
+        activeSyncs.set(masterKeyFor(master), fake.sync);
+
+        // Prime the index on the old path before renaming.
+        assert.strictEqual(service.findIndexedSyncByTemporaryFilePath(oldTemp.fsPath), fake.sync);
+
+        const renamed = await (service as any).renameTemporaryLink(oldTemp, newTemp);
+        assert.strictEqual(renamed, true);
+
+        assert.strictEqual(service.findIndexedSyncByTemporaryFilePath(newTemp.fsPath), fake.sync);
+        assert.strictEqual(service.findIndexedSyncByTemporaryFilePath(oldTemp.fsPath), undefined);
+    });
+
     test("findIndexedSyncByTemporaryFilePath resolves equivalent path spellings and misses otherwise", () => {
         const { service, activeSyncs } = createTestSynchService();
         const master = vscode.Uri.file("C:/ws/a.luau");
