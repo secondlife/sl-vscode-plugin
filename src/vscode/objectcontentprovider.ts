@@ -13,6 +13,7 @@ import {
     ObjectContentService,
     ObjectInventoryItem,
     ObjectItemCreateParams,
+    ObjectItemCreateResponse,
     ScriptVM,
     ViewerEditWSClient,
 } from "#sl-ide-ws-client";
@@ -184,9 +185,21 @@ function parseUri(
     // Detect /+create/ pattern early — no inventory lookup needed
     const createIdx = parts.indexOf("+create");
     if (createIdx !== -1) {
+        if (createIdx === 1 && parts.length === 2) {
+            // sl://objects/{root_id}/+create — bare parent directory, no
+            // filename yet. VS Code stats this before writing the child
+            // /+create/{filename} path; it must resolve as an existing,
+            // writable directory or the write is rejected before our
+            // writeFile()/handleCreate() ever runs.
+            return { root_id, isDirectory: true };
+        }
         if (createIdx === 1 && parts.length === 3) {
             // sl://objects/{root_id}/+create/{filename}
             return { root_id, pending_name: parts[2], isDirectory: false, isCreate: true };
+        }
+        if (createIdx === 2 && parts.length === 3) {
+            // sl://objects/{root_id}/{link_id}/+create — bare parent directory.
+            return { root_id, link_id: parts[1], isDirectory: true };
         }
         if (createIdx === 2 && parts.length === 4) {
             // sl://objects/{root_id}/{link_id}/+create/{filename}
@@ -301,6 +314,28 @@ export function itemUri(
     );
 }
 
+/** Build a URI under the provider's `/+create/` path for a new item. */
+export function createUri(
+    root_id: string,
+    prim_id: string,
+    filename: string,
+): vscode.Uri {
+    const segments = [root_id];
+
+    if (prim_id !== root_id)
+    {
+        segments.push(prim_id);
+    }
+
+    segments.push("+create", filename);
+
+    return vscode.Uri.from({
+        scheme: SL_SCHEME,
+        authority: SL_AUTHORITY,
+        path: `/${segments.join("/")}`,
+    });
+}
+
 // ============================================
 // Display Name Helpers
 // ============================================
@@ -337,10 +372,10 @@ export function uriForInventoryItem(
  * Derive type and vm from a synthetic display extension.
  * Used when creating new items from a filename the user typed.
  */
-function typeAndVmFromExtension(ext: string): { type: InventoryItemType; vm?: ScriptVM } {
+export function typeAndVmFromExtension(ext: string): { type: InventoryItemType; vm?: ScriptVM } {
     switch (ext.toLowerCase()) {
         case ".luau": return { type: "script", vm: "luau" };
-        case ".lsl":  return { type: "script", vm: "lsl2" };
+        case ".lsl":  return { type: "script", vm: "mono" };
         default:      return { type: "notecard" };
     }
 }
@@ -815,6 +850,12 @@ export class ObjectContentProvider implements vscode.FileSystemProvider, vscode.
         const client = this.getClient();
         if (!client) throw vscode.FileSystemError.Unavailable("Not connected to viewer");
 
+        // Snapshot item ids present before the call, so a failed create can be told
+        // apart from an old item that coincidentally already matches.
+        const priorItemIds = new Set(
+            (this.service.getInventory(root_id, prim_id) ?? []).map((item) => item.item_id),
+        );
+
         try {
             const createCallParams: ObjectItemCreateParams = { prim_id, name: itemName, type };
             if (vm) {
@@ -824,10 +865,29 @@ export class ObjectContentProvider implements vscode.FileSystemProvider, vscode.
                 createCallParams.text = Buffer.from(content).toString("utf-8");
             }
 
-            const result = await client.createObjectItem(createCallParams);
+            let result: ObjectItemCreateResponse;
+            try {
+                result = await client.createObjectItem(createCallParams);
+            } catch (createError) {
+                // The simulator can report a false "not found in updated inventory"
+                // error even though the item IS created moments later — a race
+                // between create() responding and its own inventory becoming
+                // internally consistent. Wait for a new item of the right type to
+                // appear — name can't identify it, since the simulator may rename
+                // the item to avoid a duplicate — before giving up.
+                const recovered = await this.waitForCreatedItem(root_id, prim_id, type, priorItemIds);
+                if (!recovered) {
+                    throw createError;
+                }
+                result = recovered;
+            }
 
             if (!result.item_id) {
                 throw vscode.FileSystemError.Unavailable("Create failed: missing item_id");
+            }
+
+            if (!this.service.getItem(root_id, prim_id, result.item_id)) {
+                this.service.addItem(root_id, prim_id, result);
             }
 
             // Fetch the created item's content. For scripts, the server generates
@@ -876,6 +936,52 @@ export class ObjectContentProvider implements vscode.FileSystemProvider, vscode.
             }
             throw mapRpcErrorToFileSystemError(error, uri);
         }
+    }
+
+    /**
+     * Wait for a new item of `type` — one whose id was not in `priorItemIds` —
+     * to appear in the locally-cached inventory, recovering from the simulator's
+     * create/inventory race (see handleCreate). Name can't be used to identify
+     * the item since the simulator may rename it to avoid a duplicate. Resolves
+     * immediately if it's already there; otherwise waits for the object.update
+     * notification that will add it, rather than polling — mirrors
+     * ObjectContentService.waitForObjectPublish()'s own event-then-timeout
+     * pattern.
+     */
+    private waitForCreatedItem(
+        root_id: string,
+        prim_id: string,
+        type: InventoryItemType,
+        priorItemIds: ReadonlySet<string>,
+        timeoutMs = 5000,
+    ): Promise<ObjectItemCreateResponse | undefined> {
+        const findMatch = (): ObjectInventoryItem | undefined =>
+            (this.service.getInventory(root_id, prim_id) ?? []).find(
+                (item) => item.type === type && !priorItemIds.has(item.item_id),
+            );
+
+        const existing = findMatch();
+        if (existing) {
+            return Promise.resolve({ ...existing, prim_id });
+        }
+
+        return new Promise((resolve) => {
+            const sub = this.service.onDidChangeObjects((e) => {
+                if (e.object_id !== root_id) {
+                    return;
+                }
+                const match = findMatch();
+                if (match) {
+                    clearTimeout(timer);
+                    sub.dispose();
+                    resolve({ ...match, prim_id });
+                }
+            });
+            const timer = setTimeout(() => {
+                sub.dispose();
+                resolve(undefined);
+            }, timeoutMs);
+        });
     }
 
     async delete(uri: vscode.Uri, _options: { recursive: boolean }): Promise<void> {

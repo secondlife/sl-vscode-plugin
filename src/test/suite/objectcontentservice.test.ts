@@ -5,6 +5,7 @@ import {
     ObjectContentService,
     ObjectInventoryItem,
     ObjectTreeChangeEvent,
+    PublishedObject,
 } from "#sl-ide-ws-client";
 
 const rootId = "11111111-1111-4111-8111-111111111111";
@@ -24,7 +25,7 @@ function scriptItem(item_id: string, name: string): ObjectInventoryItem
 function publishedObject(
     inventory: ObjectInventoryItem[] = [],
     linked_objects: LinkedObject[] = [],
-)
+): PublishedObject
 {
     return {
         object_id: rootId,

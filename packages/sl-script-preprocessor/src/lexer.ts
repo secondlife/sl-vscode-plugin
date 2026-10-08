@@ -998,8 +998,8 @@ export class Lexer {
             if (isHex || isBinary) {
                 let literal = this.advance() + this.advance(); // "0x" / "0b"
                 const isValidDigit = isHex
-                    ? (ch: string) => this.isHexDigit(ch)
-                    : (ch: string) => this.isBinaryDigit(ch);
+                    ? (ch: string): boolean => this.isHexDigit(ch)
+                    : (ch: string): boolean => this.isBinaryDigit(ch);
                 while (!this.isAtEnd() && isValidDigit(this.peek())) {
                     literal += this.advance();
                 }

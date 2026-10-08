@@ -31,6 +31,13 @@ export interface ItemPermissions {
     next_owner: number;        // Applied on transfer
 }
 
+/** PERM_MODIFY bit from viewer LLPermissions */
+export const PERM_MODIFY = 0x4000;
+/** PERM_COPY bit from viewer LLPermissions */
+export const PERM_COPY = 0x8000;
+/** PERM_TRANSFER bit from viewer LLPermissions */
+export const PERM_TRANSFER = 0x2000;
+
 /**
  * Inventory item within an object or linked prim.
  * Only scripts and notecards are supported; other item types are not exposed.

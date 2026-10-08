@@ -13,6 +13,7 @@ import {
 import { ObjectPinStore } from "./objectpinstore";
 import { displayName, extractJsonRpcErrorCode, JSONRPC_INVALID_PARAMS } from "./objectcontentprovider";
 import { SynchService } from "../synchservice";
+import { ObjectContentSync } from "./objectcontentsync";
 
 interface PinnedObjectView {
     object_id: string;
@@ -49,6 +50,7 @@ export class ObjectExplorerWebviewProvider implements vscode.WebviewViewProvider
         onConnectionChange: vscode.Event<boolean>,
         private readonly getWebSocket: () => ViewerEditWSClient | undefined,
         private readonly synchService: SynchService,
+        private readonly objectContentSync: ObjectContentSync,
     ) {
         this._extensionUri = extensionUri;
         this._service = ObjectContentService.getInstance();
@@ -325,6 +327,11 @@ export class ObjectExplorerWebviewProvider implements vscode.WebviewViewProvider
             case "autoLinkObject": {
                 const { object_id } = message.payload as { object_id: string };
                 await this.synchService.autoLinkObject(object_id);
+                break;
+            }
+            case "pullObjectToWorkspace": {
+                const { object_id } = message.payload as { object_id: string };
+                await this.objectContentSync.pullObjectToWorkspace(object_id);
                 break;
             }
             case "renameItem": {
