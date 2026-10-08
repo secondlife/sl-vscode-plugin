@@ -260,6 +260,73 @@ To run this automatically whenever an object is explored, enable
 `slVscodeEdit.sync.autoLinkOnPublish` in the **SL Scripting - Sync** settings.
 The setting is disabled by default.
 
+### Pulling an object's files into the workspace
+
+To copy an explored object's scripts and notecards into the workspace, open
+the object's context menu and select **Pull to Workspace**. Unlike **Link
+All**, which only matches *existing* workspace files, **Pull to Workspace**
+creates the files for you.
+
+The plugin asks for a destination: it uses the only workspace root
+automatically, or prompts you to choose one if more than one is open, then
+prompts for a folder name pre-filled with the object's name. Root prim items go
+directly in that folder; each linked prim gets its own subfolder, always
+named after the prim and its link number so a later pull cannot rename or
+orphan an earlier one.
+
+If none of the target files already exist, the pull proceeds immediately. If
+any do, the plugin shows one prompt listing them (or the count, if there are
+many) and asks whether to skip or overwrite them; it also warns about any that
+are open in the editor with unsaved changes, since those cannot be overwritten
+either way. Existing files you choose to skip are left completely untouched —
+the plugin does not read or compare them.
+
+Every file the pull writes is linked to the in-world item it came from,
+exactly as if you had opened and linked it individually, with no name
+matching involved. Items the object's permissions do not allow you to copy or
+modify are skipped; a readable notecard you cannot modify is still copied, but
+is not linked. The plugin reports one summary when the pull finishes.
+
+### Pushing workspace files to an object
+
+To write one or more workspace files into a published object, select them in
+the VS Code Explorer (right-click a single file, or a multi-selection), and
+choose **Push selected to...**. Selecting a folder includes the files
+directly inside it, one level deep; subfolders within it are counted but not
+descended into, and files that are not valid text are skipped.
+
+The plugin first asks which published object to push to, then which prim —
+the root or a specific linked prim. It then works out, for each file,
+whether it already belongs to an in-world item through an existing link, a
+matching name on the target prim, or neither:
+
+- A file already linked to a master uses that same item, even if its name no
+  longer matches — including when the item is currently linked to a
+  *different* master, in which case the link simply moves to this file and
+  nothing else on either master is affected.
+- Otherwise, a same-named item of the same type on the target prim is reused.
+  A same-named item of a *different* type (for example, a notecard where the
+  file is a script) is left alone — it is neither written nor created.
+- If nothing matches, a new item is created with the file's name.
+
+Before anything is written, the plugin shows one confirmation listing every
+destination and what will happen to it, so you can review the whole batch at
+a glance — but only if the batch would overwrite something that already
+exists in-world; a batch that only creates new items proceeds without a
+prompt. Cancelling leaves the object untouched. If any of the selected
+files are open with unsaved changes, you are offered a chance to save them
+first — except for a file that is already linked to a different, unrelated
+item, since saving that file would also push its other copy.
+
+Scripts are preprocessed exactly as they would be on an ordinary save;
+notecards are sent as-is. Existing items are updated before any new items are
+created. Every item the push writes to or creates is linked back to the file
+that produced it, exactly as **Pull to Workspace** does in reverse, so
+further edits to that file keep flowing to the object. The plugin reports one
+summary when the push finishes; an item that was created but could not be
+filled with the file's content (left empty in-world) is called out
+specifically, since it needs a follow-up save to fix.
+
 ## Pinning Objects
 
 You can pin explored objects in the **Second Life** view so they are restored
@@ -313,6 +380,9 @@ The available actions include:
   as a Luau script; otherwise, it is created as a notecard.
 - **Link All**: Attempts to link every script and notecard in the object,
   including items in linked prims, with matching workspace files.
+- **Pull to Workspace**: Copies every script and notecard in the object,
+  including items in linked prims, into a new workspace folder and links each
+  copied file to the in-world item it came from.
 - **Unexplore**: Removes the selected object from publication in the viewer.
 - **Save Back to Contents**: If the object was rezzed directly from another object,
   it is saved back to that rezzing object's inventory.

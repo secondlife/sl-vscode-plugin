@@ -143,9 +143,9 @@ suite('Logger Tests', () => {
 
     //#region error() detail formatting
 
-    test('error() with an Error writes message and stack, indented', () => {
+    test('error() with an Error writes message and stack, indented', (): void => {
         const sink = createRecordingSink();
-        const logger = new Logger({ sink, level: LogLevel.Error, now: () => FIXED_DATE });
+        const logger = new Logger({ sink, level: LogLevel.Error, now: (): Date => FIXED_DATE });
         const err = new Error('boom');
 
         logger.error('failed to publish', err);
@@ -170,9 +170,9 @@ suite('Logger Tests', () => {
 
     //#region Line format
 
-    test('line format matches [<iso>] <LEVEL>: <text> using the injected clock', () => {
+    test('line format matches [<iso>] <LEVEL>: <text> using the injected clock', (): void => {
         const sink = createRecordingSink();
-        const logger = new Logger({ sink, level: LogLevel.Trace, now: () => FIXED_DATE });
+        const logger = new Logger({ sink, level: LogLevel.Trace, now: (): Date => FIXED_DATE });
 
         logger.trace('raw frame');
 

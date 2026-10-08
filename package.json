@@ -2,7 +2,7 @@
   "name": "sl-vscode-plugin",
   "displayName": "Second Life VSCode Plugin",
   "description": "Binding extension for external LSL and SLua editing from the Second Life viewer.",
-  "version": "1.0.8",
+  "version": "1.0.9",
   "publisher": "lindenlab",
   "icon": "sl-logo-vscode.png",
   "extensionDependencies": [],
@@ -153,14 +153,31 @@
         "command": "slVscodeEdit.newFile",
         "title": "New file...",
         "category": "Second Life"
+      },
+      {
+        "command": "slVscodeEdit.pushFilesToObject",
+        "title": "Push selected to...",
+        "category": "Second Life",
+        "enablement": "slVscodeEdit:connected"
       }
     ],
     "menus": {
+      "commandPalette": [
+        {
+          "command": "slVscodeEdit.pushFilesToObject",
+          "when": "false"
+        }
+      ],
       "explorer/context": [
         {
           "command": "second-life-scripting.stopFileSync",
           "group": "navigation@99",
           "when": "resourceScheme == file && slVscodeEdit:syncsActive"
+        },
+        {
+          "command": "slVscodeEdit.pushFilesToObject",
+          "group": "navigation@100",
+          "when": "resourceScheme == file && slVscodeEdit:connected"
         }
       ],
       "editor/title/context": [
@@ -450,7 +467,7 @@
     "lint": "eslint src packages",
     "lint:fix": "eslint src packages --fix",
     "test": "node ./out/test/runTest.js",
-    "test-unit": "npx mocha \"./out/test/suite/parser.test.js\" \"./out/test/suite/lexingpreprocessor.test.js\" \"./out/test/suite/include-disk-integration.test.js\" \"./out/test/suite/logger.test.js\" \"./out/test/suite/preprocessor-trace.test.js\" --ui tdd --timeout 5000",
+    "test-unit": "npx mocha \"./out/test/suite/parser.test.js\" \"./out/test/suite/lexingpreprocessor.test.js\" \"./out/test/suite/include-disk-integration.test.js\" \"./out/test/suite/logger.test.js\" \"./out/test/suite/preprocessor-trace.test.js\" \"./out/test/suite/sharedutils.test.js\" \"./out/test/suite/objectsyncutils.test.js\" --ui tdd --timeout 5000",
     "test-compile": "npm run compile:packages && tsc -p . --outDir out --skipLibCheck && npm run copy-test-data",
     "precommit": "npm run lint && npm run test-compile && npm run test-unit"
   },
@@ -464,7 +481,7 @@
     "@typescript-eslint/parser": "^8.65.0",
     "@vscode/test-cli": "^0.0.15",
     "@vscode/test-electron": "^2.5.2",
-    "adm-zip": "^0.6.0",
+    "adm-zip": "^0.6.1",
     "eslint": "^9.34.0",
     "glob": "^11.1.0",
     "mocha": "^11.7.6",
@@ -474,7 +491,7 @@
     "@iarna/toml": "^2.2.5",
     "@vscode/codicons": "^0.0.36",
     "js-sha256": "^0.11.1",
-    "js-yaml": "^4.3.1",
+    "js-yaml": "^4.3.2",
     "vscode-languageclient": "^9.0.1"
   },
   "linden_resources": {
