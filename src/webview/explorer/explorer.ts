@@ -597,7 +597,7 @@ function renderItem(object_id: string, prim_id: string, item: InventoryItem): st
     const uri = itemUri(object_id, prim_id, item);
     const canModify = !item.permissions || (item.permissions.owner & PERM_MODIFY) !== 0;
     const permIcons = permissionIcons(item);
-    const languageLabel = item.subtype === 1 ? "Luau Script" : "LSL Script";
+    const languageLabel = item.subtype === 1 ? "Lua Script" : "LSL Script";
     const typeLabel = item.type === "notecard" ? "Notecard" : languageLabel;
     const isFaulted = isScript && item.faulted === true;
 
@@ -935,12 +935,12 @@ function showItemMenu(anchor: MenuAnchor, itemEl: HTMLElement): void {
         entries.push({ separator: true });
         const isLuauScript = subtype === 1;
         entries.push({
-            label: "Select VM",
+            label: "Select Runtime",
             submenu: (
                 [
                     { vm: "lsl2", label: "LSL" },
                     { vm: "mono", label: "Mono" },
-                    { vm: "luau", label: "Luau" },
+                    { vm: "luau", label: "Lua" },
                 ] as Array<{ vm: string; label: string }>
             ).map(({ vm, label }) => ({
                 label: label + (currentVm === vm ? " \u2713" : ""),
@@ -1217,7 +1217,7 @@ function showObjectMenu(anchor: MenuAnchor, objectEl: HTMLElement): void {
             disabled: !recompileAllAvailable || !hasScripts,
             submenu: [
                 {
-                    label: "Luau",
+                    label: "Lua",
                     action: () => vscode.postMessage({
                         command: "recompileAllScripts",
                         payload: { object_id, target: "luau" },
@@ -1238,7 +1238,7 @@ function showObjectMenu(anchor: MenuAnchor, objectEl: HTMLElement): void {
                     }),
                 },
                 {
-                    label: "Current VM",
+                    label: "Current Runtime",
                     action: () => vscode.postMessage({
                         command: "recompileAllScripts",
                         payload: { object_id, target: "auto" },
@@ -1289,7 +1289,7 @@ function showPrimMenu(anchor: MenuAnchor, primEl: HTMLElement): void {
             disabled: !recompileAllAvailable || !hasScripts,
             submenu: [
                 {
-                    label: "Luau",
+                    label: "Lua",
                     action: () => vscode.postMessage({
                         command: "recompileAllScripts",
                         payload: { object_id: prim_id, target: "luau" },
@@ -1310,7 +1310,7 @@ function showPrimMenu(anchor: MenuAnchor, primEl: HTMLElement): void {
                     }),
                 },
                 {
-                    label: "Current VM",
+                    label: "Current Runtime",
                     action: () => vscode.postMessage({
                         command: "recompileAllScripts",
                         payload: { object_id: prim_id, target: "auto" },
