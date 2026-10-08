@@ -488,7 +488,7 @@
     "@iarna/toml": "^2.2.5",
     "@vscode/codicons": "^0.0.36",
     "js-sha256": "^0.11.1",
-    "js-yaml": "^4.3.1",
+    "js-yaml": "^4.3.2",
     "vscode-languageclient": "^9.0.1"
   },
   "linden_resources": {
