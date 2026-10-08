@@ -5,6 +5,19 @@ All notable changes to the Second Life External Scripting Extension will be docu
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.0.9] - 2026-10-08
+
+## What's Changed
+* chore: prepare release v1.0.8 by @github-actions[bot] in https://github.com/secondlife/sl-vscode-plugin/pull/163
+* Rider/pull by @Rider-Linden in https://github.com/secondlife/sl-vscode-plugin/pull/166
+* Use "Lua" rather than "Luau".  Also changed "VM" to "Runtime" by @Rider-Linden in https://github.com/secondlife/sl-vscode-plugin/pull/167
+* Bump adm-zip from 0.6.0 to 0.6.1 in the npm_and_yarn group across 1 directory by @dependabot[bot] in https://github.com/secondlife/sl-vscode-plugin/pull/158
+* Bump the npm_and_yarn group across 1 directory with 2 updates by @dependabot[bot] in https://github.com/secondlife/sl-vscode-plugin/pull/168
+
+
+**Full Changelog**: https://github.com/secondlife/sl-vscode-plugin/compare/v1.0.8...v1.0.9
+
+
 ## [1.0.8] - 2026-09-24
 
 ## What's Changed
