@@ -167,7 +167,8 @@ export class NodeHost implements HostInterface {
             }
         }
 
-        const isExplicitRelative = candidateFilename.startsWith('./') || candidateFilename.startsWith('../');
+        const isExplicitRelative = !isWorkspaceRootRelative &&
+            (candidateFilename.startsWith('./') || candidateFilename.startsWith('../'));
         if (isExplicitRelative && !candidateDirs.includes(fromDir)) candidateDirs.unshift(fromDir);
         const containsPath = /[\\/]/.test(candidateFilename);
 

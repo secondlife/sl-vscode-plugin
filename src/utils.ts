@@ -540,7 +540,8 @@ export class VSCodeHost implements HostInterface {
         }
 
         // If filename is explicitly relative (./ or ../) prioritize its direct resolution from fromDir
-        const isExplicitRelative = candidateFilename.startsWith("./") || candidateFilename.startsWith("../");
+        const isExplicitRelative = !isWorkspaceRootRelative &&
+            (candidateFilename.startsWith("./") || candidateFilename.startsWith("../"));
         if (isExplicitRelative && !candidateDirs.includes(fromDir)) {
             candidateDirs.unshift(fromDir);
         }
