@@ -138,26 +138,39 @@ export class NodeHost implements HostInterface {
         const from = stringUriToFilePath(fromUri);
         if (!from) return null;
         const fromDir = path.dirname(from);
-        const hasExt = path.extname(filename).length > 0;
+        const isWorkspaceRootRelative = filename.startsWith('/') && !filename.startsWith('//');
+        const candidateFilename = isWorkspaceRootRelative ? filename.slice(1) : filename;
+        const hasExt = path.extname(candidateFilename).length > 0;
         const candidateExts = hasExt ? [''] : extensions.map(e => e.startsWith('.') ? e : `.${e}`);
 
         const searchGlobs = (includePaths && includePaths.length > 0) ? includePaths : ['.'];
 
         const candidateDirs: string[] = [];
         const wildcardGlobs: string[] = [];
-        for (const raw of searchGlobs) {
-            const g = raw.trim();
-            if (!g) continue;
-            if (hasWildcard(g)) { wildcardGlobs.push(g); continue; }
-            if (g === '.') { candidateDirs.push(fromDir); continue; }
-            if (g.startsWith('./')) { candidateDirs.push(path.join(fromDir, g.substring(2))); continue; }
-            if (path.isAbsolute(g)) { candidateDirs.push(g); continue; }
-            for (const root of this.roots) { candidateDirs.push(path.join(root, g)); }
+        if (isWorkspaceRootRelative) {
+            const sourceRoots = this.roots
+                .filter(root => {
+                    const relative = path.relative(root, fromDir);
+                    return relative === '' || (relative !== '..' && !relative.startsWith(`..${path.sep}`) && !path.isAbsolute(relative));
+                })
+                .sort((a, b) => b.length - a.length);
+            if (sourceRoots.length > 0) candidateDirs.push(sourceRoots[0]);
+        } else {
+            for (const raw of searchGlobs) {
+                const g = raw.trim();
+                if (!g) continue;
+                if (hasWildcard(g)) { wildcardGlobs.push(g); continue; }
+                if (g === '.') { candidateDirs.push(fromDir); continue; }
+                if (g.startsWith('./')) { candidateDirs.push(path.join(fromDir, g.substring(2))); continue; }
+                if (path.isAbsolute(g)) { candidateDirs.push(g); continue; }
+                for (const root of this.roots) { candidateDirs.push(path.join(root, g)); }
+            }
         }
 
-        const isExplicitRelative = filename.startsWith('./') || filename.startsWith('../');
+        const isExplicitRelative = !isWorkspaceRootRelative &&
+            (candidateFilename.startsWith('./') || candidateFilename.startsWith('../'));
         if (isExplicitRelative && !candidateDirs.includes(fromDir)) candidateDirs.unshift(fromDir);
-        const containsPath = /[\\/]/.test(filename);
+        const containsPath = /[\\/]/.test(candidateFilename);
 
         const tryCandidate = async (absPath: string): Promise<StringUri | null> => {
             if (!this.isInsideRoots(absPath)) return null;
@@ -172,9 +185,9 @@ export class NodeHost implements HostInterface {
             const baseDir = path.normalize(dir);
             let baseCandidate: string;
             if (containsPath) {
-                baseCandidate = path.isAbsolute(filename) ? path.normalize(filename) : path.join(baseDir, filename);
+                baseCandidate = path.isAbsolute(candidateFilename) ? path.normalize(candidateFilename) : path.join(baseDir, candidateFilename);
             } else {
-                baseCandidate = path.join(baseDir, filename);
+                baseCandidate = path.join(baseDir, candidateFilename);
             }
             for (const ext of candidateExts) {
                 const full = ext === '' ? baseCandidate : baseCandidate + ext;
