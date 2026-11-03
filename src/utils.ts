@@ -466,7 +466,9 @@ export class VSCodeHost implements HostInterface {
         }
 
         const fromDir = path.dirname(fromPath);
-        const hasExt = path.extname(filename).length > 0;
+        const isWorkspaceRootRelative = filename.startsWith('/') && !filename.startsWith('//');
+        const candidateFilename = isWorkspaceRootRelative ? filename.slice(1) : filename;
+        const hasExt = path.extname(candidateFilename).length > 0;
         const candidateExtensions = hasExt ? [""] : extensions.map(e => e.startsWith('.') ? e : `.${e}`);
 
         // Default include paths
@@ -502,46 +504,56 @@ export class VSCodeHost implements HostInterface {
         const wildcardGlobs: string[] = [];
         const hasWildcard = (s: string): boolean => /[*?]/.test(s);
 
-        for (const raw of searchGlobs) {
-            const glob = raw.trim();
-            if (!glob) continue;
-            if (hasWildcard(glob)) {
-                wildcardGlobs.push(glob);
-                continue;
-            }
-            if (glob === ".") {
-                candidateDirs.push(fromDir);
-                continue;
-            }
-            if (glob.startsWith("./")) {
-                candidateDirs.push(path.join(fromDir, glob.substring(2)));
-                continue;
-            }
-            if (path.isAbsolute(glob)) {
-                candidateDirs.push(glob);
-                continue;
-            }
-            // Non-wildcard, workspace-root relative; add for each root (preserve order of roots)
-            for (const root of roots) {
-                candidateDirs.push(path.join(root, glob));
+        if (isWorkspaceRootRelative) {
+            const sourceRoots = roots
+                .filter(root => {
+                    const relative = path.relative(root, fromDir);
+                    return relative === '' || (relative !== '..' && !relative.startsWith(`..${path.sep}`) && !path.isAbsolute(relative));
+                })
+                .sort((a, b) => b.length - a.length);
+            if (sourceRoots.length > 0) candidateDirs.push(sourceRoots[0]);
+        } else {
+            for (const raw of searchGlobs) {
+                const glob = raw.trim();
+                if (!glob) continue;
+                if (hasWildcard(glob)) {
+                    wildcardGlobs.push(glob);
+                    continue;
+                }
+                if (glob === ".") {
+                    candidateDirs.push(fromDir);
+                    continue;
+                }
+                if (glob.startsWith("./")) {
+                    candidateDirs.push(path.join(fromDir, glob.substring(2)));
+                    continue;
+                }
+                if (path.isAbsolute(glob)) {
+                    candidateDirs.push(glob);
+                    continue;
+                }
+                // Non-wildcard, workspace-root relative; add for each root (preserve order of roots)
+                for (const root of roots) {
+                    candidateDirs.push(path.join(root, glob));
+                }
             }
         }
 
         // If filename is explicitly relative (./ or ../) prioritize its direct resolution from fromDir
-        const isExplicitRelative = filename.startsWith("./") || filename.startsWith("../");
+        const isExplicitRelative = candidateFilename.startsWith("./") || candidateFilename.startsWith("../");
         if (isExplicitRelative && !candidateDirs.includes(fromDir)) {
             candidateDirs.unshift(fromDir);
         }
 
-        const containsPath = filename.includes("/") || filename.includes("\\");
+        const containsPath = candidateFilename.includes("/") || candidateFilename.includes("\\");
 
         for (const dir of candidateDirs) {
             const baseDir = path.normalize(dir);
             let baseCandidate: string;
             if (containsPath) {
-                baseCandidate = path.isAbsolute(filename) ? path.normalize(filename) : path.join(baseDir, filename);
+                baseCandidate = path.isAbsolute(candidateFilename) ? path.normalize(candidateFilename) : path.join(baseDir, candidateFilename);
             } else {
-                baseCandidate = path.join(baseDir, filename);
+                baseCandidate = path.join(baseDir, candidateFilename);
             }
 
             for (const ext of candidateExtensions) {

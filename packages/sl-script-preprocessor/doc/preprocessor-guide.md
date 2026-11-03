@@ -77,6 +77,14 @@ Simple filename without quotes (no spaces allowed):
 #include ../common/utilities.lsl
 ```
 
+Prefix a path with `/` to resolve it from the workspace folder that contains the current script:
+
+```lsl
+#include "/libs/lib.lsl"
+```
+
+For example, a script at `src/main.lsl` in a workspace can include `libs/lib.lsl` with this form. The leading slash is workspace-relative, not an operating-system absolute path.
+
 #### Quoted Filenames
 
 Filenames with spaces must be quoted:
