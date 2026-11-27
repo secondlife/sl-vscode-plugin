@@ -1930,13 +1930,14 @@ export class SynchService implements vscode.Disposable {
         if(cmt.length < 1) return null;
 
         const lineRegExp = new RegExp(`^[\\s]*${cmt}[\\s]*@file[\\s]+.*$`, "i");
-        const lines = content.split("\n").slice(0, 10);
-        const start = lines.filter(line => line.match(lineRegExp))[0] ?? null;
-        if (start) {
-            const pathPart = start.split("@file")[1]?.trim() ?? "";
-            const resolved = await SynchService.resolveUriFromMetaFilePath(pathPart);
-            if (resolved) {
-                return resolved;
+        const lines = content.split("\n");
+        for (const line of lines) {
+            if (line.match(lineRegExp)) {
+                const pathPart = line.split("@file")[1]?.trim() ?? "";
+                const resolved = await SynchService.resolveUriFromMetaFilePath(pathPart);
+                if (resolved) {
+                    return resolved;
+                }
             }
         }
         return null;
